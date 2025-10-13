@@ -1,50 +1,216 @@
-# Cursor AI Rules - Проект интеграции МойСклад
+# Cursor AI Rules - Мультиаккаунты для МойСклад
 
-Используй правила из .clinerules файла.
+## О проекте
 
-## Дополнительные правила для Cursor
+Laravel 11 + Vue 3 приложение для управления франшизной сетью в МойСклад.
+Работает как iframe приложение внутри интерфейса МойСклад.
 
-### При генерации кода:
+**Стек:** PHP 8.2+, Laravel 11, Vue 3, Tailwind CSS, SQLite
 
-1. **Laravel контроллеры:**
-   - Всегда добавляй типизацию: `function method(Request $request): JsonResponse`
-   - Используй `DB::table()` вместо Eloquent для простых запросов
-   - Логируй все операции через `Log::info()`
-   - Оборачивай в try-catch с `Log::error()` в catch блоке
+## Архитектура
 
-2. **Роуты:**
-   - Группируй по префиксам: `Route::prefix('api/...')`
-   - Добавляй middleware для логирования если нужно
-   - Всегда добавляй комментарии с описанием группы
+### Backend (Laravel 11)
+```
+app/
+├── Http/Controllers/Api/
+│   ├── ContextController.php      # API для получения контекста МойСклад
+│   └── MoySkladController.php     # Обработка вебхуков МойСклад
+├── Http/Middleware/
+│   └── CorsMiddleware.php         # CORS для iframe
+├── Models/
+│   ├── Account.php                # Модель аккаунта
+│   └── Synchronization.php        # Модель синхронизации
+└── Services/
+    ├── MoySkladService.php        # Работа с JSON API 1.2
+    └── VendorApiService.php       # Работа с Vendor API (JWT)
+```
 
-3. **Миграции:**
-   - Используй `$table->uuid()` для ID связанных с МойСклад
-   - Всегда добавляй `timestamps()`
-   - Добавляй индексы на поля для поиска и связей
-   - Пиши метод `down()` для отката
+### Frontend (Vue 3)
+```
+resources/js/
+├── composables/
+│   └── useMoyskladContext.js     # Работа с контекстом МойСклад
+├── pages/
+│   ├── Dashboard.vue             # Главная страница
+│   ├── ChildAccounts.vue         # Управление аккаунтами
+│   └── SyncSettings.vue          # Настройки синхронизации
+├── App.vue                       # Корневой компонент
+└── router.js                     # Vue Router
+```
 
-4. **Frontend (Vue 3):**
-   - Composition API предпочтительнее Options API
-   - Используй TypeScript типы где возможно
-   - Tailwind классы вместо custom CSS
+## Стандарты кодирования
 
-### При рефакторинге:
+### PHP/Laravel
 
-- Не удаляй логирование
-- Не меняй логику удаления данных (только статусы!)
-- Сохраняй обратную совместимость с МойСклад API
+1. **PSR-12** стандарт
+2. **Типизация обязательна:**
+   ```php
+   public function getContext(Request $request): JsonResponse
+   {
+       // code
+   }
+   ```
+3. **Логирование всех операций:**
+   ```php
+   Log::info('Операция выполнена', ['data' => $data]);
+   ```
+4. **Try-catch обязателен:**
+   ```php
+   try {
+       // code
+       Log::info('Success');
+   } catch (\Exception $e) {
+       Log::error('Error', ['error' => $e->getMessage()]);
+       return response()->json(['error' => 'Message'], 500);
+   }
+   ```
+5. **Service Layer Pattern:**
+   - Бизнес-логика в сервисах (`app/Services/`)
+   - Контроллеры только для HTTP обработки
 
-### При дебаге:
+### Vue 3
 
-- Сначала проверь логи: `storage/logs/laravel.log`
-- Затем проверь права доступа к файлам
-- Потом проверь кеш конфигурации
-- Используй debug endpoint: `/api/debug/test-log`
+1. **Composition API обязательно:**
+   ```vue
+   <script setup>
+   import { ref, onMounted } from 'vue'
 
-### Не делай:
+   const data = ref(null)
+   const loading = ref(false)
+   </script>
+   ```
+2. **Composables для переиспользуемой логики:**
+   ```javascript
+   export function useMoyskladContext() {
+     const context = ref(null)
+     // logic
+     return { context, loading, error }
+   }
+   ```
+3. **Никакого Options API**
 
-- ❌ Не удаляй данные из БД (только статусы!)
-- ❌ Не используй `Log::error()` для обычных операций
-- ❌ Не забывай про timezone (Europe/Moscow)
-- ❌ Не коммить .env файлы
-- ❌ Не меняй структуру данных от МойСклад без обсуждения
+### Tailwind CSS
+
+1. **Только utility классы** - никакого кастомного CSS
+2. **Цветовая схема:**
+   - Primary: `indigo-500` до `indigo-700`
+   - Secondary: `purple-500` до `purple-600`
+   - Градиенты: `bg-gradient-to-r from-indigo-500 to-purple-600`
+3. **Скругления:** `rounded-lg`, `rounded-xl`, `rounded-2xl`
+4. **Тени:** `shadow-lg`, `shadow-xl`
+5. **Transitions:** Всегда добавляй `transition-*` для hover
+
+## МойСклад API
+
+### Vendor API (JWT)
+
+**URL:** `https://apps-api.moysklad.ru/api/vendor/1.0`
+
+**JWT генерация:**
+```php
+$header = ['alg' => 'HS256', 'typ' => 'JWT'];
+$payload = [
+    'sub' => $appUid,              // из URL параметра
+    'iat' => time(),
+    'exp' => time() + 60,
+    'jti' => bin2hex(random_bytes(12))
+];
+
+// ВАЖНО: JSON_UNESCAPED_SLASHES обязателен!
+$headerEncoded = base64UrlEncode(json_encode($header, JSON_UNESCAPED_SLASHES));
+$payloadEncoded = base64UrlEncode(json_encode($payload, JSON_UNESCAPED_SLASHES));
+$signature = base64UrlEncode(hash_hmac('sha256', "$headerEncoded.$payloadEncoded", $secretKey, true));
+
+$jwt = "$headerEncoded.$payloadEncoded.$signature";
+```
+
+**Получение контекста:**
+```php
+POST https://apps-api.moysklad.ru/api/vendor/1.0/context/{contextKey}
+Headers:
+  Authorization: Bearer {jwt}
+  Content-Type: application/json
+  Accept: application/json
+Body: []  // Пустой массив обязателен!
+```
+
+### JSON API 1.2
+
+**URL:** `https://api.moysklad.ru/api/remap/1.2`
+**Auth:** `Authorization: Bearer {accessToken}`
+
+### Вебхуки
+
+Обрабатываются в `MoySkladController@handleWebhook`:
+- `Install` - установка (передается accessToken)
+- `Delete` - удаление
+- `TariffChanged` - смена тарифа (БЕЗ accessToken!)
+
+## При добавлении функциональности
+
+### Backend
+1. Создать миграцию (если нужна БД): `php artisan make:migration create_table`
+2. Создать/обновить модель
+3. Создать сервис в `app/Services/`
+4. Создать контроллер в `app/Http/Controllers/Api/`
+5. Добавить маршрут в `routes/api.php`
+6. Добавить логирование
+
+### Frontend
+1. Создать компонент/страницу в `resources/js/pages/`
+2. Добавить маршрут в `router.js`
+3. Создать composable (если нужно) в `resources/js/composables/`
+4. Стилизовать с Tailwind
+5. Добавить обработку ошибок и loading состояний
+
+## Git Commits
+
+Формат: `<type>: <description>`
+
+**Types:**
+- `feat` - новая функциональность
+- `fix` - исправление бага
+- `style` - изменения UI/стилей
+- `refactor` - рефакторинг
+- `docs` - документация
+
+**Примеры:**
+```
+feat: Добавлен эндпоинт для получения контекста
+fix: Исправлена генерация JWT для МойСклад
+style: Улучшен дизайн панели управления
+```
+
+## Безопасность
+
+1. **CORS:** Только `online.moysklad.ru` и `dev.moysklad.ru`
+2. **CSRF:** Отключен для `/api/*`
+3. **Валидация:** Всегда валидируй входящие данные
+4. **SQL Injection:** Используй Eloquent/Query Builder (не raw SQL)
+
+## Команды
+
+```bash
+# Backend
+php artisan serve              # Dev сервер
+php artisan migrate            # Миграции
+php artisan config:clear       # Очистка кеша
+
+# Frontend
+npm run dev                    # Dev с hot reload
+npm run build                  # Production сборка
+
+# Git
+git add . && git commit -m "message" && git push
+```
+
+## Что НЕ делать
+
+- ❌ Не используй `var` (только `const` и `let`)
+- ❌ Не создавай inline стили (только Tailwind)
+- ❌ Не используй Options API в Vue (только Composition API)
+- ❌ Не делай DB запросы в контроллерах (используй сервисы)
+- ❌ Не игнорируй ошибки (всегда обрабатывай try-catch)
+- ❌ Не коммить `.env` файл
+- ❌ Не используй хардкод (используй config)
+- ❌ Не забывай `JSON_UNESCAPED_SLASHES` для МойСклад JWT!
