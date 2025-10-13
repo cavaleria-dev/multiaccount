@@ -28,21 +28,22 @@ class VendorApiService
     /**
      * Генерация JWT токена для запросов к Vendor API
      *
+     * @param string $appUid
      * @return string
      */
-    protected function generateJWT(): string
+    protected function generateJWT(string $appUid): string
     {
         $now = time();
 
         $payload = [
-            'sub' => $this->appUid,           // appUid решения
+            'sub' => $appUid,                  // appUid решения (из URL параметра)
             'iat' => $now,                     // Время генерации токена
             'exp' => $now + 120,               // Время жизни (2 минуты)
             'jti' => Str::uuid()->toString()   // Уникальный идентификатор токена
         ];
 
         Log::info('Генерация JWT токена для Vendor API', [
-            'appUid' => $this->appUid,
+            'appUid' => $appUid,
             'jti' => $payload['jti']
         ]);
 
@@ -53,12 +54,13 @@ class VendorApiService
      * Получить контекст пользователя по contextKey
      *
      * @param string $contextKey
+     * @param string $appUid
      * @return array|null
      */
-    public function getContext(string $contextKey): ?array
+    public function getContext(string $contextKey, string $appUid): ?array
     {
         try {
-            $jwt = $this->generateJWT();
+            $jwt = $this->generateJWT($appUid);
 
             $url = "{$this->vendorApiUrl}/context/{$contextKey}";
 

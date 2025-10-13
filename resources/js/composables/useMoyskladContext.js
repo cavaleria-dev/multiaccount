@@ -11,23 +11,31 @@ export function useMoyskladContext() {
       loading.value = true
       error.value = null
 
-      // Получаем JWT токен из URL параметров
+      // Получаем параметры из URL
       const urlParams = new URLSearchParams(window.location.search)
-      const token = urlParams.get('contextKey')
+      const contextKey = urlParams.get('contextKey')
+      const appUid = urlParams.get('appUid')
 
-      if (!token) {
-        throw new Error('JWT токен не найден в URL')
+      if (!contextKey) {
+        throw new Error('contextKey не найден в URL')
       }
 
-      // Отправляем токен на сервер для получения контекста
+      if (!appUid) {
+        throw new Error('appUid не найден в URL')
+      }
+
+      console.log('Fetching context with:', { contextKey: contextKey.substring(0, 20) + '...', appUid })
+
+      // Отправляем contextKey и appUid на сервер для получения контекста
       const response = await axios.post('/api/context', {
-        contextKey: token
+        contextKey,
+        appUid
       })
 
       context.value = response.data
 
       // Сохраняем токен для последующих запросов
-      axios.defaults.headers.common['X-Context-Key'] = token
+      axios.defaults.headers.common['X-Context-Key'] = contextKey
 
     } catch (err) {
       error.value = err.message || 'Ошибка при получении контекста'

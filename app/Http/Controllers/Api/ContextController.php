@@ -23,6 +23,7 @@ class ContextController extends Controller
     {
         try {
             $contextKey = $request->input('contextKey');
+            $appUid = $request->input('appUid');
 
             if (!$contextKey) {
                 return response()->json([
@@ -30,12 +31,19 @@ class ContextController extends Controller
                 ], 400);
             }
 
+            if (!$appUid) {
+                return response()->json([
+                    'error' => 'App UID is required'
+                ], 400);
+            }
+
             Log::info('Запрос контекста пользователя', [
-                'contextKey' => substr($contextKey, 0, 20) . '...'
+                'contextKey' => substr($contextKey, 0, 20) . '...',
+                'appUid' => $appUid
             ]);
 
             // Запрашиваем контекст через Vendor API МойСклад
-            $context = $this->vendorApiService->getContext($contextKey);
+            $context = $this->vendorApiService->getContext($contextKey, $appUid);
 
             if (!$context) {
                 return response()->json([
