@@ -70,11 +70,11 @@ class VendorApiService
                 'jwt_preview' => substr($jwt, 0, 30) . '...'
             ]);
 
-            // Для GET запроса не нужен Content-Type
-            // Добавляем Accept-Encoding для поддержки gzip
+            // Добавляем все необходимые заголовки включая Content-Type с charset
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $jwt,
                 'Accept' => 'application/json',
+                'Content-Type' => 'application/json; charset=utf-8',
                 'Accept-Encoding' => 'gzip, deflate'
             ])->get($url);
 
