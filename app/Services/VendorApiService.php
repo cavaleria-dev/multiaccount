@@ -69,9 +69,11 @@ class VendorApiService
             ]);
 
             // Для GET запроса не нужен Content-Type
+            // Добавляем Accept-Encoding для поддержки gzip
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $jwt,
-                'Accept' => 'application/json'
+                'Accept' => 'application/json',
+                'Accept-Encoding' => 'gzip, deflate'
             ])->get($url);
 
             Log::info('Ответ от Vendor API', [
