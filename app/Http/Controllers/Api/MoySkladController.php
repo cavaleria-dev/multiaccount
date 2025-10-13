@@ -89,50 +89,117 @@ class MoySkladController extends Controller
                 ], 400);
             }
 
-            // Сохранение или обновление аккаунта
+            // Ищем существующий аккаунт
             $account = DB::table('accounts')->where('account_id', $accountId)->first();
 
+            // Базовые данные для обновления
             $accountData = [
-                'app_id' => $appId,
                 'access_token' => $accessToken,
                 'subscription_status' => $subscription['trial'] ?? false ? 'Trial' : 'Active',
-                'tariff_name' => $subscription['tariffName'] ?? null,
-                'price_per_month' => 0, // МойСклад не передает цену в этом запросе
                 'cause' => $cause,
                 'updated_at' => now()
             ];
 
             if ($cause === 'Install') {
-                // Сразу активируем приложение
-                DB::table('accounts')
-                    ->where('account_id', $accountId)
-                    ->update(['status' => 'activated']);
+                // Первая установка или переустановка приложения
+                $accountData['app_id'] = $appId;
+                $accountData['status'] = 'activated';
+                $accountData['suspended_at'] = null;
+                $accountData['uninstalled_at'] = null;
+                $accountData['tariff_name'] = $subscription['tariffName'] ?? null;
+                $accountData['price_per_month'] = 0;
 
-                Log::info('МойСклад: Приложение активировано', [
-                    'accountId' => $accountId
-                ]);
+                if ($account) {
+                    // Переустановка - обновляем существующую запись
+                    $accountData['installed_at'] = $account->installed_at; // Сохраняем дату первой установки
+                    DB::table('accounts')
+                        ->where('account_id', $accountId)
+                        ->update($accountData);
+
+                    Log::info('МойСклад: Приложение переустановлено', [
+                        'accountId' => $accountId,
+                        'previous_status' => $account->status
+                    ]);
+                } else {
+                    // Первая установка - создаем новую запись
+                    $accountData['account_id'] = $accountId;
+                    $accountData['installed_at'] = now();
+                    $accountData['created_at'] = now();
+                    DB::table('accounts')->insert($accountData);
+
+                    Log::info('МойСклад: Новая установка приложения', [
+                        'accountId' => $accountId
+                    ]);
+                }
 
                 return response()->json([
                     'status' => 'Activated'
                 ], 200);
             }
 
+            if ($cause === 'StatusUpdate') {
+                // Обновление статуса (обычно возобновление после приостановки)
+                if ($account) {
+                    $updateData = [
+                        'access_token' => $accessToken,
+                        'subscription_status' => $subscription['trial'] ?? false ? 'Trial' : 'Active',
+                        'cause' => $cause,
+                        'updated_at' => now()
+                    ];
 
+                    // Если был приостановлен или удален - активируем
+                    if (in_array($account->status, ['suspended', 'uninstalled'])) {
+                        $updateData['status'] = 'activated';
+                        $updateData['suspended_at'] = null;
+                        $updateData['uninstalled_at'] = null;
 
+                        Log::info('МойСклад: Приложение возобновлено', [
+                            'accountId' => $accountId,
+                            'previous_status' => $account->status
+                        ]);
+                    }
 
-            if ($cause === 'StatusUpdate' && $account && $account->status === 'suspended') {
-                // Возобновление после приостановки
+                    DB::table('accounts')
+                        ->where('account_id', $accountId)
+                        ->update($updateData);
+                } else {
+                    Log::warning('МойСклад: StatusUpdate для несуществующего аккаунта', [
+                        'accountId' => $accountId
+                    ]);
+                }
+
+                return response()->json([
+                    'status' => 'Activated'
+                ], 200);
+            }
+
+            if ($cause === 'TariffChanged') {
+                // Изменение тарифа
+                if ($account) {
+                    DB::table('accounts')
+                        ->where('account_id', $accountId)
+                        ->update([
+                            'tariff_name' => $subscription['tariffName'] ?? null,
+                            'subscription_status' => $subscription['trial'] ?? false ? 'Trial' : 'Active',
+                            'updated_at' => now()
+                        ]);
+
+                    Log::info('МойСклад: Тариф изменен', [
+                        'accountId' => $accountId,
+                        'tariff' => $subscription['tariffName'] ?? null
+                    ]);
+                }
+
+                return response()->json([
+                    'status' => 'Activated'
+                ], 200);
+            }
+
+            // Неизвестный cause - просто обновляем данные
+            if ($account) {
                 DB::table('accounts')
                     ->where('account_id', $accountId)
-                    ->update([
-                        'status' => 'activated',
-                        'suspended_at' => null
-                    ]);
-
-                // Включаем вебхуки обратно
-                $this->enableWebhooks($accountId);
-
-                Log::info('МойСклад: Приложение возобновлено', ['accountId' => $accountId]);
+                    ->update($accountData);
             }
 
             return response()->json([
@@ -200,6 +267,7 @@ class MoySkladController extends Controller
 
             if ($cause === 'Suspend') {
                 // Приостановка (не оплачена подписка)
+                // Данные остаются в БД, только меняется статус
                 $updated = DB::table('accounts')
                     ->where('account_id', $accountId)
                     ->update([
@@ -208,53 +276,25 @@ class MoySkladController extends Controller
                         'updated_at' => now()
                     ]);
 
-                Log::info('МойСклад: Обновление статуса suspended', [
+                Log::info('МойСклад: Приложение приостановлено', [
                     'accountId' => $accountId,
                     'rows_affected' => $updated
                 ]);
-
-                // Отключаем вебхуки
-                $webhooksDisabled = DB::table('webhooks')
-                    ->where('account_id', $accountId)
-                    ->update(['enabled' => false]);
-
-                Log::info('МойСклад: Вебхуки отключены', [
-                    'accountId' => $accountId,
-                    'webhooks_disabled' => $webhooksDisabled
-                ]);
-
-                Log::info('МойСклад: Приложение приостановлено', [
-                    'accountId' => $accountId
-                ]);
             } else {
-                // Полное удаление
-
-                Log::info('МойСклад: Начало полного удаления', [
-                    'accountId' => $accountId
-                ]);
-
-                // Архивируем данные
-                DB::table('accounts_archive')->insert([
-                    'account_id' => $accountId,
-                    'data' => json_encode($account),
-                    'deleted_at' => now(),
-                    'created_at' => now(),
-                    'updated_at' => now()
-                ]);
-
-                Log::info('МойСклад: Данные архивированы', [
-                    'accountId' => $accountId
-                ]);
-
-                // Удаляем связанные данные
-                // Благодаря foreign keys с cascade, остальное удалится автоматически
-                $deleted = DB::table('accounts')
+                // Деактивация (пользователь удалил приложение)
+                // Данные остаются в БД, только меняется статус
+                $updated = DB::table('accounts')
                     ->where('account_id', $accountId)
-                    ->delete();
+                    ->update([
+                        'status' => 'uninstalled',
+                        'uninstalled_at' => now(),
+                        'updated_at' => now()
+                    ]);
 
-                Log::info('МойСклад: Аккаунт удален', [
+                Log::info('МойСклад: Приложение деактивировано', [
                     'accountId' => $accountId,
-                    'rows_deleted' => $deleted
+                    'rows_affected' => $updated,
+                    'cause' => $cause
                 ]);
             }
 
@@ -299,6 +339,7 @@ class MoySkladController extends Controller
                 'activated' => 'Activated',
                 'settings_required' => 'SettingsRequired',
                 'suspended' => 'Suspended',
+                'uninstalled' => 'NotFound', // Для МойСклада uninstalled = NotFound
                 default => 'NotFound'
             };
 
@@ -360,88 +401,4 @@ class MoySkladController extends Controller
         ]);
     }
 
-    // ============ Вспомогательные методы ============
-
-    /**
-     * Создание настроек по умолчанию
-     */
-    private function createDefaultSettings(string $accountId): void
-    {
-        DB::table('sync_settings')->insert([
-            'account_id' => $accountId,
-            'sync_catalog' => true,
-            'sync_orders' => true,
-            'sync_prices' => true,
-            'sync_stock' => true,
-            'sync_images_all' => false,
-            'product_match_field' => 'article',
-            'created_at' => now(),
-            'updated_at' => now()
-        ]);
-    }
-
-    /**
-     * Отключение вебхуков
-     */
-    private function disableWebhooks(string $accountId): void
-    {
-        DB::table('webhooks')
-            ->where('account_id', $accountId)
-            ->update(['enabled' => false]);
-    }
-
-    /**
-     * Включение вебхуков
-     */
-    private function enableWebhooks(string $accountId): void
-    {
-        DB::table('webhooks')
-            ->where('account_id', $accountId)
-            ->update(['enabled' => true]);
-    }
-    // ============ Вспомогательные методы ============
-
-    /**
-     * Создание настроек по умолчанию
-     */
-    private function createDefaultSettings(string $accountId): void
-    {
-        try {
-            DB::table('sync_settings')->insert([
-                'account_id' => $accountId,
-                'sync_catalog' => true,
-                'sync_orders' => true,
-                'sync_prices' => true,
-                'sync_stock' => true,
-                'sync_images_all' => false,
-                'product_match_field' => 'article',
-                'created_at' => now(),
-                'updated_at' => now()
-            ]);
-
-            Log::info('МойСклад: Созданы настройки по умолчанию', [
-                'accountId' => $accountId
-            ]);
-        } catch (\Exception $e) {
-            Log::warning('МойСклад: Ошибка создания настроек', [
-                'accountId' => $accountId,
-                'error' => $e->getMessage()
-            ]);
-        }
-    }
-
-    /**
-     * Включение вебхуков
-     */
-    private function enableWebhooks(string $accountId): void
-    {
-        $updated = DB::table('webhooks')
-            ->where('account_id', $accountId)
-            ->update(['enabled' => true]);
-
-        Log::info('МойСклад: Вебхуки включены', [
-            'accountId' => $accountId,
-            'count' => $updated
-        ]);
-    }
 }
