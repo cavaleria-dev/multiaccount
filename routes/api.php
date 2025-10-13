@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\MoySkladController;
 use App\Http\Controllers\Api\WebhookController;
+use App\Http\Controllers\Api\ContextController;
 use App\Http\Middleware\LogMoySkladRequests;
 
 // Vendor API для МойСклад
@@ -19,6 +20,10 @@ Route::prefix('moysklad/vendor/1.0')->middleware(LogMoySkladRequests::class)->gr
 Route::post('apps/update-status', [MoySkladController::class, 'updateStatus']);
 Route::post('webhooks/moysklad', [WebhookController::class, 'handle']);
 Route::get('context/{contextKey}', [MoySkladController::class, 'getContext']);
+
+// Context API
+Route::post('context', [ContextController::class, 'getContext']);
+Route::get('stats', [ContextController::class, 'getStats']);
 
 // Debug endpoint - для диагностики логов
 Route::get('debug/test-log', function () {

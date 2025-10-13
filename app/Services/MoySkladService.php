@@ -334,4 +334,102 @@ class MoySkladService
         $response = $this->get('context/companysettings/pricetype');
         return $response['priceTypes'] ?? [];
     }
+
+    // ============ Методы для работы с контекстом приложения ============
+
+    /**
+     * Декодировать JWT токен контекста
+     */
+    public function decodeContextKey(string $contextKey): ?array
+    {
+        try {
+            // JWT токен состоит из трех частей, разделенных точками
+            $parts = explode('.', $contextKey);
+
+            if (count($parts) !== 3) {
+                Log::error('Invalid JWT token format');
+                return null;
+            }
+
+            // Декодируем payload (вторая часть)
+            $payload = base64_decode(str_replace(['-', '_'], ['+', '/'], $parts[1]));
+
+            if (!$payload) {
+                Log::error('Failed to decode JWT payload');
+                return null;
+            }
+
+            $data = json_decode($payload, true);
+
+            if (!$data) {
+                Log::error('Failed to parse JWT payload JSON');
+                return null;
+            }
+
+            // Проверяем срок действия токена
+            if (isset($data['exp']) && $data['exp'] < time()) {
+                Log::warning('JWT token has expired');
+                return null;
+            }
+
+            return $data;
+
+        } catch (\Exception $e) {
+            Log::error('Error decoding context key', [
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Получить статистику для аккаунта
+     */
+    public function getAccountStats(?string $accountId): array
+    {
+        if (!$accountId) {
+            return [
+                'childAccounts' => 0,
+                'activeAccounts' => 0,
+                'syncsToday' => 0
+            ];
+        }
+
+        try {
+            // Получаем количество дочерних аккаунтов
+            $childAccountsCount = \DB::table('child_accounts')
+                ->where('parent_account_id', $accountId)
+                ->count();
+
+            // Получаем количество активных аккаунтов
+            $activeAccountsCount = \DB::table('child_accounts')
+                ->where('parent_account_id', $accountId)
+                ->where('is_active', true)
+                ->count();
+
+            // Получаем количество синхронизаций за сегодня
+            $syncsToday = \DB::table('sync_logs')
+                ->where('parent_account_id', $accountId)
+                ->whereDate('created_at', today())
+                ->count();
+
+            return [
+                'childAccounts' => $childAccountsCount,
+                'activeAccounts' => $activeAccountsCount,
+                'syncsToday' => $syncsToday
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Error getting account stats', [
+                'accountId' => $accountId,
+                'error' => $e->getMessage()
+            ]);
+
+            return [
+                'childAccounts' => 0,
+                'activeAccounts' => 0,
+                'syncsToday' => 0
+            ];
+        }
+    }
 }

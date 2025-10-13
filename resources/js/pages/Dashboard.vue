@@ -92,7 +92,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, defineProps } from 'vue'
+import axios from 'axios'
+
+const props = defineProps({
+  context: Object,
+  loading: Boolean
+})
 
 const stats = ref({
   childAccounts: 0,
@@ -100,13 +106,32 @@ const stats = ref({
   syncsToday: 0
 })
 
+const loadingStats = ref(false)
+
 // Загрузка статистики
-onMounted(async () => {
-  // TODO: Загрузка данных с API
-  stats.value = {
-    childAccounts: 5,
-    activeAccounts: 4,
-    syncsToday: 12
+const fetchStats = async () => {
+  if (!props.context) return
+
+  try {
+    loadingStats.value = true
+    const response = await axios.get('/api/stats')
+    stats.value = response.data
+  } catch (error) {
+    console.error('Error fetching stats:', error)
+    // Показываем заглушку при ошибке
+    stats.value = {
+      childAccounts: 0,
+      activeAccounts: 0,
+      syncsToday: 0
+    }
+  } finally {
+    loadingStats.value = false
+  }
+}
+
+onMounted(() => {
+  if (props.context) {
+    fetchStats()
   }
 })
 </script>
