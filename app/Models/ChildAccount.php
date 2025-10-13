@@ -12,13 +12,13 @@ class ChildAccount extends Model
     protected $fillable = [
         'parent_account_id',
         'child_account_id',
-        'is_active',
-        'linked_at',
+        'invitation_code',
+        'status',
+        'connected_at',
     ];
 
     protected $casts = [
-        'is_active' => 'boolean',
-        'linked_at' => 'datetime',
+        'connected_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
