@@ -111,10 +111,12 @@ class VendorApiService
             ]);
 
             // Используем POST запрос согласно документации МойСклад
+            // Для POST обязателен Content-Type, передаем пустой JSON объект
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $jwt,
-                'Accept' => 'application/json'
-            ])->post($url);
+                'Accept' => 'application/json',
+                'Content-Type' => 'application/json'
+            ])->post($url, []);
 
             Log::info('Ответ от Vendor API', [
                 'status' => $response->status(),
