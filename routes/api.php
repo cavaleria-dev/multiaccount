@@ -5,7 +5,18 @@ use App\Http\Controllers\Api\MoySkladController;
 use App\Http\Controllers\Api\WebhookController;
 
 // Vendor API для МойСклад
-Route::prefix('moysklad/vendor/1.0')->group(function () {
+Route::prefix('moysklad/vendor/1.0')->middleware(function ($request, $next) {
+    // Логируем ВСЕ входящие запросы к Vendor API
+    \Log::info('МойСклад: Входящий запрос', [
+        'method' => $request->method(),
+        'url' => $request->fullUrl(),
+        'ip' => $request->ip(),
+        'headers' => $request->headers->all(),
+        'body' => $request->all(),
+    ]);
+
+    return $next($request);
+})->group(function () {
     // ВАЖНО: status ПЕРВЫМ, чтобы не конфликтовал с другими роутами
     Route::get('apps/{appId}/{accountId}/status', [MoySkladController::class, 'status']);
 
