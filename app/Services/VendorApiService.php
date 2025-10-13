@@ -20,7 +20,7 @@ class VendorApiService
 
     public function __construct()
     {
-        $this->vendorApiUrl = config('moysklad.vendor_api_url', 'https://api.moysklad.ru/api/vendor/1.0');
+        $this->vendorApiUrl = config('moysklad.vendor_api_url', 'https://apps-api.moysklad.ru/api/vendor/1.0');
         $this->appUid = config('moysklad.app_uid');
         $this->secretKey = config('moysklad.secret_key');
     }
@@ -110,13 +110,11 @@ class VendorApiService
                 'jwt_preview' => substr($jwt, 0, 30) . '...'
             ]);
 
-            // Добавляем все необходимые заголовки включая Content-Type с charset
+            // Используем POST запрос согласно документации МойСклад
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $jwt,
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json; charset=utf-8',
-                'Accept-Encoding' => 'gzip, deflate'
-            ])->get($url);
+                'Accept' => 'application/json'
+            ])->post($url);
 
             Log::info('Ответ от Vendor API', [
                 'status' => $response->status(),

@@ -14,7 +14,7 @@ return [
     'api_url' => env('MOYSKLAD_API_URL', 'https://api.moysklad.ru/api/remap/1.2'),
 
     // URL для работы с Vendor API 1.0
-    'vendor_api_url' => env('MOYSKLAD_VENDOR_API_URL', 'https://api.moysklad.ru/api/vendor/1.0'),
+    'vendor_api_url' => env('MOYSKLAD_VENDOR_API_URL', 'https://apps-api.moysklad.ru/api/vendor/1.0'),
 
     // Таймауты
     'timeout' => env('MOYSKLAD_TIMEOUT', 30),
