@@ -25,6 +25,27 @@ Route::get('context/{contextKey}', [MoySkladController::class, 'getContext']);
 Route::post('context', [ContextController::class, 'getContext']);
 Route::get('stats', [ContextController::class, 'getStats']);
 
+// Debug endpoint - для проверки что запрос доходит
+Route::post('debug/context-test', function (\Illuminate\Http\Request $request) {
+    \Log::info('Debug context test endpoint called', [
+        'method' => $request->method(),
+        'headers' => $request->headers->all(),
+        'body' => $request->all(),
+        'ip' => $request->ip(),
+        'url' => $request->fullUrl()
+    ]);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Request received successfully',
+        'data' => [
+            'method' => $request->method(),
+            'contextKey' => $request->input('contextKey'),
+            'headers' => $request->headers->all()
+        ]
+    ]);
+});
+
 // Debug endpoint - для диагностики логов
 Route::get('debug/test-log', function () {
     try {
