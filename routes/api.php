@@ -21,28 +21,42 @@ Route::get('context/{contextKey}', [MoySkladController::class, 'getContext']);
 
 // Debug endpoint - для диагностики логов
 Route::get('debug/test-log', function () {
-    $logFile = storage_path('logs/laravel.log');
-    $testTime = now()->format('Y-m-d H:i:s');
+    try {
+        $logFile = storage_path('logs/laravel.log');
+        $testTime = now()->format('Y-m-d H:i:s');
 
-    \Log::info('=== TEST LOG MESSAGE ===', [
-        'time' => $testTime,
-        'timezone' => config('app.timezone'),
-        'user' => get_current_user(),
-        'php_user' => posix_getpwuid(posix_geteuid())['name'] ?? 'unknown',
-    ]);
+        // Получаем пользователя PHP безопасно
+        $phpUser = 'unknown';
+        if (function_exists('posix_getpwuid') && function_exists('posix_geteuid')) {
+            $userInfo = posix_getpwuid(posix_geteuid());
+            $phpUser = $userInfo['name'] ?? 'unknown';
+        }
 
-    return response()->json([
-        'message' => 'Test log written',
-        'time' => $testTime,
-        'timezone' => config('app.timezone'),
-        'log_file' => $logFile,
-        'log_exists' => file_exists($logFile),
-        'log_writable' => is_writable($logFile),
-        'log_size' => file_exists($logFile) ? filesize($logFile) : 0,
-        'storage_writable' => is_writable(storage_path('logs')),
-        'current_user' => get_current_user(),
-        'php_user' => posix_getpwuid(posix_geteuid())['name'] ?? 'unknown',
-        'log_channel' => config('logging.default'),
-        'permissions' => file_exists($logFile) ? substr(sprintf('%o', fileperms($logFile)), -4) : 'N/A',
-    ]);
+        \Log::info('=== TEST LOG MESSAGE ===', [
+            'time' => $testTime,
+            'timezone' => config('app.timezone'),
+            'user' => get_current_user(),
+            'php_user' => $phpUser,
+        ]);
+
+        return response()->json([
+            'message' => 'Test log written',
+            'time' => $testTime,
+            'timezone' => config('app.timezone'),
+            'log_file' => $logFile,
+            'log_exists' => file_exists($logFile),
+            'log_writable' => is_writable($logFile),
+            'log_size' => file_exists($logFile) ? filesize($logFile) : 0,
+            'storage_writable' => is_writable(storage_path('logs')),
+            'current_user' => get_current_user(),
+            'php_user' => $phpUser,
+            'log_channel' => config('logging.default'),
+            'permissions' => file_exists($logFile) ? substr(sprintf('%o', fileperms($logFile)), -4) : 'N/A',
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+        ], 500);
+    }
 });
