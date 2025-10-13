@@ -114,8 +114,8 @@ class VendorApiService
             // Для POST обязателен Content-Type, передаем пустой JSON объект
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $jwt,
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json'
+               'Content-Type' => 'application/json; charset=utf-8',
+                'Accept-Encoding' => 'gzip, deflate'
             ])->post($url, []);
 
             Log::info('Ответ от Vendor API', [
