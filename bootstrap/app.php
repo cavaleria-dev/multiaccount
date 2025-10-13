@@ -10,10 +10,14 @@ use App\Http\Middleware\CorsMiddleware;
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
-        api: __DIR__.'/../routes/api.php',
-        apiPrefix: 'api',
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
+        then: function () {
+            // Регистрируем API маршруты без middleware аутентификации
+            Route::middleware(['api', CorsMiddleware::class])
+                ->prefix('api')
+                ->group(base_path('routes/api.php'));
+        }
     )
     ->withMiddleware(function (Middleware $middleware) {
         // Отключаем CSRF для API маршрутов (они уже под префиксом /api)
@@ -21,8 +25,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/*',
         ]);
 
-        // Добавляем CORS middleware для всех маршрутов
-        $middleware->append(CorsMiddleware::class);
+        // Отключаем дефолтную аутентификацию для API группы
+        $middleware->group('api', [
+            // Только базовые middleware, без аутентификации
+            \Illuminate\Routing\Middleware\SubstituteBindings::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
