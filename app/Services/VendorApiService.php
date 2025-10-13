@@ -26,7 +26,24 @@ class VendorApiService
     }
 
     /**
+     * Base64 URL кодирование (без padding)
+     */
+    private function base64UrlEncode(string $data): string
+    {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+
+    /**
+     * Base64 URL кодирование JSON
+     */
+    private function base64UrlEncodeJson(array $data): string
+    {
+        return $this->base64UrlEncode(json_encode($data, JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
      * Генерация JWT токена для запросов к Vendor API
+     * Использует собственную реализацию согласно документации МойСклад
      *
      * @param string $appUid
      * @return string
@@ -35,19 +52,42 @@ class VendorApiService
     {
         $now = time();
 
+        $header = [
+            'alg' => 'HS256',
+            'typ' => 'JWT'
+        ];
+
         $payload = [
-            'sub' => $appUid,                  // appUid решения (из URL параметра)
-            'iat' => $now,                     // Время генерации токена
-            'exp' => $now + 120,               // Время жизни (2 минуты)
-            'jti' => Str::uuid()->toString()   // Уникальный идентификатор токена
+            'sub' => $appUid,                              // appUid решения (из URL параметра)
+            'iat' => $now,                                  // Время генерации токена
+            'exp' => $now + 60,                            // Время жизни (60 секунд как в примере)
+            'jti' => bin2hex(random_bytes(12))             // Уникальный идентификатор (как в примере)
         ];
 
         Log::info('Генерация JWT токена для Vendor API', [
             'appUid' => $appUid,
-            'jti' => $payload['jti']
+            'jti' => $payload['jti'],
+            'iat' => $payload['iat'],
+            'exp' => $payload['exp']
         ]);
 
-        return JWT::encode($payload, $this->secretKey, 'HS256');
+        // Кодируем header и payload
+        $headerEncoded = $this->base64UrlEncodeJson($header);
+        $payloadEncoded = $this->base64UrlEncodeJson($payload);
+
+        // Создаем подпись
+        $signature = $this->base64UrlEncode(
+            hash_hmac('sha256', "$headerEncoded.$payloadEncoded", $this->secretKey, true)
+        );
+
+        $jwt = "$headerEncoded.$payloadEncoded.$signature";
+
+        Log::info('JWT токен сгенерирован', [
+            'jwt_length' => strlen($jwt),
+            'jwt_preview' => substr($jwt, 0, 50) . '...'
+        ]);
+
+        return $jwt;
     }
 
     /**
