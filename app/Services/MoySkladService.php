@@ -15,11 +15,13 @@ class MoySkladService
     protected string $apiUrl;
     protected string $accessToken;
     protected int $timeout;
+    protected RateLimitHandler $rateLimitHandler;
 
-    public function __construct()
+    public function __construct(RateLimitHandler $rateLimitHandler)
     {
         $this->apiUrl = config('moysklad.api_url');
         $this->timeout = config('moysklad.timeout', 30);
+        $this->rateLimitHandler = $rateLimitHandler;
     }
 
     /**
@@ -86,6 +88,27 @@ class MoySkladService
                 ->retry(3, 100)
                 ->{strtolower($method)}($url, $method === 'GET' ? $params : $data);
 
+            // Извлечь информацию о rate limits из заголовков
+            $rateLimitInfo = $this->rateLimitHandler->extractFromHeaders($response->headers());
+
+            // Проверить статус 429 (Too Many Requests)
+            if ($response->status() === 429) {
+                $retryAfter = $rateLimitInfo['retry_after'] ?? 1000;
+
+                Log::warning('МойСклад API Rate Limit Exceeded', [
+                    'method' => $method,
+                    'url' => $url,
+                    'retry_after' => $retryAfter,
+                    'rate_limit_info' => $rateLimitInfo
+                ]);
+
+                throw new \App\Exceptions\RateLimitException(
+                    'Rate limit exceeded',
+                    $retryAfter,
+                    $rateLimitInfo
+                );
+            }
+
             if ($response->failed()) {
                 Log::error('МойСклад API Error', [
                     'method' => $method,
@@ -97,7 +120,15 @@ class MoySkladService
                 throw new \Exception('API request failed: ' . $response->body());
             }
 
-            return $response->json();
+            // Вернуть данные вместе с информацией о rate limits
+            return [
+                'data' => $response->json(),
+                'rateLimitInfo' => $rateLimitInfo
+            ];
+
+        } catch (\App\Exceptions\RateLimitException $e) {
+            // Пробросить RateLimitException дальше
+            throw $e;
 
         } catch (\Exception $e) {
             Log::error('МойСклад API Exception', [
