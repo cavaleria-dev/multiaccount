@@ -74,18 +74,28 @@ class MoySkladController extends Controller
                 'subscription' => $subscription
             ]);
 
-            if (!$accessToken || !$accountId) {
-                Log::error('МойСклад: Отсутствуют обязательные параметры', [
+            // accessToken обязателен только при Install, для TariffChanged необязателен
+            if ($cause === 'Install' && !$accessToken) {
+                Log::error('МойСклад: Отсутствует accessToken при установке', [
                     'has_accessToken' => !empty($accessToken),
                     'has_accountId' => !empty($accountId),
                     'access_array' => $access
                 ]);
                 return response()->json([
-                    'error' => 'Missing required parameters',
+                    'error' => 'Missing required parameter: accessToken',
                     'details' => [
-                        'accessToken' => !empty($accessToken) ? 'present' : 'missing',
+                        'accessToken' => 'missing',
                         'accountId' => !empty($accountId) ? 'present' : 'missing'
                     ]
+                ], 400);
+            }
+
+            if (!$accountId) {
+                Log::error('МойСклад: Отсутствует accountId', [
+                    'has_accountId' => !empty($accountId)
+                ]);
+                return response()->json([
+                    'error' => 'Missing required parameter: accountId'
                 ], 400);
             }
 
@@ -94,11 +104,15 @@ class MoySkladController extends Controller
 
             // Базовые данные для обновления
             $accountData = [
-                'access_token' => $accessToken,
                 'subscription_status' => $subscription['trial'] ?? false ? 'Trial' : 'Active',
                 'cause' => $cause,
                 'updated_at' => now()
             ];
+
+            // Добавляем access_token только если он есть
+            if ($accessToken) {
+                $accountData['access_token'] = $accessToken;
+            }
 
             if ($cause === 'Install') {
                 // Первая установка или переустановка приложения
@@ -141,11 +155,15 @@ class MoySkladController extends Controller
                 // Обновление статуса (обычно возобновление после приостановки)
                 if ($account) {
                     $updateData = [
-                        'access_token' => $accessToken,
                         'subscription_status' => $subscription['trial'] ?? false ? 'Trial' : 'Active',
                         'cause' => $cause,
                         'updated_at' => now()
                     ];
+
+                    // Добавляем access_token только если он есть
+                    if ($accessToken) {
+                        $updateData['access_token'] = $accessToken;
+                    }
 
                     // Если был приостановлен или удален - активируем
                     if (in_array($account->status, ['suspended', 'uninstalled'])) {

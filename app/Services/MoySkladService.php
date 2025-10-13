@@ -343,32 +343,61 @@ class MoySkladService
     public function decodeContextKey(string $contextKey): ?array
     {
         try {
+            Log::info('Декодирование JWT токена', [
+                'token_length' => strlen($contextKey),
+                'token_preview' => substr($contextKey, 0, 20) . '...'
+            ]);
+
             // JWT токен состоит из трех частей, разделенных точками
             $parts = explode('.', $contextKey);
 
             if (count($parts) !== 3) {
-                Log::error('Invalid JWT token format');
+                Log::error('Invalid JWT token format', [
+                    'parts_count' => count($parts),
+                    'token' => $contextKey
+                ]);
                 return null;
             }
 
             // Декодируем payload (вторая часть)
-            $payload = base64_decode(str_replace(['-', '_'], ['+', '/'], $parts[1]));
+            // JWT использует base64url encoding, нужно заменить символы
+            $base64 = str_replace(['-', '_'], ['+', '/'], $parts[1]);
+            // Добавляем padding если нужно
+            $base64 = str_pad($base64, strlen($base64) + (4 - strlen($base64) % 4) % 4, '=', STR_PAD_RIGHT);
+
+            $payload = base64_decode($base64);
 
             if (!$payload) {
-                Log::error('Failed to decode JWT payload');
+                Log::error('Failed to decode JWT payload', [
+                    'base64_part' => substr($base64, 0, 50)
+                ]);
                 return null;
             }
+
+            Log::info('JWT payload decoded', [
+                'payload' => $payload
+            ]);
 
             $data = json_decode($payload, true);
 
             if (!$data) {
-                Log::error('Failed to parse JWT payload JSON');
+                Log::error('Failed to parse JWT payload JSON', [
+                    'payload' => $payload,
+                    'json_error' => json_last_error_msg()
+                ]);
                 return null;
             }
 
+            Log::info('JWT token decoded successfully', [
+                'data_keys' => array_keys($data)
+            ]);
+
             // Проверяем срок действия токена
             if (isset($data['exp']) && $data['exp'] < time()) {
-                Log::warning('JWT token has expired');
+                Log::warning('JWT token has expired', [
+                    'exp' => $data['exp'],
+                    'now' => time()
+                ]);
                 return null;
             }
 
@@ -376,7 +405,8 @@ class MoySkladService
 
         } catch (\Exception $e) {
             Log::error('Error decoding context key', [
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             return null;
         }
