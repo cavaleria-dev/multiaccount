@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\MoySkladService;
+use App\Services\VendorApiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -11,11 +12,12 @@ use Illuminate\Support\Facades\Log;
 class ContextController extends Controller
 {
     public function __construct(
-        private MoySkladService $moySkladService
+        private MoySkladService $moySkladService,
+        private VendorApiService $vendorApiService
     ) {}
 
     /**
-     * Получить контекст приложения из JWT токена
+     * Получить контекст приложения через Vendor API МойСклад
      */
     public function getContext(Request $request): JsonResponse
     {
@@ -28,20 +30,26 @@ class ContextController extends Controller
                 ], 400);
             }
 
-            // Декодируем JWT токен
-            $context = $this->moySkladService->decodeContextKey($contextKey);
+            Log::info('Запрос контекста пользователя', [
+                'contextKey' => substr($contextKey, 0, 20) . '...'
+            ]);
+
+            // Запрашиваем контекст через Vendor API МойСклад
+            $context = $this->vendorApiService->getContext($contextKey);
 
             if (!$context) {
                 return response()->json([
-                    'error' => 'Invalid context key'
+                    'error' => 'Invalid context key or API error'
                 ], 401);
             }
 
+            // Извлекаем нужные данные из ответа МойСклад
             return response()->json([
                 'accountId' => $context['accountId'] ?? null,
                 'accountName' => $context['accountName'] ?? 'Неизвестный аккаунт',
                 'userId' => $context['uid'] ?? null,
                 'appId' => $context['appId'] ?? null,
+                'permissions' => $context['permissions'] ?? [],
             ]);
 
         } catch (\Exception $e) {
@@ -71,7 +79,8 @@ class ContextController extends Controller
                 ], 400);
             }
 
-            $context = $this->moySkladService->decodeContextKey($contextKey);
+            // Запрашиваем контекст через Vendor API
+            $context = $this->vendorApiService->getContext($contextKey);
 
             if (!$context) {
                 return response()->json([
