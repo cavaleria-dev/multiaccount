@@ -32,6 +32,7 @@ Route::get('debug/test-log', function () {
             $phpUser = $userInfo['name'] ?? 'unknown';
         }
 
+        // Пытаемся записать лог разными способами
         \Log::info('=== TEST LOG MESSAGE ===', [
             'time' => $testTime,
             'timezone' => config('app.timezone'),
@@ -39,19 +40,38 @@ Route::get('debug/test-log', function () {
             'php_user' => $phpUser,
         ]);
 
+        // Попробуем записать напрямую в файл
+        $directWrite = false;
+        $directWriteError = null;
+        try {
+            file_put_contents($logFile, "[{$testTime}] DIRECT WRITE TEST\n", FILE_APPEND);
+            $directWrite = true;
+        } catch (\Exception $e) {
+            $directWriteError = $e->getMessage();
+        }
+
         return response()->json([
             'message' => 'Test log written',
             'time' => $testTime,
             'timezone' => config('app.timezone'),
+            'env' => config('app.env'),
+            'debug' => config('app.debug'),
             'log_file' => $logFile,
             'log_exists' => file_exists($logFile),
             'log_writable' => is_writable($logFile),
-            'log_size' => file_exists($logFile) ? filesize($logFile) : 0,
+            'log_size_before' => file_exists($logFile) ? filesize($logFile) : 0,
             'storage_writable' => is_writable(storage_path('logs')),
             'current_user' => get_current_user(),
             'php_user' => $phpUser,
             'log_channel' => config('logging.default'),
+            'log_level' => config('logging.channels.' . config('logging.default') . '.level'),
+            'log_driver' => config('logging.channels.' . config('logging.default') . '.driver'),
+            'log_path' => config('logging.channels.single.path', 'not set'),
             'permissions' => file_exists($logFile) ? substr(sprintf('%o', fileperms($logFile)), -4) : 'N/A',
+            'direct_write' => $directWrite,
+            'direct_write_error' => $directWriteError,
+            'log_size_after' => file_exists($logFile) ? filesize($logFile) : 0,
+            'cached_config' => file_exists(base_path('bootstrap/cache/config.php')),
         ]);
     } catch (\Exception $e) {
         return response()->json([
