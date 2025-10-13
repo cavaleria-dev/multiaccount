@@ -1,0 +1,209 @@
+# Правила для AI-ассистентов (Claude, Cursor, etc.)
+
+## О проекте
+
+Это Laravel приложение для интеграции мультиаккаунтов франшиз с МойСклад.
+
+**Стек технологий:**
+- Backend: Laravel 11.x + PHP 8.2+
+- Frontend: Vue 3 + Vite + Tailwind CSS
+- База данных: MySQL/PostgreSQL
+- Сервер: Nginx + PHP-FPM
+
+## Архитектура
+
+### Основные компоненты:
+
+1. **Vendor API для МойСклад** (`/api/moysklad/vendor/1.0/`)
+   - Обрабатывает установку, удаление, приостановку приложения
+   - Контроллер: `App\Http\Controllers\Api\MoySkladController`
+   - Эндпоинты:
+     - `PUT /apps/{appId}/{accountId}` - установка/активация
+     - `DELETE /apps/{appId}/{accountId}` - удаление/приостановка
+     - `GET /apps/{appId}/{accountId}/status` - статус приложения
+
+2. **Таблицы базы данных:**
+   - `accounts` - главные аккаунты МойСклад (master)
+   - `child_accounts` - дочерние аккаунты франшиз
+   - `sync_settings` - настройки синхронизации
+   - `sync_logs` - логи синхронизации
+   - `entity_mappings` - маппинг сущностей между аккаунтами
+   - `webhooks` - вебхуки от МойСклад
+   - `accounts_archive` - архив удалённых аккаунтов
+
+3. **Жизненный цикл приложения:**
+   - При установке: создаётся запись в `accounts`, статус = `activated`
+   - При приостановке: статус = `suspended`, данные ОСТАЮТСЯ в БД
+   - При удалении: статус = `uninstalled`, данные ОСТАЮТСЯ в БД
+   - При переустановке: находится старая запись, статус = `activated`, все данные восстанавливаются
+
+## Важные правила
+
+### 1. Данные НИКОГДА не удаляются из БД
+- При любом удалении/приостановке только меняется статус
+- Это позволяет восстановить данные при переустановке
+- Таблица `accounts_archive` используется только для бэкапов (опционально)
+
+### 2. Статусы приложения:
+- `activating` - процесс активации
+- `activated` - приложение активно
+- `suspended` - приостановлено (не оплачено)
+- `uninstalled` - удалено пользователем
+- `settings_required` - требуются настройки
+
+### 3. Логирование:
+- Используется `Log::info()` для всех операций
+- LOG_LEVEL должен быть `info` или `debug` (не `error`!)
+- Timezone: `Europe/Moscow` (APP_TIMEZONE в .env)
+- Логи: `storage/logs/laravel.log`
+- Все запросы к Vendor API логируются middleware
+
+### 4. Деплой:
+- Скрипт: `./deploy.sh` или `./deploy.sh --force`
+- `--force` - принудительный деплой даже без изменений в git
+- После деплоя всегда: `php artisan config:clear`
+- Владелец файлов: `nginx:nginx` (может быть `www-data`)
+
+### 5. Обработка запросов от МойСклад:
+
+**Параметр `cause` в запросах:**
+- `Install` - первая установка или переустановка
+- `StatusUpdate` - обновление статуса (обычно возобновление)
+- `TariffChanged` - изменение тарифа
+- `Suspend` - приостановка (в DELETE запросе)
+- `Uninstall` - полное удаление (в DELETE запросе)
+
+**Структура данных от МойСклад:**
+```json
+{
+  "appUid": "franchlinks-1-xxx",
+  "accountName": "название аккаунта",
+  "cause": "Install|StatusUpdate|TariffChanged|Suspend|Uninstall",
+  "access": [
+    {
+      "access_token": "токен доступа к JSON API 1.2"
+    }
+  ],
+  "subscription": {
+    "trial": false,
+    "tariffName": "название тарифа"
+  }
+}
+```
+
+### 6. Код-стайл:
+
+**PHP:**
+- PSR-12 стандарт
+- Типизация параметров и возвращаемых значений
+- Подробное логирование всех операций
+- Try-catch блоки для всех критичных операций
+- Комментарии на русском языке
+
+**JavaScript/Vue:**
+- ES6+ синтаксис
+- Composition API для Vue 3
+- TypeScript опционально
+
+**База данных:**
+- Миграции для всех изменений схемы
+- Foreign keys с cascade (осторожно!)
+- Индексы на часто используемые поля
+- Timestamps (`created_at`, `updated_at`) обязательны
+
+### 7. Безопасность:
+
+- Всегда проверять `appId` в запросах от МойСклад
+- Токены доступа хранятся в БД (encrypted в будущем)
+- CORS настроен через middleware
+- Валидация всех входящих данных
+- Защита от SQL injection через Query Builder/Eloquent
+
+### 8. Документация:
+
+- `README.md` - общее описание проекта
+- `TROUBLESHOOTING.md` - диагностика и решение проблем
+- `deploy.sh --help` - справка по деплою
+- Комментарии в коде для сложных участков
+- PHPDoc для всех публичных методов
+
+## Частые проблемы и решения
+
+### Логи не пишутся:
+1. Проверить `LOG_LEVEL` в .env (должен быть `info` или `debug`)
+2. Проверить права на `storage/logs/laravel.log`
+3. Очистить кеш: `php artisan config:clear`
+4. Тестовый endpoint: `GET /api/debug/test-log`
+
+### DELETE запрос возвращает 405:
+1. Проверить роуты: `php artisan route:list | grep moysklad`
+2. Очистить кеш роутов: `php artisan route:clear && php artisan route:cache`
+3. Проверить nginx конфигурацию (нет ли ограничений на методы)
+4. Перезапустить PHP-FPM: `sudo systemctl restart php-fpm`
+
+### МойСклад не отправляет запросы:
+1. Проверить URL в настройках приложения в МойСклад
+2. Проверить что сервер доступен извне
+3. Проверить SSL сертификат
+4. Смотреть логи в реальном времени: `tail -f storage/logs/laravel.log`
+
+### Данные не обновляются после деплоя:
+1. Запустить принудительный деплой: `./deploy.sh --force`
+2. Очистить все кеши: `php artisan optimize:clear`
+3. Перезапустить PHP-FPM
+
+## Команды для разработки
+
+```bash
+# Запуск локально
+php artisan serve
+npm run dev
+
+# Тесты
+php artisan test
+
+# Миграции
+php artisan migrate
+php artisan migrate:rollback
+php artisan migrate:fresh
+
+# Очистка кешей
+php artisan config:clear
+php artisan route:clear
+php artisan cache:clear
+php artisan view:clear
+
+# Просмотр логов
+tail -f storage/logs/laravel.log
+grep "МойСклад" storage/logs/laravel.log | tail -20
+
+# Деплой на сервер
+./deploy.sh              # обычный
+./deploy.sh --force      # принудительный
+./deploy.sh --help       # справка
+```
+
+## TODO (для контекста)
+
+- [ ] Настроить корректный URL Vendor API в МойСклад (сейчас не шлёт запросы)
+- [ ] Реализовать логику работы с вебхуками
+- [ ] Добавить оповещения на фронте о статусе дочерних аккаунтов
+- [ ] Реализовать синхронизацию данных между master и child аккаунтами
+- [ ] Добавить шифрование для access_token в БД
+- [ ] Настроить автоматический деплой через GitHub Actions
+
+## Ссылки на документацию
+
+- МойСклад Vendor API: https://dev.moysklad.ru/doc/api/vendor/1.0/
+- Laravel 11: https://laravel.com/docs/11.x
+- Vue 3: https://vuejs.org/guide/
+- Tailwind CSS: https://tailwindcss.com/docs
+
+## Контакты и окружение
+
+- Сервер: `/var/www/app.cavaleria.ru`
+- URL: https://app.cavaleria.ru
+- PHP версия: 8.2+
+- Web-сервер: Nginx + PHP-FPM
+- Пользователь: nginx (или www-data)
+- Timezone: Europe/Moscow (МСК)
