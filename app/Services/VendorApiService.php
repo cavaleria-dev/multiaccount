@@ -64,19 +64,27 @@ class VendorApiService
 
             Log::info('Запрос контекста к Vendor API', [
                 'url' => $url,
-                'contextKey' => substr($contextKey, 0, 20) . '...'
+                'contextKey' => substr($contextKey, 0, 20) . '...',
+                'jwt_preview' => substr($jwt, 0, 30) . '...'
             ]);
 
+            // Для GET запроса не нужен Content-Type
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $jwt,
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json'
+                'Accept' => 'application/json'
             ])->get($url);
+
+            Log::info('Ответ от Vendor API', [
+                'status' => $response->status(),
+                'headers' => $response->headers(),
+                'body_preview' => substr($response->body(), 0, 200)
+            ]);
 
             if ($response->failed()) {
                 Log::error('Ошибка при получении контекста', [
                     'status' => $response->status(),
-                    'body' => $response->body()
+                    'body' => $response->body(),
+                    'headers' => $response->headers()
                 ]);
                 return null;
             }
@@ -84,7 +92,8 @@ class VendorApiService
             $data = $response->json();
 
             Log::info('Контекст успешно получен', [
-                'data_keys' => array_keys($data)
+                'data_keys' => array_keys($data),
+                'data' => $data
             ]);
 
             return $data;
