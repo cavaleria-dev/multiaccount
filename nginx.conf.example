@@ -40,9 +40,25 @@ server {
         deny all;
     }
 
-    # Статические файлы
+    # Статические файлы с CORS заголовками для iframe
     location ~* \.(jpg|jpeg|gif|png|css|js|ico|xml|svg|woff|woff2|ttf)$ {
         expires 30d;
         add_header Cache-Control "public, immutable";
+
+        # CORS для статических файлов (для загрузки в iframe МойСклад)
+        add_header Access-Control-Allow-Origin "https://online.moysklad.ru" always;
+        add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Origin, Content-Type, Accept" always;
+
+        # Обработка preflight запросов
+        if ($request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin "https://online.moysklad.ru";
+            add_header Access-Control-Allow-Methods "GET, OPTIONS";
+            add_header Access-Control-Allow-Headers "Origin, Content-Type, Accept";
+            add_header Access-Control-Max-Age 86400;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
     }
 }
