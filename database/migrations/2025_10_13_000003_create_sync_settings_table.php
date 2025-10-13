@@ -15,19 +15,19 @@ return new class extends Migration
             $table->boolean('sync_orders')->default(true);
             $table->boolean('sync_prices')->default(true);
             $table->boolean('sync_stock')->default(true);
-            $table->boolean('sync_images_all')->default(false); // false = только первое изображение
-            $table->string('schedule', 100)->nullable(); // cron expression
-            $table->json('catalog_filters')->nullable(); // фильтры для товаров
-            $table->json('price_types')->nullable(); // типы цен для синхронизации
-            $table->json('warehouses')->nullable(); // склады для синхронизации
-            $table->string('product_match_field', 50)->default('article'); // article, code, externalCode, barcode
+            $table->boolean('sync_images_all')->default(false);
+            $table->string('schedule', 100)->nullable();
+            $table->json('catalog_filters')->nullable();
+            $table->json('price_types')->nullable();
+            $table->json('warehouses')->nullable();
+            $table->string('product_match_field', 50)->default('article');
             $table->timestamps();
-
+            
             $table->foreign('account_id')
-                ->references('account_id')
-                ->on('accounts')
-                ->onDelete('cascade');
-
+                  ->references('account_id')
+                  ->on('accounts')
+                  ->onDelete('cascade');
+            
             $table->index('account_id');
         });
     }

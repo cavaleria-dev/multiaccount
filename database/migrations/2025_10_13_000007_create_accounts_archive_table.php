@@ -1,4 +1,5 @@
 <?php
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -10,10 +11,10 @@ return new class extends Migration
         Schema::create('accounts_archive', function (Blueprint $table) {
             $table->id();
             $table->uuid('account_id');
-            $table->json('data'); // архивированные данные аккаунта
+            $table->json('data');
             $table->timestamp('deleted_at');
             $table->timestamps();
-
+            
             $table->index('account_id');
             $table->index('deleted_at');
         });
