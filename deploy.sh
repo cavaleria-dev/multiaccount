@@ -1,4 +1,23 @@
 #!/bin/bash
+#
+# Скрипт автоматического деплоя приложения
+#
+# Использование:
+#   ./deploy.sh          - Обычный деплой (только при изменениях в git)
+#   ./deploy.sh --force  - Принудительный деплой (даже без изменений)
+#   ./deploy.sh -f       - Короткая форма --force
+#
+# Что делает скрипт:
+#   - Включает режим обслуживания
+#   - Подтягивает изменения из git
+#   - Обновляет зависимости composer
+#   - Собирает frontend (если были изменения или --force)
+#   - Запускает миграции базы данных
+#   - Очищает и кеширует конфигурации
+#   - Перезапускает PHP-FPM и очереди
+#   - Выключает режим обслуживания
+#   - При ошибке автоматически откатывает изменения
+#
 
 set -e  # Остановить выполнение при любой ошибке
 
@@ -6,11 +25,36 @@ set -e  # Остановить выполнение при любой ошибк
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 APP_DIR="/var/www/app.cavaleria.ru"
 LOG_FILE="$APP_DIR/storage/logs/deploy.log"
 MAX_LOG_SIZE=10485760  # 10MB
+
+# Показать справку
+if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
+    echo -e "${BLUE}Скрипт автоматического деплоя${NC}"
+    echo ""
+    echo "Использование:"
+    echo "  ./deploy.sh          - Обычный деплой (только при изменениях в git)"
+    echo "  ./deploy.sh --force  - Принудительный деплой (даже без изменений)"
+    echo "  ./deploy.sh -f       - Короткая форма --force"
+    echo "  ./deploy.sh --help   - Показать эту справку"
+    echo ""
+    echo "Примеры:"
+    echo "  bash deploy.sh                    # Обычный деплой"
+    echo "  bash deploy.sh --force            # Принудительный деплой"
+    echo "  bash deploy.sh -f                 # То же самое"
+    echo ""
+    exit 0
+fi
+
+# Проверяем аргументы командной строки
+FORCE_DEPLOY=false
+if [ "$1" == "--force" ] || [ "$1" == "-f" ]; then
+    FORCE_DEPLOY=true
+fi
 
 cd $APP_DIR
 
@@ -49,7 +93,11 @@ rollback() {
 # Установить обработчик ошибок
 trap rollback ERR
 
-log "=== Deployment started ==="
+if [ "$FORCE_DEPLOY" == true ]; then
+    log "=== FORCED Deployment started ==="
+else
+    log "=== Deployment started ==="
+fi
 
 # Включаем режим обслуживания
 log "Enabling maintenance mode..."
@@ -69,11 +117,14 @@ if git pull origin main >> $LOG_FILE 2>&1; then
     NEW_COMMIT=$(git rev-parse HEAD)
     log "Updated to commit: $NEW_COMMIT"
 
-    if [ "$CURRENT_COMMIT" == "$NEW_COMMIT" ]; then
+    if [ "$CURRENT_COMMIT" == "$NEW_COMMIT" ] && [ "$FORCE_DEPLOY" == false ]; then
         log "No changes detected, skipping build steps"
+        log "Use --force flag to deploy anyway: ./deploy.sh --force"
         php artisan up >> $LOG_FILE 2>&1
         log "=== Deployment completed (no changes) ==="
         exit 0
+    elif [ "$CURRENT_COMMIT" == "$NEW_COMMIT" ] && [ "$FORCE_DEPLOY" == true ]; then
+        warn "No git changes, but FORCE mode enabled - continuing deployment"
     fi
 else
     error "Git pull failed"
@@ -94,8 +145,8 @@ else
 fi
 
 # Проверяем были ли изменения в frontend
-if git diff --name-only $CURRENT_COMMIT $NEW_COMMIT | grep -qE '^(resources|package\.json|vite\.config\.js)'; then
-    log "Frontend changes detected, rebuilding..."
+if [ "$FORCE_DEPLOY" == true ] || git diff --name-only $CURRENT_COMMIT $NEW_COMMIT | grep -qE '^(resources|package\.json|vite\.config\.js)'; then
+    log "Frontend changes detected (or force mode), rebuilding..."
     npm ci --production=false >> $LOG_FILE 2>&1
     npm run build >> $LOG_FILE 2>&1
 else
