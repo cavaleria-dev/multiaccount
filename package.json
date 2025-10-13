@@ -8,13 +8,12 @@
         "preview": "vite preview"
     },
     "devDependencies": {
-        "@tailwindcss/vite": "^4.0.0",
         "autoprefixer": "^10.4.21",
         "axios": "^1.12.2",
         "concurrently": "^9.0.1",
         "laravel-vite-plugin": "^2.0.1",
         "postcss": "^8.5.6",
-        "tailwindcss": "^4.1.14",
+        "tailwindcss": "^3.4.18",
         "vite": "^7.1.9"
     },
     "name": "app.cavaleria.ru",
