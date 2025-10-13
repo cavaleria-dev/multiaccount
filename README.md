@@ -1,61 +1,274 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Франшиза-синхронизация МойСклад
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+[![Deploy Status](https://github.com/cavaleria-dev/multiaccount/actions/workflows/deploy.yml/badge.svg)](https://github.com/cavaleria-dev/multiaccount/actions)
 
-## About Laravel
+Приложение для управления сетью дочерних аккаунтов МойСклад с автоматической синхронизацией данных между главным и дочерними аккаунтами франшизной сети.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## 🚀 Возможности
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+- **Централизованное управление каталогом** - единый каталог товаров для всей сети
+- **Автоматическая синхронизация** - товары, цены, остатки, заказы
+- **Управление дочерними аккаунтами** - подключение и настройка через единый интерфейс
+- **Распределение заказов** - автоматическое распределение по условиям
+- **Аналитика и отчетность** - единая аналитика по всей сети с экспортом в Excel
+- **Вебхуки в реальном времени** - мгновенное обновление данных
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## 🛠 Технологии
 
-## Learning Laravel
+**Backend:**
+- PHP 8.4
+- Laravel 11.x
+- PostgreSQL 18
+- Redis 7.x
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+**Frontend:**
+- Vue 3
+- Vite 5
+- Tailwind CSS 3
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+**Интеграции:**
+- МойСклад JSON API 1.2
+- МойСклад Vendor API 1.0
+- МойСклад Webhook API
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## 📋 Требования
 
-## Laravel Sponsors
+- PHP 8.4+
+- PostgreSQL 18+
+- Redis 7+
+- Node.js 22+
+- Composer 2.x
+- Nginx
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## ⚡ Быстрая установка
 
-### Premium Partners
+### 1. Клонирование репозитория
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+```bash
+git clone git@github.com:cavaleria-dev/multiaccount.git
+cd multiaccount
+```
 
-## Contributing
+### 2. Установка зависимостей
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+# PHP зависимости
+composer install
 
-## Code of Conduct
+# JS зависимости
+npm install
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+### 3. Настройка окружения
 
-## Security Vulnerabilities
+```bash
+# Копировать файл конфигурации
+cp .env.example .env
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+# Сгенерировать ключ приложения
+php artisan key:generate
 
-## License
+# Отредактировать .env
+nano .env
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Заполните следующие переменные:
+
+```env
+# Database
+DB_DATABASE=moysklad_db
+DB_USERNAME=moysklad_user
+DB_PASSWORD=your_password
+
+# МойСклад API
+MOYSKLAD_APP_ID=your-app-id
+MOYSKLAD_SECRET_KEY=your-secret-key
+```
+
+### 4. Миграции базы данных
+
+```bash
+php artisan migrate
+```
+
+### 5. Сборка фронтенда
+
+```bash
+npm run build
+```
+
+### 6. Запуск
+
+```bash
+# Для разработки
+php artisan serve
+npm run dev  # В отдельном терминале
+
+# Для production
+# Настройте веб-сервер (Nginx/Apache) на папку public/
+```
+
+## 📚 Документация
+
+### Структура проекта
+
+```
+├── app/
+│   ├── Http/Controllers/Api/
+│   │   ├── MoySkladController.php      # Vendor API endpoints
+│   │   └── WebhookController.php       # Обработка вебхуков
+│   └── Services/
+│       └── MoySkladService.php         # Сервис для работы с API
+├── config/
+│   └── moysklad.php                    # Конфигурация МойСклад
+├── database/migrations/                # Миграции БД
+├── resources/
+│   ├── js/                             # Vue компоненты
+│   └── views/                          # Blade шаблоны
+└── routes/
+    ├── api.php                         # API маршруты
+    └── web.php                         # Web маршруты
+```
+
+### API Endpoints
+
+#### Vendor API (для МойСклад)
+
+```
+PUT    /api/moysklad/vendor/1.0/apps/{appId}/{accountId}       # Установка
+DELETE /api/moysklad/vendor/1.0/apps/{appId}/{accountId}       # Удаление
+GET    /api/moysklad/vendor/1.0/apps/{appId}/{accountId}/status # Статус
+```
+
+#### Internal API
+
+```
+POST /api/apps/update-status            # Обновление статуса из iframe
+POST /api/webhooks/moysklad             # Обработка вебхуков
+GET  /api/context/{contextKey}          # Получение контекста пользователя
+```
+
+### База данных
+
+**Основные таблицы:**
+
+- `accounts` - Установленные приложения
+- `child_accounts` - Связи главный↔дочерний
+- `sync_settings` - Настройки синхронизации
+- `sync_logs` - Журнал операций
+- `entity_mappings` - Сопоставление ID сущностей
+- `webhooks` - Зарегистрированные вебхуки
+- `accounts_archive` - Архив удаленных аккаунтов
+
+## 🧪 Тестирование
+
+### Тест API endpoint
+
+```bash
+curl -X GET "http://localhost:8000/api/moysklad/vendor/1.0/apps/test-app-id/test-account-id/status"
+```
+
+### Тест базы данных
+
+```bash
+php artisan tinker
+>>> DB::table('accounts')->count();
+```
+
+## 🚢 Деплой
+
+### GitHub Actions
+
+Проект настроен для автоматического деплоя через GitHub Actions при push в ветку `main`.
+
+**Необходимые Secrets:**
+- `SERVER_HOST` - IP адрес сервера
+- `SERVER_USER` - Пользователь SSH
+- `SSH_PRIVATE_KEY` - Приватный SSH ключ
+
+### Ручной деплой
+
+```bash
+# На сервере
+cd /var/www/app.cavaleria.ru
+./deploy.sh
+```
+
+## 📝 Разработка
+
+### Основные команды
+
+```bash
+# Очистка кеша
+php artisan cache:clear
+php artisan config:clear
+php artisan view:clear
+
+# Кеширование (production)
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+
+# Просмотр роутов
+php artisan route:list
+
+# Миграции
+php artisan migrate
+php artisan migrate:rollback
+php artisan migrate:fresh  # ВНИМАНИЕ: удаляет все данные!
+
+# Frontend
+npm run dev    # Development с hot reload
+npm run build  # Production сборка
+```
+
+### Работа с Git
+
+```bash
+git status
+git add .
+git commit -m "Описание изменений"
+git push origin main
+```
+
+## 🔧 Настройка production сервера
+
+Подробная инструкция по настройке сервера CentOS 9 доступна в документации проекта.
+
+**Основные шаги:**
+1. Установка PHP 8.4, PostgreSQL 18, Node.js 22
+2. Настройка Nginx
+3. SSL сертификат Let's Encrypt
+4. Настройка Redis
+5. Настройка автодеплоя
+
+## 🤝 Участие в разработке
+
+1. Fork проекта
+2. Создайте feature ветку (`git checkout -b feature/AmazingFeature`)
+3. Commit изменений (`git commit -m 'Add some AmazingFeature'`)
+4. Push в ветку (`git push origin feature/AmazingFeature`)
+5. Откройте Pull Request
+
+## 📄 Лицензия
+
+Этот проект является проприетарным программным обеспечением.
+
+## 📞 Контакты
+
+**GitHub:** [cavaleria-dev](https://github.com/cavaleria-dev)  
+**Email:** support@cavaleria.ru
+
+## 🔗 Полезные ссылки
+
+- [МойСклад JSON API 1.2](https://dev.moysklad.ru/doc/api/remap/1.2/)
+- [МойСклад Vendor API 1.0](https://dev.moysklad.ru/doc/api/vendor/1.0/)
+- [Laravel Documentation](https://laravel.com/docs/11.x)
+- [Vue 3 Documentation](https://vuejs.org/)
+- [Личный кабинет разработчика МойСклад](https://apps.moysklad.ru/cabinet/)
+
+---
+
+**Status:** В разработке  
+**Version:** 1.0.0  
+**Last Update:** 13.10.2025
