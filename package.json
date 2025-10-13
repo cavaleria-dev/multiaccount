@@ -37,6 +37,7 @@
     "homepage": "https://github.com/cavaleria-dev/multiaccount#readme",
     "dependencies": {
         "@vitejs/plugin-vue": "^6.0.1",
-        "vue": "^3.5.22"
+        "vue": "^3.5.22",
+        "vue-router": "^4.4.0"
     }
 }
