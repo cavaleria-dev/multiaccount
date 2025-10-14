@@ -1,7 +1,7 @@
 # Документация проекта "Франшиза-синхронизация МойСклад"
 
-**Версия:** 1.0  
-**Дата:** 13 октября 2025  
+**Версия:** 1.1
+**Дата:** 14 октября 2025
 **Для:** AI Assistant / Разработчик
 
 ---
@@ -55,14 +55,36 @@ app.cavaleria.ru/
 ├── app/
 │   ├── Http/
 │   │   ├── Controllers/
-│   │   │   └── Api/
-│   │   │       ├── MoySkladController.php      # Vendor API endpoints
-│   │   │       └── WebhookController.php       # Webhook обработка
+│   │   │   ├── Api/
+│   │   │   │   ├── MoySkladController.php       # Vendor API endpoints
+│   │   │   │   ├── ContextController.php        # Контекст пользователя
+│   │   │   │   ├── ChildAccountController.php   # Управление франшизами
+│   │   │   │   ├── SyncSettingsController.php   # Настройки синхронизации
+│   │   │   │   └── StatsController.php          # Статистика
+│   │   │   └── WebhookController.php            # Webhook обработка
 │   │   └── Middleware/
+│   │       └── MoySkladContext.php              # Middleware для контекста
 │   ├── Services/
-│   │   └── MoySkladService.php                 # JSON API wrapper
-│   ├── Jobs/                                   # Queue jobs (будущее)
-│   └── Models/                                 # Eloquent models (будущее)
+│   │   ├── MoySkladService.php                  # JSON API wrapper
+│   │   ├── VendorApiService.php                 # Vendor API (JWT)
+│   │   ├── RateLimitHandler.php                 # Rate limit handling
+│   │   ├── ProductSyncService.php               # Синхронизация товаров
+│   │   ├── CustomerOrderSyncService.php         # Синхронизация заказов
+│   │   ├── RetailDemandSyncService.php          # Синхронизация продаж
+│   │   ├── PurchaseOrderSyncService.php         # Синхронизация заказов поставщику
+│   │   ├── CounterpartySyncService.php          # Контрагенты
+│   │   ├── CustomEntitySyncService.php          # Кастомные справочники
+│   │   ├── BatchSyncService.php                 # Массовая синхронизация
+│   │   ├── WebhookService.php                   # Управление вебхуками
+│   │   └── SyncStatisticsService.php            # Статистика
+│   ├── Jobs/
+│   │   └── ProcessSyncQueueJob.php              # Обработчик очереди
+│   └── Models/
+│       ├── Account.php                          # ✅ Реализовано
+│       ├── SyncSetting.php                      # ✅ Реализовано
+│       ├── SyncQueue.php                        # ✅ Реализовано
+│       ├── EntityMapping.php                    # ✅ Реализовано
+│       └── SyncStatistics.php                   # ✅ Реализовано
 ├── config/
 │   └── moysklad.php                            # Конфигурация МойСклад
 ├── database/
@@ -76,10 +98,19 @@ app.cavaleria.ru/
 │       └── 2025_10_13_000007_create_accounts_archive_table.php
 ├── resources/
 │   ├── js/
-│   │   ├── components/                         # Vue компоненты (будущее)
-│   │   ├── views/                              # Vue страницы
-│   │   ├── App.vue                             # Root компонент
-│   │   └── app.js                              # Entry point
+│   │   ├── composables/
+│   │   │   └── useMoyskladContext.js           # ✅ Контекст МойСклад
+│   │   ├── pages/
+│   │   │   ├── Dashboard.vue                   # ✅ Главная
+│   │   │   ├── ChildAccounts.vue               # ✅ Управление франшизами
+│   │   │   ├── GeneralSettings.vue             # ✅ Общие настройки
+│   │   │   └── FranchiseSettings.vue           # ✅ Настройки франшизы
+│   │   ├── api/
+│   │   │   └── index.js                        # ✅ API клиент с interceptors
+│   │   ├── router/
+│   │   │   └── index.js                        # ✅ Vue Router
+│   │   ├── App.vue                             # ✅ Root компонент
+│   │   └── app.js                              # ✅ Entry point
 │   ├── css/
 │   │   └── app.css                             # Tailwind CSS
 │   └── views/
@@ -141,43 +172,70 @@ UNIQUE(parent_account_id, child_account_id)
 ```
 
 #### Таблица: `sync_settings`
-Настройки синхронизации для каждого аккаунта.
+Настройки синхронизации для каждого аккаунта (30+ полей).
 
 ```sql
-id                    BIGSERIAL PRIMARY KEY
-account_id            UUID FK -> accounts(account_id)
-sync_catalog          BOOLEAN DEFAULT TRUE       -- Синхронизировать каталог
-sync_orders           BOOLEAN DEFAULT TRUE       -- Синхронизировать заказы
-sync_prices           BOOLEAN DEFAULT TRUE       -- Синхронизировать цены
-sync_stock            BOOLEAN DEFAULT TRUE       -- Синхронизировать остатки
-sync_images_all       BOOLEAN DEFAULT FALSE      -- Все изображения или только первое
-schedule              VARCHAR(100)               -- Cron расписание
-catalog_filters       JSON                       -- Фильтры для товаров
-price_types           JSON                       -- Типы цен для синхронизации
-warehouses            JSON                       -- Склады для синхронизации
-product_match_field   VARCHAR(50)                -- article, code, externalCode, barcode
-created_at            TIMESTAMP
-updated_at            TIMESTAMP
+id                         BIGSERIAL PRIMARY KEY
+account_id                 UUID FK -> accounts(account_id)
+sync_enabled               BOOLEAN DEFAULT TRUE
+sync_products              BOOLEAN DEFAULT TRUE
+sync_orders                BOOLEAN DEFAULT FALSE
+sync_images                BOOLEAN DEFAULT TRUE
+sync_prices                BOOLEAN DEFAULT TRUE
+sync_stock                 BOOLEAN DEFAULT FALSE
+auto_create_price_types    BOOLEAN DEFAULT TRUE
+auto_create_counterparty   BOOLEAN DEFAULT TRUE
+counterparty_id            VARCHAR(255)           -- ID контрагента в главном
+supplier_counterparty_id   VARCHAR(255)           -- ID поставщика в главном
+product_sync_priority      INTEGER DEFAULT 5
+order_sync_priority        INTEGER DEFAULT 1
+product_sync_delay_seconds INTEGER DEFAULT 10
+order_sync_delay_seconds   INTEGER DEFAULT 0
+price_type_mappings        JSON
+custom_entity_mappings     JSON
+created_at                 TIMESTAMP
+updated_at                 TIMESTAMP
 ```
 
-#### Таблица: `sync_logs`
-Журнал операций синхронизации.
+#### Таблица: `sync_queue`
+Очередь задач синхронизации.
 
 ```sql
 id                    BIGSERIAL PRIMARY KEY
 account_id            UUID NOT NULL
-sync_type             VARCHAR(50)                -- catalog, orders_customer, prices, etc.
-direction             VARCHAR(50)                -- parent_to_child, child_to_parent
-status                VARCHAR(50)                -- success, error, warning, in_progress
-message               TEXT
-data                  JSON                       -- Дополнительные данные
-items_total           INTEGER DEFAULT 0
-items_processed       INTEGER DEFAULT 0
-items_failed          INTEGER DEFAULT 0
-started_at            TIMESTAMP
-finished_at           TIMESTAMP
+entity_type           VARCHAR(50)                -- product, variant, bundle, order, etc.
+entity_id             VARCHAR(255) NOT NULL      -- UUID сущности
+operation             VARCHAR(50)                -- create, update, delete
+priority              INTEGER DEFAULT 5          -- Приоритет (1-10)
+scheduled_at          TIMESTAMP                  -- Время запланированного выполнения
+status                VARCHAR(50)                -- pending, processing, completed, failed
+attempts              INTEGER DEFAULT 0
+error_message         TEXT
+metadata              JSON
 created_at            TIMESTAMP
 updated_at            TIMESTAMP
+
+INDEX(account_id, status, scheduled_at, priority)
+```
+
+#### Таблица: `sync_statistics`
+Статистика синхронизации (ежедневная).
+
+```sql
+id                    BIGSERIAL PRIMARY KEY
+account_id            UUID NOT NULL
+entity_type           VARCHAR(50)
+operation             VARCHAR(50)
+date                  DATE NOT NULL
+success_count         INTEGER DEFAULT 0
+failed_count          INTEGER DEFAULT 0
+total_duration_ms     BIGINT DEFAULT 0
+avg_duration_ms       INTEGER
+last_sync_at          TIMESTAMP
+created_at            TIMESTAMP
+updated_at            TIMESTAMP
+
+UNIQUE(account_id, entity_type, operation, date)
 ```
 
 #### Таблица: `entity_mappings`
@@ -198,20 +256,29 @@ updated_at            TIMESTAMP
 UNIQUE(parent_account_id, child_account_id, entity_type, parent_entity_id)
 ```
 
-#### Таблица: `webhooks`
-Зарегистрированные вебхуки.
+#### Таблица: `webhook_health`
+Мониторинг вебхуков.
 
 ```sql
 id                    BIGSERIAL PRIMARY KEY
 account_id            UUID FK -> accounts(account_id)
 webhook_id            VARCHAR(255)               -- ID вебхука в МойСклад
 entity_type           VARCHAR(50)                -- product, customerorder, etc.
-action                VARCHAR(50)                -- CREATE, UPDATE, DELETE
-enabled               BOOLEAN DEFAULT TRUE
-url                   VARCHAR(255)
+is_active             BOOLEAN DEFAULT TRUE
+last_check_at         TIMESTAMP
+check_attempts        INTEGER DEFAULT 0
+error_message         TEXT
 created_at            TIMESTAMP
 updated_at            TIMESTAMP
 ```
+
+#### Дополнительные маппинг таблицы
+
+- `attribute_mappings` - Маппинг доп.полей между аккаунтами
+- `characteristic_mappings` - Маппинг характеристик модификаций
+- `price_type_mappings` - Маппинг типов цен
+- `custom_entity_mappings` - Маппинг кастомных справочников
+- `custom_entity_element_mappings` - Маппинг элементов справочников
 
 #### Таблица: `accounts_archive`
 Архив удаленных аккаунтов.
@@ -857,19 +924,51 @@ DB::table('accounts')->where('account_id', 'test-account-id')->delete();
 
 ## CHANGELOG
 
+### Version 1.1 (2025-10-14)
+
+**Backend:**
+- ✅ Реализованы все сервисы синхронизации (Product, Order, RetailDemand, PurchaseOrder)
+- ✅ Добавлен RateLimitHandler для управления rate limits МойСклад API
+- ✅ Реализован WebhookService для управления вебхуками
+- ✅ Добавлен VendorApiService для работы с Vendor API (JWT)
+- ✅ Реализован ContextController с кешированием контекста
+- ✅ Добавлен MoySkladContext middleware
+- ✅ Реализованы API контроллеры: ChildAccount, SyncSettings, Stats
+- ✅ Добавлен ProcessSyncQueueJob с scheduler (каждую минуту)
+- ✅ Создано 30+ миграций базы данных
+
+**Frontend:**
+- ✅ Vue 3 приложение с Composition API
+- ✅ Страницы: Dashboard, ChildAccounts, GeneralSettings, FranchiseSettings
+- ✅ useMoyskladContext composable для работы с контекстом
+- ✅ API клиент с interceptors для автоматического добавления contextKey
+- ✅ Vue Router настроен
+- ✅ Tailwind CSS интегрирован
+
+**Database:**
+- ✅ Таблица sync_queue для очереди синхронизации
+- ✅ Таблица sync_statistics для статистики
+- ✅ Таблица webhook_health для мониторинга вебхуков
+- ✅ Маппинг таблицы: attributes, characteristics, price_types, custom_entities
+- ✅ Обновлена таблица sync_settings (30+ полей)
+
+**Fixes:**
+- ✅ Исправлена передача contextKey через sessionStorage
+- ✅ Добавлено кеширование контекста на 30 минут
+- ✅ Упрощена форма добавления франшизы (ввод названия аккаунта)
+- ✅ Обновлены общие настройки (удалены app_name/webhook_url, добавлен account_type)
+
 ### Version 1.0 (2025-10-13)
 - ✅ Инициализация проекта
 - ✅ Настройка сервера CentOS 9
 - ✅ Установка PHP 8.4, PostgreSQL 18, Node.js 22
-- ✅ Создание всех миграций БД
+- ✅ Создание начальных миграций БД
 - ✅ Реализация Vendor API endpoints
 - ✅ Создание MoySkladService
 - ✅ Настройка автодеплоя через GitHub Actions
 - ✅ SSL сертификат Let's Encrypt
-- ⏳ В разработке: Vue интерфейс
-- ⏳ В разработке: Логика синхронизации
 
 ---
 
-**Последнее обновление:** 13 октября 2025  
-**Статус проекта:** В разработке (Backend готов, Frontend в процессе)
+**Последнее обновление:** 14 октября 2025
+**Статус проекта:** Core функциональность реализована, в продакшене
