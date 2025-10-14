@@ -31,7 +31,7 @@ class PurchaseOrderSyncService
      *
      * @param string $childAccountId UUID дочернего аккаунта
      * @param string $purchaseOrderId UUID заказа поставщику в дочернем аккаунте
-     * @return array|null Созданный заказ в главном аккаунте или null
+     * @return array|null Созданный/обновленный заказ в главном аккаунте или null
      */
     public function syncPurchaseOrder(string $childAccountId, string $purchaseOrderId): ?array
     {
@@ -54,6 +54,22 @@ class PurchaseOrderSyncService
                 throw new \Exception('Parent account not found');
             }
 
+            // Получить заказ поставщику из дочернего аккаунта
+            $orderResult = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->get("entity/purchaseorder/{$purchaseOrderId}");
+
+            $order = $orderResult['data'];
+
+            // Проверить что поставщик = главный офис (supplier_counterparty_id)
+            if (!$this->isOrderToMainOffice($order, $parentAccount, $settings)) {
+                Log::debug('Purchase order is not to main office, skipping', [
+                    'child_account_id' => $childAccountId,
+                    'purchase_order_id' => $purchaseOrderId
+                ]);
+                return null;
+            }
+
             // Проверить, не синхронизирован ли уже этот заказ
             $existingMapping = EntityMapping::where('child_account_id', $childAccountId)
                 ->where('child_entity_id', $purchaseOrderId)
@@ -62,34 +78,28 @@ class PurchaseOrderSyncService
                 ->where('source_document_type', 'purchaseorder')
                 ->first();
 
+            // Если заказ уже синхронизирован
             if ($existingMapping) {
-                Log::info('Purchase order already synced', [
+                // Проверить статус applicable
+                $isApplicable = $order['applicable'] ?? false;
+
+                if (!$isApplicable) {
+                    // Снять флаг "проведено" в главном аккаунте
+                    return $this->unmarkApplicable($parentAccount, $existingMapping->parent_entity_id);
+                }
+
+                Log::debug('Purchase order already synced and applicable', [
                     'child_account_id' => $childAccountId,
                     'purchase_order_id' => $purchaseOrderId,
                     'parent_order_id' => $existingMapping->parent_entity_id
                 ]);
+
                 return null;
             }
-
-            // Получить заказ поставщику из дочернего аккаунта
-            $orderResult = $this->moySkladService
-                ->setAccessToken($childAccount->access_token)
-                ->get("entity/purchaseorder/{$purchaseOrderId}");
-
-            $order = $orderResult['data'];
 
             // Проверить что заказ проведен (applicable = true)
             if (!isset($order['applicable']) || $order['applicable'] !== true) {
-                Log::debug('Purchase order is not applicable, skipping', [
-                    'child_account_id' => $childAccountId,
-                    'purchase_order_id' => $purchaseOrderId
-                ]);
-                return null;
-            }
-
-            // Проверить что поставщик = главный офис (supplier_counterparty_id)
-            if (!$this->isOrderToMainOffice($order, $parentAccount, $settings)) {
-                Log::debug('Purchase order is not to main office, skipping', [
+                Log::debug('Purchase order is not applicable, skipping sync', [
                     'child_account_id' => $childAccountId,
                     'purchase_order_id' => $purchaseOrderId
                 ]);
@@ -221,6 +231,39 @@ class PurchaseOrderSyncService
                 'purchase_order_id' => $purchaseOrderId,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Снять флаг "проведено" у заказа покупателя в главном аккаунте
+     *
+     * @param Account $parentAccount
+     * @param string $customerOrderId UUID заказа покупателя в главном аккаунте
+     * @return array|null Обновленный заказ или null
+     */
+    protected function unmarkApplicable(Account $parentAccount, string $customerOrderId): ?array
+    {
+        try {
+            $updateResult = $this->moySkladService
+                ->setAccessToken($parentAccount->access_token)
+                ->put("entity/customerorder/{$customerOrderId}", [
+                    'applicable' => false
+                ]);
+
+            Log::info('Purchase order marked as not applicable in parent', [
+                'parent_account_id' => $parentAccount->account_id,
+                'customer_order_id' => $customerOrderId
+            ]);
+
+            return $updateResult['data'];
+
+        } catch (\Exception $e) {
+            Log::error('Failed to unmark purchase order as applicable', [
+                'parent_account_id' => $parentAccount->account_id,
+                'customer_order_id' => $customerOrderId,
+                'error' => $e->getMessage()
             ]);
             throw $e;
         }

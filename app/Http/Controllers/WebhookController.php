@@ -303,8 +303,9 @@ class WebhookController extends Controller
             return;
         }
 
-        if ($action !== 'UPDATE') {
-            Log::debug('Purchase order non-update action, ignoring', [
+        // Обрабатываем CREATE и UPDATE (не DELETE)
+        if (!in_array($action, ['CREATE', 'UPDATE'])) {
+            Log::debug('Purchase order non-create/update action, ignoring', [
                 'action' => $action,
                 'entity_id' => $entityId
             ]);
@@ -321,13 +322,15 @@ class WebhookController extends Controller
 
             Log::info('Purchase order synced', [
                 'account_id' => $account->account_id,
-                'order_id' => $entityId
+                'order_id' => $entityId,
+                'action' => $action
             ]);
 
         } catch (\Exception $e) {
             Log::error('Purchase order sync failed', [
                 'account_id' => $account->account_id,
                 'order_id' => $entityId,
+                'action' => $action,
                 'error' => $e->getMessage()
             ]);
         }
