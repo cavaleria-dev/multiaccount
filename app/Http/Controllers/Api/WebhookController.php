@@ -76,6 +76,10 @@ class WebhookController extends Controller
                 $this->handleProductEvent($action, $event, $accountId);
                 break;
 
+            case 'service':
+                $this->handleServiceEvent($action, $event, $accountId);
+                break;
+
             case 'customerorder':
                 $this->handleCustomerOrderEvent($action, $event, $accountId);
                 break;
@@ -110,6 +114,30 @@ class WebhookController extends Controller
             Log::info('Товар удален', [
                 'productId' => $event['meta']['href'] ?? null
             ]);
+        }
+    }
+
+    /**
+     * Обработка события услуги
+     */
+    private function handleServiceEvent(string $action, array $event, ?string $accountId): void
+    {
+        if ($action === 'CREATE' || $action === 'UPDATE') {
+            // Логика синхронизации услуги
+            Log::info('Услуга изменена', [
+                'action' => $action,
+                'serviceId' => $event['meta']['href'] ?? null
+            ]);
+
+            // Dispatch job для синхронизации
+            // \App\Jobs\SyncServiceJob::dispatch($accountId, $event);
+        }
+
+        if ($action === 'DELETE') {
+            Log::info('Услуга удалена', [
+                'serviceId' => $event['meta']['href'] ?? null
+            ]);
+            // Архивировать услугу в дочерних аккаунтах
         }
     }
 
