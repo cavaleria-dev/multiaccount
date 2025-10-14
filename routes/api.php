@@ -42,6 +42,9 @@ Route::middleware(['moysklad.context'])->group(function () {
     // Настройки синхронизации
     Route::get('sync-settings/{accountId}', [SyncSettingsController::class, 'show']);
     Route::put('sync-settings/{accountId}', [SyncSettingsController::class, 'update']);
+    Route::get('sync-settings/{accountId}/price-types', [SyncSettingsController::class, 'getPriceTypes']);
+    Route::get('sync-settings/{accountId}/attributes', [SyncSettingsController::class, 'getAttributes']);
+    Route::get('sync-settings/{accountId}/folders', [SyncSettingsController::class, 'getFolders']);
 
     // Статистика
     Route::get('stats/dashboard', [StatsController::class, 'dashboard']);
