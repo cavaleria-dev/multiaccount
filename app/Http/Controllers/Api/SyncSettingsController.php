@@ -246,22 +246,21 @@ class SyncSettingsController extends Controller
             ]);
 
             // Получить доп.поля product из main аккаунта
-            $metadata = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/product/metadata');
+            // МойСклад возвращает только meta для attributes, нужен отдельный запрос
+            $attributesResponse = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/product/metadata/attributes');
 
-            Log::info('Metadata received', [
+            Log::info('Attributes received', [
                 'main_account_id' => $mainAccountId,
-                'response_structure' => array_keys($metadata ?? []),
-                'has_data' => isset($metadata['data']),
-                'has_attributes' => isset($metadata['data']['attributes']),
-                'attributes_count' => count($metadata['data']['attributes'] ?? []),
-                'full_response' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                'has_data' => isset($attributesResponse['data']),
+                'has_rows' => isset($attributesResponse['data']['rows']),
+                'rows_count' => count($attributesResponse['data']['rows'] ?? [])
             ]);
 
             $result = [];
             $skipped = 0;
 
-            foreach ($metadata['data']['attributes'] ?? [] as $index => $attr) {
-                // Пропустить элементы без id (встроенные поля МойСклад)
+            foreach ($attributesResponse['data']['rows'] ?? [] as $index => $attr) {
+                // Пропустить элементы без id
                 if (!isset($attr['id'])) {
                     $skipped++;
                     Log::warning('Attribute without id skipped', [

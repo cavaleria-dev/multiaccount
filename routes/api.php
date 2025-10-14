@@ -85,17 +85,20 @@ Route::get('debug/attributes-raw/{accountId}', function ($accountId) {
         }
 
         $moysklad = app(\App\Services\MoySkladService::class);
+
+        // Сначала получаем metadata (только мета-информация)
         $metadata = $moysklad->setAccessToken($account->access_token)->get('entity/product/metadata');
 
+        // Затем получаем сами атрибуты
+        $attributes = $moysklad->setAccessToken($account->access_token)->get('entity/product/metadata/attributes');
+
         return response()->json([
-            'raw_response' => $metadata,
-            'has_data' => isset($metadata['data']),
-            'has_attributes' => isset($metadata['data']['attributes']),
-            'attributes_count' => count($metadata['data']['attributes'] ?? []),
-            'attributes' => $metadata['data']['attributes'] ?? []
+            'metadata_response' => $metadata,
+            'attributes_response' => $attributes,
+            'attributes_rows' => $attributes['data']['rows'] ?? []
         ]);
     } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()], 500);
+        return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()], 500);
     }
 });
 
