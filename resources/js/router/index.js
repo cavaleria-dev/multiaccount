@@ -1,7 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Dashboard from '../pages/Dashboard.vue'
 import ChildAccounts from '../pages/ChildAccounts.vue'
-import SyncSettings from '../pages/SyncSettings.vue'
+import GeneralSettings from '../pages/GeneralSettings.vue'
+import FranchiseSettings from '../pages/FranchiseSettings.vue'
 
 const routes = [
   {
@@ -15,9 +16,14 @@ const routes = [
     component: ChildAccounts
   },
   {
-    path: '/app/settings/:accountId',
-    name: 'sync-settings',
-    component: SyncSettings,
+    path: '/app/settings',
+    name: 'general-settings',
+    component: GeneralSettings
+  },
+  {
+    path: '/app/accounts/:accountId/settings',
+    name: 'franchise-settings',
+    component: FranchiseSettings,
     props: true
   }
 ]

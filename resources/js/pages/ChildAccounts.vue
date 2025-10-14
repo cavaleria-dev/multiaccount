@@ -194,8 +194,8 @@ function formatDate(date) {
 }
 
 function editAccount(account) {
-  // Переход на страницу настроек для этого аккаунта
-  router.push(`/app/settings/${account.account_id}`)
+  // Переход на страницу настроек франшизы
+  router.push(`/app/accounts/${account.account_id}/settings`)
 }
 
 async function deleteAccount(account) {
