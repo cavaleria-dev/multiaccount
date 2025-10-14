@@ -7,6 +7,7 @@ use App\Services\ProductSyncService;
 use App\Services\CustomerOrderSyncService;
 use App\Services\RetailDemandSyncService;
 use App\Services\SyncStatisticsService;
+use App\Services\WebhookService;
 use App\Exceptions\RateLimitException;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,7 +33,8 @@ class ProcessSyncQueueJob implements ShouldQueue
         ProductSyncService $productSyncService,
         CustomerOrderSyncService $customerOrderSyncService,
         RetailDemandSyncService $retailDemandSyncService,
-        SyncStatisticsService $statisticsService
+        SyncStatisticsService $statisticsService,
+        WebhookService $webhookService
     ): void {
         // Обработать задачи из очереди (порциями по 50)
         $tasks = SyncQueue::where('status', 'pending')
@@ -68,7 +70,8 @@ class ProcessSyncQueueJob implements ShouldQueue
                     $task,
                     $productSyncService,
                     $customerOrderSyncService,
-                    $retailDemandSyncService
+                    $retailDemandSyncService,
+                    $webhookService
                 );
 
                 $duration = (int)((microtime(true) - $startTime) * 1000); // ms
@@ -180,7 +183,8 @@ class ProcessSyncQueueJob implements ShouldQueue
         SyncQueue $task,
         ProductSyncService $productSyncService,
         CustomerOrderSyncService $customerOrderSyncService,
-        RetailDemandSyncService $retailDemandSyncService
+        RetailDemandSyncService $retailDemandSyncService,
+        WebhookService $webhookService
     ): void {
         $payload = $task->payload;
 
@@ -190,7 +194,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             'bundle' => $this->processBundleSync($task, $payload, $productSyncService),
             'customerorder' => $this->processCustomerOrderSync($task, $payload, $customerOrderSyncService),
             'retaildemand' => $this->processRetailDemandSync($task, $payload, $retailDemandSyncService),
-            'webhook' => $this->processWebhookCheck($task),
+            'webhook' => $this->processWebhookCheck($task, $webhookService),
             default => Log::warning("Unknown entity type in queue: {$task->entity_type}")
         };
     }
@@ -221,11 +225,20 @@ class ProcessSyncQueueJob implements ShouldQueue
      */
     protected function processVariantSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
     {
-        // TODO: Реализовать синхронизацию модификаций
-        Log::info('Variant sync operation', [
-            'task_id' => $task->id,
-            'variant_id' => $task->entity_id
-        ]);
+        if ($task->operation === 'delete') {
+            // TODO: Реализовать удаление модификации
+            Log::info('Variant delete operation', [
+                'task_id' => $task->id,
+                'variant_id' => $task->entity_id
+            ]);
+            return;
+        }
+
+        $productSyncService->syncVariant(
+            $payload['main_account_id'],
+            $task->account_id,
+            $task->entity_id
+        );
     }
 
     /**
@@ -233,11 +246,20 @@ class ProcessSyncQueueJob implements ShouldQueue
      */
     protected function processBundleSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
     {
-        // TODO: Реализовать синхронизацию комплектов
-        Log::info('Bundle sync operation', [
-            'task_id' => $task->id,
-            'bundle_id' => $task->entity_id
-        ]);
+        if ($task->operation === 'delete') {
+            // TODO: Реализовать удаление комплекта
+            Log::info('Bundle delete operation', [
+                'task_id' => $task->id,
+                'bundle_id' => $task->entity_id
+            ]);
+            return;
+        }
+
+        $productSyncService->syncBundle(
+            $payload['main_account_id'],
+            $task->account_id,
+            $task->entity_id
+        );
     }
 
     /**
@@ -265,13 +287,24 @@ class ProcessSyncQueueJob implements ShouldQueue
     /**
      * Обработать проверку вебхука
      */
-    protected function processWebhookCheck(SyncQueue $task): void
+    protected function processWebhookCheck(SyncQueue $task, WebhookService $webhookService): void
     {
-        // TODO: Реализовать проверку вебхуков
-        Log::info('Webhook check operation', [
-            'task_id' => $task->id,
-            'account_id' => $task->account_id
-        ]);
+        try {
+            $webhookService->checkWebhookHealth($task->account_id);
+
+            Log::info('Webhook health check completed', [
+                'task_id' => $task->id,
+                'account_id' => $task->account_id
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Webhook health check failed', [
+                'task_id' => $task->id,
+                'account_id' => $task->account_id,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
     }
 
     /**

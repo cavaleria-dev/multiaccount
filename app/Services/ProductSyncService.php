@@ -503,4 +503,563 @@ class ProductSyncService
 
         return true;
     }
+
+    /**
+     * Синхронизировать модификацию (variant) из главного в дочерний аккаунт
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $variantId UUID модификации в главном аккаунте
+     * @return array|null Созданная/обновленная модификация в дочернем аккаунте
+     */
+    public function syncVariant(string $mainAccountId, string $childAccountId, string $variantId): ?array
+    {
+        try {
+            // Получить настройки синхронизации
+            $settings = SyncSetting::where('account_id', $childAccountId)->first();
+
+            if (!$settings || !$settings->sync_products) {
+                Log::debug('Variant sync is disabled', ['child_account_id' => $childAccountId]);
+                return null;
+            }
+
+            // Получить модификацию из главного аккаунта
+            $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
+            $variantResult = $this->moySkladService
+                ->setAccessToken($mainAccount->access_token)
+                ->get("entity/variant/{$variantId}", ['expand' => 'product,characteristics']);
+
+            $variant = $variantResult['data'];
+
+            // Проверить есть ли товар-родитель в дочернем аккаунте
+            $productId = $this->extractEntityId($variant['product']['meta']['href'] ?? '');
+            if (!$productId) {
+                Log::warning('Cannot extract product ID from variant', ['variant_id' => $variantId]);
+                return null;
+            }
+
+            $productMapping = EntityMapping::where('parent_account_id', $mainAccountId)
+                ->where('child_account_id', $childAccountId)
+                ->where('parent_entity_id', $productId)
+                ->where('entity_type', 'product')
+                ->first();
+
+            if (!$productMapping) {
+                Log::warning('Parent product not found in child account, syncing product first', [
+                    'product_id' => $productId,
+                    'variant_id' => $variantId
+                ]);
+                // Сначала синхронизировать товар-родитель
+                $this->syncProduct($mainAccountId, $childAccountId, $productId);
+
+                // Повторно получить маппинг
+                $productMapping = EntityMapping::where('parent_account_id', $mainAccountId)
+                    ->where('child_account_id', $childAccountId)
+                    ->where('parent_entity_id', $productId)
+                    ->where('entity_type', 'product')
+                    ->first();
+
+                if (!$productMapping) {
+                    return null;
+                }
+            }
+
+            // Проверить маппинг модификации
+            $variantMapping = EntityMapping::where('parent_account_id', $mainAccountId)
+                ->where('child_account_id', $childAccountId)
+                ->where('parent_entity_id', $variantId)
+                ->where('entity_type', 'variant')
+                ->first();
+
+            $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
+
+            if ($variantMapping) {
+                // Модификация уже существует, обновляем
+                return $this->updateVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $variantMapping, $settings);
+            } else {
+                // Создаем новую модификацию
+                return $this->createVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $settings);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Failed to sync variant', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'variant_id' => $variantId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Создать модификацию в дочернем аккаунте
+     */
+    protected function createVariant(
+        Account $childAccount,
+        string $mainAccountId,
+        string $childAccountId,
+        array $variant,
+        EntityMapping $productMapping,
+        SyncSetting $settings
+    ): array {
+        $variantData = [
+            'name' => $variant['name'],
+            'code' => $variant['code'] ?? null,
+            'externalCode' => $variant['externalCode'] ?? null,
+            'product' => [
+                'meta' => [
+                    'href' => config('moysklad.api_url') . "/entity/product/{$productMapping->child_entity_id}",
+                    'type' => 'product',
+                    'mediaType' => 'application/json'
+                ]
+            ],
+        ];
+
+        // Добавить штрихкоды
+        if (isset($variant['barcodes'])) {
+            $variantData['barcodes'] = $variant['barcodes'];
+        }
+
+        // Синхронизировать характеристики
+        if (isset($variant['characteristics'])) {
+            $variantData['characteristics'] = $this->syncCharacteristics(
+                $mainAccountId,
+                $childAccountId,
+                $variant['characteristics']
+            );
+        }
+
+        // Синхронизировать цены
+        $variantData['salePrices'] = $this->syncPrices(
+            $mainAccountId,
+            $childAccountId,
+            $variant,
+            $settings
+        );
+
+        // Создать модификацию
+        $newVariantResult = $this->moySkladService
+            ->setAccessToken($childAccount->access_token)
+            ->post('entity/variant', $variantData);
+
+        $newVariant = $newVariantResult['data'];
+
+        // Сохранить маппинг
+        EntityMapping::create([
+            'parent_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'entity_type' => 'variant',
+            'parent_entity_id' => $variant['id'],
+            'child_entity_id' => $newVariant['id'],
+            'sync_direction' => 'main_to_child',
+        ]);
+
+        Log::info('Variant created in child account', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'main_variant_id' => $variant['id'],
+            'child_variant_id' => $newVariant['id']
+        ]);
+
+        return $newVariant;
+    }
+
+    /**
+     * Обновить модификацию в дочернем аккаунте
+     */
+    protected function updateVariant(
+        Account $childAccount,
+        string $mainAccountId,
+        string $childAccountId,
+        array $variant,
+        EntityMapping $productMapping,
+        EntityMapping $variantMapping,
+        SyncSetting $settings
+    ): array {
+        $variantData = [
+            'name' => $variant['name'],
+            'code' => $variant['code'] ?? null,
+            'externalCode' => $variant['externalCode'] ?? null,
+        ];
+
+        // Штрихкоды
+        if (isset($variant['barcodes'])) {
+            $variantData['barcodes'] = $variant['barcodes'];
+        }
+
+        // Характеристики
+        if (isset($variant['characteristics'])) {
+            $variantData['characteristics'] = $this->syncCharacteristics(
+                $mainAccountId,
+                $childAccountId,
+                $variant['characteristics']
+            );
+        }
+
+        // Цены
+        $variantData['salePrices'] = $this->syncPrices(
+            $mainAccountId,
+            $childAccountId,
+            $variant,
+            $settings
+        );
+
+        // Обновить модификацию
+        $updatedVariantResult = $this->moySkladService
+            ->setAccessToken($childAccount->access_token)
+            ->put("entity/variant/{$variantMapping->child_entity_id}", $variantData);
+
+        Log::info('Variant updated in child account', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'main_variant_id' => $variant['id'],
+            'child_variant_id' => $variantMapping->child_entity_id
+        ]);
+
+        return $updatedVariantResult['data'];
+    }
+
+    /**
+     * Синхронизировать характеристики модификации
+     */
+    protected function syncCharacteristics(
+        string $mainAccountId,
+        string $childAccountId,
+        array $characteristics
+    ): array {
+        $syncedCharacteristics = [];
+
+        foreach ($characteristics as $characteristic) {
+            $charName = $characteristic['name'] ?? null;
+            $charValue = $characteristic['value'] ?? null;
+
+            if (!$charName) {
+                continue;
+            }
+
+            // Проверить маппинг характеристики
+            $charMapping = CharacteristicMapping::where('parent_account_id', $mainAccountId)
+                ->where('child_account_id', $childAccountId)
+                ->where('characteristic_name', $charName)
+                ->first();
+
+            if (!$charMapping) {
+                // Создать характеристику в дочернем (через метаданные)
+                $charMapping = $this->createCharacteristicInChild(
+                    $mainAccountId,
+                    $childAccountId,
+                    $characteristic
+                );
+            }
+
+            if ($charMapping) {
+                $syncedCharacteristics[] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/variant/metadata/characteristics/{$charMapping->child_characteristic_id}",
+                        'type' => 'attributemetadata',
+                        'mediaType' => 'application/json'
+                    ],
+                    'value' => $charValue
+                ];
+            }
+        }
+
+        return $syncedCharacteristics;
+    }
+
+    /**
+     * Создать характеристику в дочернем аккаунте
+     */
+    protected function createCharacteristicInChild(
+        string $mainAccountId,
+        string $childAccountId,
+        array $characteristic
+    ): ?CharacteristicMapping {
+        try {
+            $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
+
+            $charData = [
+                'name' => $characteristic['name'],
+                'type' => $characteristic['type'] ?? 'string',
+                'required' => $characteristic['required'] ?? false,
+            ];
+
+            $result = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->post('entity/variant/metadata/characteristics', $charData);
+
+            $newChar = $result['data'];
+
+            // Сохранить маппинг
+            $mapping = CharacteristicMapping::create([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'parent_characteristic_id' => $characteristic['id'],
+                'child_characteristic_id' => $newChar['id'],
+                'characteristic_name' => $characteristic['name'],
+                'auto_created' => true,
+            ]);
+
+            Log::info('Characteristic created in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'characteristic_name' => $characteristic['name']
+            ]);
+
+            return $mapping;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create characteristic in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'characteristic' => $characteristic,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
+    }
+
+    /**
+     * Синхронизировать комплект (bundle) из главного в дочерний аккаунт
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $bundleId UUID комплекта в главном аккаунте
+     * @return array|null Созданный/обновленный комплект в дочернем аккаунте
+     */
+    public function syncBundle(string $mainAccountId, string $childAccountId, string $bundleId): ?array
+    {
+        try {
+            // Получить настройки синхронизации
+            $settings = SyncSetting::where('account_id', $childAccountId)->first();
+
+            if (!$settings || !$settings->sync_products) {
+                Log::debug('Bundle sync is disabled', ['child_account_id' => $childAccountId]);
+                return null;
+            }
+
+            // Получить комплект из главного аккаунта
+            $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
+            $bundleResult = $this->moySkladService
+                ->setAccessToken($mainAccount->access_token)
+                ->get("entity/bundle/{$bundleId}", ['expand' => 'components.assortment']);
+
+            $bundle = $bundleResult['data'];
+
+            // Проверить фильтры
+            if (!$this->passesFilters($bundle, $settings, $mainAccountId)) {
+                Log::debug('Bundle does not pass filters', [
+                    'bundle_id' => $bundleId,
+                    'child_account_id' => $childAccountId
+                ]);
+                return null;
+            }
+
+            // Проверить маппинг
+            $mapping = EntityMapping::where('parent_account_id', $mainAccountId)
+                ->where('child_account_id', $childAccountId)
+                ->where('parent_entity_id', $bundleId)
+                ->where('entity_type', 'bundle')
+                ->where('sync_direction', 'main_to_child')
+                ->first();
+
+            $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
+
+            if ($mapping) {
+                // Комплект уже существует, обновляем
+                return $this->updateBundle($childAccount, $mainAccountId, $childAccountId, $bundle, $mapping, $settings);
+            } else {
+                // Создаем новый комплект
+                return $this->createBundle($childAccount, $mainAccountId, $childAccountId, $bundle, $settings);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Failed to sync bundle', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'bundle_id' => $bundleId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Создать комплект в дочернем аккаунте
+     */
+    protected function createBundle(
+        Account $childAccount,
+        string $mainAccountId,
+        string $childAccountId,
+        array $bundle,
+        SyncSetting $settings
+    ): array {
+        $bundleData = [
+            'name' => $bundle['name'],
+            'article' => $bundle['article'] ?? null,
+            'code' => $bundle['code'] ?? null,
+            'externalCode' => $bundle['externalCode'] ?? null,
+            'description' => $bundle['description'] ?? null,
+        ];
+
+        // Синхронизировать компоненты комплекта
+        if (isset($bundle['components'])) {
+            $bundleData['components'] = $this->syncBundleComponents(
+                $mainAccountId,
+                $childAccountId,
+                $bundle['components']
+            );
+        }
+
+        // Создать комплект
+        $newBundleResult = $this->moySkladService
+            ->setAccessToken($childAccount->access_token)
+            ->post('entity/bundle', $bundleData);
+
+        $newBundle = $newBundleResult['data'];
+
+        // Сохранить маппинг
+        EntityMapping::create([
+            'parent_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'entity_type' => 'bundle',
+            'parent_entity_id' => $bundle['id'],
+            'child_entity_id' => $newBundle['id'],
+            'sync_direction' => 'main_to_child',
+            'match_field' => $settings->product_match_field ?? 'article',
+            'match_value' => $bundle[$settings->product_match_field ?? 'article'] ?? null,
+        ]);
+
+        Log::info('Bundle created in child account', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'main_bundle_id' => $bundle['id'],
+            'child_bundle_id' => $newBundle['id']
+        ]);
+
+        return $newBundle;
+    }
+
+    /**
+     * Обновить комплект в дочернем аккаунте
+     */
+    protected function updateBundle(
+        Account $childAccount,
+        string $mainAccountId,
+        string $childAccountId,
+        array $bundle,
+        EntityMapping $mapping,
+        SyncSetting $settings
+    ): array {
+        $bundleData = [
+            'name' => $bundle['name'],
+            'article' => $bundle['article'] ?? null,
+            'code' => $bundle['code'] ?? null,
+            'externalCode' => $bundle['externalCode'] ?? null,
+            'description' => $bundle['description'] ?? null,
+        ];
+
+        // Компоненты комплекта
+        if (isset($bundle['components'])) {
+            $bundleData['components'] = $this->syncBundleComponents(
+                $mainAccountId,
+                $childAccountId,
+                $bundle['components']
+            );
+        }
+
+        // Обновить комплект
+        $updatedBundleResult = $this->moySkladService
+            ->setAccessToken($childAccount->access_token)
+            ->put("entity/bundle/{$mapping->child_entity_id}", $bundleData);
+
+        Log::info('Bundle updated in child account', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'main_bundle_id' => $bundle['id'],
+            'child_bundle_id' => $mapping->child_entity_id
+        ]);
+
+        return $updatedBundleResult['data'];
+    }
+
+    /**
+     * Синхронизировать компоненты комплекта
+     */
+    protected function syncBundleComponents(
+        string $mainAccountId,
+        string $childAccountId,
+        array $components
+    ): array {
+        $syncedComponents = [];
+
+        foreach ($components as $component) {
+            $assortment = $component['assortment'] ?? null;
+            if (!$assortment) {
+                continue;
+            }
+
+            $entityType = $assortment['meta']['type'] ?? null;
+            $entityHref = $assortment['meta']['href'] ?? null;
+            $entityId = $this->extractEntityId($entityHref);
+
+            if (!$entityId || !in_array($entityType, ['product', 'variant'])) {
+                continue;
+            }
+
+            // Найти маппинг компонента
+            $componentMapping = EntityMapping::where('parent_account_id', $mainAccountId)
+                ->where('child_account_id', $childAccountId)
+                ->where('parent_entity_id', $entityId)
+                ->where('entity_type', $entityType)
+                ->first();
+
+            if (!$componentMapping) {
+                // Синхронизировать компонент если он еще не синхронизирован
+                if ($entityType === 'product') {
+                    $this->syncProduct($mainAccountId, $childAccountId, $entityId);
+                } elseif ($entityType === 'variant') {
+                    $this->syncVariant($mainAccountId, $childAccountId, $entityId);
+                }
+
+                // Повторно получить маппинг
+                $componentMapping = EntityMapping::where('parent_account_id', $mainAccountId)
+                    ->where('child_account_id', $childAccountId)
+                    ->where('parent_entity_id', $entityId)
+                    ->where('entity_type', $entityType)
+                    ->first();
+            }
+
+            if ($componentMapping) {
+                $syncedComponents[] = [
+                    'assortment' => [
+                        'meta' => [
+                            'href' => config('moysklad.api_url') . "/entity/{$entityType}/{$componentMapping->child_entity_id}",
+                            'type' => $entityType,
+                            'mediaType' => 'application/json'
+                        ]
+                    ],
+                    'quantity' => $component['quantity'] ?? 1
+                ];
+            }
+        }
+
+        return $syncedComponents;
+    }
+
+    /**
+     * Извлечь ID сущности из href
+     */
+    protected function extractEntityId(string $href): ?string
+    {
+        if (empty($href)) {
+            return null;
+        }
+
+        $parts = explode('/', $href);
+        return end($parts) ?: null;
+    }
 }
