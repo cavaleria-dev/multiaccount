@@ -115,6 +115,21 @@
           <div class="flex items-start">
             <div class="flex items-center h-5">
               <input
+                id="sync_services"
+                v-model="settings.sync_services"
+                type="checkbox"
+                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
+              />
+            </div>
+            <div class="ml-3 text-sm">
+              <label for="sync_services" class="font-medium text-gray-700">Услуги</label>
+              <p class="text-gray-500">Синхронизировать услуги</p>
+            </div>
+          </div>
+
+          <div class="flex items-start">
+            <div class="flex items-center h-5">
+              <input
                 id="sync_images"
                 v-model="settings.sync_images"
                 type="checkbox"
@@ -333,45 +348,199 @@
         </div>
       </div>
 
-      <!-- Фильтрация товаров -->
+      <!-- Расширенные настройки товаров -->
       <div class="bg-white shadow rounded-lg p-6">
-        <h3 class="text-lg font-medium text-gray-900 mb-4">Фильтрация товаров</h3>
-        <div class="space-y-4">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Расширенные настройки товаров</h3>
+        <div class="space-y-6">
+          <!-- Product match field -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Поле для сопоставления товаров</label>
+            <select
+              v-model="settings.product_match_field"
+              class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            >
+              <option value="code">Код (code)</option>
+              <option value="article">Артикул (article)</option>
+              <option value="externalCode">Внешний код (externalCode)</option>
+              <option value="barcode">Штрихкод (первый barcode)</option>
+            </select>
+            <p class="mt-1 text-xs text-gray-500">По какому полю искать существующие товары в дочернем аккаунте</p>
+          </div>
+
+          <!-- Create product folders -->
           <div class="flex items-start">
             <div class="flex items-center h-5">
               <input
-                id="product_filters_enabled"
-                v-model="settings.product_filters_enabled"
+                id="create_product_folders"
+                v-model="settings.create_product_folders"
                 type="checkbox"
                 class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
               />
             </div>
             <div class="ml-3 text-sm">
-              <label for="product_filters_enabled" class="font-medium text-gray-700">Включить фильтрацию товаров</label>
-              <p class="text-gray-500">Использовать фильтры для выборочной синхронизации товаров</p>
+              <label for="create_product_folders" class="font-medium text-gray-700">Создавать группы товаров</label>
+              <p class="text-gray-500">Создавать соответствующие группы товаров в дочернем аккаунте (структура каталога)</p>
             </div>
           </div>
 
-          <div v-if="settings.product_filters_enabled" class="ml-7">
-            <div class="bg-yellow-50 border border-yellow-200 rounded-md p-4">
-              <p class="text-sm text-yellow-800">
-                <strong>Фильтры товаров</strong> настраиваются в JSON формате.
-                <a href="https://github.com/cavaleria-dev/multiaccount/blob/main/docs/PRODUCT_FILTERS.md" target="_blank" class="underline">
-                  Смотрите документацию
-                </a>
-              </p>
-            </div>
-            <div class="mt-3">
-              <label class="block text-sm font-medium text-gray-700">JSON фильтров</label>
-              <textarea
-                v-model="productFiltersJson"
-                rows="10"
-                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm font-mono text-xs"
-                placeholder='{"enabled": true, "mode": "whitelist", "logic": "AND", "conditions": []}'
-              ></textarea>
-              <p v-if="filterJsonError" class="mt-1 text-xs text-red-600">{{ filterJsonError }}</p>
-            </div>
+          <!-- Sync all products button -->
+          <div class="border-t border-gray-200 pt-4">
+            <button
+              type="button"
+              @click="syncAllProducts"
+              :disabled="syncing"
+              class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-all"
+            >
+              <svg v-if="syncing" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span v-if="syncing">Синхронизация...</span>
+              <span v-else>Синхронизировать все товары</span>
+            </button>
+            <p v-if="syncProgress" class="mt-2 text-sm text-green-600">{{ syncProgress }}</p>
+            <p class="mt-2 text-xs text-gray-500">Запустит синхронизацию всех товаров согласно настройкам и фильтрам</p>
           </div>
+        </div>
+      </div>
+
+      <!-- Price mappings -->
+      <div class="bg-white shadow rounded-lg p-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Сопоставление типов цен</h3>
+        <p class="text-sm text-gray-500 mb-4">
+          Задайте соответствие между типами цен главного и дочернего аккаунтов. Пусто = синхронизировать все типы цен.
+        </p>
+
+        <div v-if="loadingPriceTypes" class="text-center py-4">
+          <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+          <p class="text-sm text-gray-500 mt-2">Загрузка типов цен...</p>
+        </div>
+
+        <div v-else class="space-y-3">
+          <div
+            v-for="(mapping, index) in priceMappings"
+            :key="`price-mapping-${index}`"
+            class="flex gap-3 items-start"
+          >
+            <div class="flex-1">
+              <label class="block text-xs font-medium text-gray-700 mb-1">Тип цены (главный)</label>
+              <select
+                v-model="mapping.main_price_type_id"
+                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
+              >
+                <option value="">Выберите...</option>
+                <option
+                  v-for="pt in priceTypes.main"
+                  :key="pt.id"
+                  :value="pt.id"
+                >
+                  {{ pt.name }}
+                </option>
+              </select>
+            </div>
+            <div class="flex-1">
+              <label class="block text-xs font-medium text-gray-700 mb-1">Тип цены (дочерний)</label>
+              <select
+                v-model="mapping.child_price_type_id"
+                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
+              >
+                <option value="">Выберите...</option>
+                <option
+                  v-for="pt in priceTypes.child"
+                  :key="pt.id"
+                  :value="pt.id"
+                >
+                  {{ pt.name }}
+                </option>
+              </select>
+            </div>
+            <button
+              type="button"
+              @click="removePriceMapping(index)"
+              class="mt-6 text-gray-400 hover:text-red-600 focus:outline-none transition-colors"
+            >
+              <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            @click="addPriceMapping"
+            class="w-full px-3 py-2 border border-dashed border-gray-300 rounded-md text-sm text-gray-600 hover:border-indigo-500 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+          >
+            + Добавить сопоставление
+          </button>
+        </div>
+      </div>
+
+      <!-- Attribute selection -->
+      <div class="bg-white shadow rounded-lg p-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Выбор дополнительных полей для синхронизации</h3>
+        <p class="text-sm text-gray-500 mb-4">
+          Выберите дополнительные поля (атрибуты), которые нужно синхронизировать. Пусто = синхронизировать все поля.
+        </p>
+
+        <div v-if="loadingAttributes" class="text-center py-4">
+          <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+          <p class="text-sm text-gray-500 mt-2">Загрузка атрибутов...</p>
+        </div>
+
+        <div v-else-if="attributes.length === 0" class="text-center py-8">
+          <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <p class="text-sm text-gray-500 mt-3">Дополнительных полей не найдено</p>
+        </div>
+
+        <div v-else class="max-h-64 overflow-y-auto border border-gray-200 rounded-md p-3 space-y-2">
+          <label
+            v-for="attr in attributes"
+            :key="attr.id"
+            class="flex items-center py-1 px-2 hover:bg-gray-50 rounded cursor-pointer transition-colors"
+          >
+            <input
+              type="checkbox"
+              :value="attr.id"
+              v-model="selectedAttributes"
+              class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded mr-2"
+            />
+            <span class="text-sm text-gray-900">{{ attr.name }}</span>
+            <span class="ml-2 text-xs text-gray-500">({{ attr.type }})</span>
+          </label>
+        </div>
+
+        <p v-if="selectedAttributes.length > 0" class="mt-3 text-sm text-gray-600">
+          Выбрано атрибутов: <span class="font-medium text-indigo-600">{{ selectedAttributes.length }}</span>
+        </p>
+      </div>
+
+      <!-- Фильтрация товаров -->
+      <div class="bg-white shadow rounded-lg p-6">
+        <div class="flex items-start mb-4">
+          <div class="flex items-center h-5">
+            <input
+              id="product_filters_enabled"
+              v-model="settings.product_filters_enabled"
+              type="checkbox"
+              class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
+            />
+          </div>
+          <div class="ml-3">
+            <label for="product_filters_enabled" class="text-sm font-medium text-gray-700">Включить фильтрацию товаров</label>
+            <p class="text-sm text-gray-500">Использовать фильтры для выборочной синхронизации товаров</p>
+          </div>
+        </div>
+
+        <div v-if="settings.product_filters_enabled">
+          <ProductFilterBuilder
+            v-model="settings.product_filters"
+            :account-id="accountId"
+            :attributes="attributes"
+            :folders="folders"
+            :loading-folders="loadingFolders"
+          />
         </div>
       </div>
 
@@ -457,6 +626,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
+import ProductFilterBuilder from '../components/ProductFilterBuilder.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -469,11 +639,22 @@ const error = ref(null)
 const saveSuccess = ref(false)
 const filterJsonError = ref(null)
 
+// Extended settings
+const priceTypes = ref({ main: [], child: [] })
+const attributes = ref([])
+const folders = ref([])
+const loadingPriceTypes = ref(false)
+const loadingAttributes = ref(false)
+const loadingFolders = ref(false)
+const syncing = ref(false)
+const syncProgress = ref(null)
+
 const settings = ref({
   sync_enabled: true,
   sync_products: true,
   sync_variants: true,
   sync_bundles: true,
+  sync_services: true,
   sync_images: true,
   sync_images_all: false,
   sync_prices: true,
@@ -493,28 +674,57 @@ const settings = ref({
   responsible_employee_id: null,
   product_filters_enabled: false,
   product_filters: null,
+  product_match_field: 'article',
+  create_product_folders: true,
+  price_mappings: null,
+  attribute_sync_list: null,
   auto_create_attributes: true,
   auto_create_characteristics: true,
   auto_create_price_types: true
 })
 
-// JSON для фильтров
-const productFiltersJson = ref('')
+// Price mappings array for UI
+const priceMappings = ref([])
 
-// Следить за изменениями JSON
-watch(productFiltersJson, (newValue) => {
-  filterJsonError.value = null
-  if (!newValue || newValue.trim() === '') {
-    settings.value.product_filters = null
-    return
-  }
+// Attribute sync list for UI
+const selectedAttributes = ref([])
 
+// Load extended data
+const loadPriceTypes = async () => {
   try {
-    settings.value.product_filters = JSON.parse(newValue)
-  } catch (e) {
-    filterJsonError.value = 'Некорректный JSON: ' + e.message
+    loadingPriceTypes.value = true
+    const response = await api.syncSettings.getPriceTypes(accountId.value)
+    priceTypes.value = response.data
+  } catch (err) {
+    console.error('Failed to load price types:', err)
+  } finally {
+    loadingPriceTypes.value = false
   }
-})
+}
+
+const loadAttributes = async () => {
+  try {
+    loadingAttributes.value = true
+    const response = await api.syncSettings.getAttributes(accountId.value)
+    attributes.value = response.data.data || []
+  } catch (err) {
+    console.error('Failed to load attributes:', err)
+  } finally {
+    loadingAttributes.value = false
+  }
+}
+
+const loadFolders = async () => {
+  try {
+    loadingFolders.value = true
+    const response = await api.syncSettings.getFolders(accountId.value)
+    folders.value = response.data.data || []
+  } catch (err) {
+    console.error('Failed to load folders:', err)
+  } finally {
+    loadingFolders.value = false
+  }
+}
 
 // Загрузка настроек
 const loadSettings = async () => {
@@ -542,10 +752,26 @@ const loadSettings = async () => {
       }
     })
 
-    // Преобразовать product_filters в JSON
-    if (loadedSettings.product_filters) {
-      productFiltersJson.value = JSON.stringify(loadedSettings.product_filters, null, 2)
+    // Convert price_mappings from JSON to array
+    if (loadedSettings.price_mappings) {
+      priceMappings.value = Array.isArray(loadedSettings.price_mappings)
+        ? loadedSettings.price_mappings
+        : []
     }
+
+    // Convert attribute_sync_list from JSON to array
+    if (loadedSettings.attribute_sync_list) {
+      selectedAttributes.value = Array.isArray(loadedSettings.attribute_sync_list)
+        ? loadedSettings.attribute_sync_list
+        : []
+    }
+
+    // Load extended data
+    await Promise.all([
+      loadPriceTypes(),
+      loadAttributes(),
+      loadFolders()
+    ])
 
   } catch (err) {
     console.error('Failed to load settings:', err)
@@ -555,21 +781,54 @@ const loadSettings = async () => {
   }
 }
 
+// Price mappings management
+const addPriceMapping = () => {
+  priceMappings.value.push({
+    main_price_type_id: '',
+    child_price_type_id: ''
+  })
+}
+
+const removePriceMapping = (index) => {
+  priceMappings.value.splice(index, 1)
+}
+
+// Sync all products action
+const syncAllProducts = async () => {
+  if (!confirm('Запустить синхронизацию всех товаров? Это может занять продолжительное время.')) {
+    return
+  }
+
+  try {
+    syncing.value = true
+    syncProgress.value = 'Запуск синхронизации...'
+
+    const response = await api.syncActions.syncAllProducts(accountId.value)
+
+    syncProgress.value = `Синхронизация запущена! Создано задач: ${response.data.tasks_created}`
+
+    setTimeout(() => {
+      syncProgress.value = null
+      syncing.value = false
+    }, 5000)
+
+  } catch (err) {
+    console.error('Failed to sync products:', err)
+    alert('Не удалось запустить синхронизацию: ' + (err.response?.data?.error || err.message))
+    syncing.value = false
+    syncProgress.value = null
+  }
+}
+
 // Сохранение настроек
 const saveSettings = async () => {
   try {
     saving.value = true
     filterJsonError.value = null
 
-    // Валидация JSON фильтров
-    if (settings.value.product_filters_enabled && productFiltersJson.value) {
-      try {
-        settings.value.product_filters = JSON.parse(productFiltersJson.value)
-      } catch (e) {
-        filterJsonError.value = 'Некорректный JSON фильтров'
-        return
-      }
-    }
+    // Convert arrays back to JSON for storage
+    settings.value.price_mappings = priceMappings.value.length > 0 ? priceMappings.value : null
+    settings.value.attribute_sync_list = selectedAttributes.value.length > 0 ? selectedAttributes.value : null
 
     await api.syncSettings.update(accountId.value, settings.value)
 
