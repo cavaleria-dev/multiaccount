@@ -59,22 +59,40 @@ class SyncActionsController extends Controller
         $tasksCreated = 0;
 
         try {
-            // Синхронизировать товары (product)
+            // Синхронизировать товары (product) - постранично
             if ($syncSettings->sync_products) {
-                $products = $this->fetchAllProducts($moysklad, $mainAccount->access_token);
-                $tasksCreated += $this->createSyncTasks($products, 'product', $accountId, $syncSettings, $filterService);
+                $tasksCreated += $this->syncEntityType(
+                    $moysklad,
+                    $mainAccount->access_token,
+                    'product',
+                    $accountId,
+                    $syncSettings,
+                    $filterService
+                );
             }
 
-            // Синхронизировать комплекты (bundle)
+            // Синхронизировать комплекты (bundle) - постранично
             if ($syncSettings->sync_bundles) {
-                $bundles = $this->fetchAllBundles($moysklad, $mainAccount->access_token);
-                $tasksCreated += $this->createSyncTasks($bundles, 'bundle', $accountId, $syncSettings, $filterService);
+                $tasksCreated += $this->syncEntityType(
+                    $moysklad,
+                    $mainAccount->access_token,
+                    'bundle',
+                    $accountId,
+                    $syncSettings,
+                    $filterService
+                );
             }
 
-            // Синхронизировать услуги (service)
+            // Синхронизировать услуги (service) - постранично
             if ($syncSettings->sync_services ?? false) {
-                $services = $this->fetchAllServices($moysklad, $mainAccount->access_token);
-                $tasksCreated += $this->createSyncTasks($services, 'service', $accountId, $syncSettings, $filterService);
+                $tasksCreated += $this->syncEntityType(
+                    $moysklad,
+                    $mainAccount->access_token,
+                    'service',
+                    $accountId,
+                    $syncSettings,
+                    $filterService
+                );
             }
 
             Log::info('Sync all products initiated', [
@@ -102,123 +120,83 @@ class SyncActionsController extends Controller
     }
 
     /**
-     * Получить все товары из аккаунта
+     * Синхронизировать сущности постранично (избегаем загрузки всех товаров в память)
+     *
+     * @param MoySkladService $moysklad
+     * @param string $token
+     * @param string $entityType product|bundle|service
+     * @param string $accountId
+     * @param SyncSetting $syncSettings
+     * @param ProductFilterService $filterService
+     * @return int Количество созданных задач
      */
-    private function fetchAllProducts(MoySkladService $moysklad, string $token): array
-    {
-        $allProducts = [];
-        $offset = 0;
-        $limit = 1000;
-
-        do {
-            $response = $moysklad->request($token, 'GET', '/entity/product', [
-                'limit' => $limit,
-                'offset' => $offset
-            ]);
-
-            $products = $response['rows'] ?? [];
-            $allProducts = array_merge($allProducts, $products);
-
-            $offset += $limit;
-        } while (count($products) === $limit);
-
-        Log::info('Products fetched', ['count' => count($allProducts)]);
-
-        return $allProducts;
-    }
-
-    /**
-     * Получить все комплекты из аккаунта
-     */
-    private function fetchAllBundles(MoySkladService $moysklad, string $token): array
-    {
-        $allBundles = [];
-        $offset = 0;
-        $limit = 1000;
-
-        do {
-            $response = $moysklad->request($token, 'GET', '/entity/bundle', [
-                'limit' => $limit,
-                'offset' => $offset
-            ]);
-
-            $bundles = $response['rows'] ?? [];
-            $allBundles = array_merge($allBundles, $bundles);
-
-            $offset += $limit;
-        } while (count($bundles) === $limit);
-
-        Log::info('Bundles fetched', ['count' => count($allBundles)]);
-
-        return $allBundles;
-    }
-
-    /**
-     * Получить все услуги из аккаунта
-     */
-    private function fetchAllServices(MoySkladService $moysklad, string $token): array
-    {
-        $allServices = [];
-        $offset = 0;
-        $limit = 1000;
-
-        do {
-            $response = $moysklad->request($token, 'GET', '/entity/service', [
-                'limit' => $limit,
-                'offset' => $offset
-            ]);
-
-            $services = $response['rows'] ?? [];
-            $allServices = array_merge($allServices, $services);
-
-            $offset += $limit;
-        } while (count($services) === $limit);
-
-        Log::info('Services fetched', ['count' => count($allServices)]);
-
-        return $allServices;
-    }
-
-    /**
-     * Создать задачи синхронизации для сущностей
-     */
-    private function createSyncTasks(
-        array $entities,
+    private function syncEntityType(
+        MoySkladService $moysklad,
+        string $token,
         string $entityType,
         string $accountId,
         SyncSetting $syncSettings,
         ProductFilterService $filterService
     ): int {
         $tasksCreated = 0;
+        $offset = 0;
+        $limit = 1000; // Максимум для МойСклад без expand
+        $totalProcessed = 0;
 
-        foreach ($entities as $entity) {
-            // Применить фильтры (только для товаров, комплектов)
-            if (in_array($entityType, ['product', 'bundle'])) {
-                if ($syncSettings->product_filters_enabled && $syncSettings->product_filters) {
-                    if (!$filterService->passes($entity, $syncSettings->product_filters)) {
-                        continue; // Пропустить
-                    }
-                }
-            }
+        Log::info("Starting sync for entity type: {$entityType}");
 
-            // Создать задачу
-            SyncQueue::create([
-                'account_id' => $accountId,
-                'entity_type' => $entityType,
-                'entity_id' => $entity['id'],
-                'operation' => 'create', // Или 'update' если проверять entity_mappings
-                'priority' => 10, // Высокий приоритет для ручной синхронизации
-                'scheduled_at' => now(),
-                'status' => 'pending',
-                'attempts' => 0
+        do {
+            // Загрузить страницу
+            $response = $moysklad->request($token, 'GET', "/entity/{$entityType}", [
+                'limit' => $limit,
+                'offset' => $offset
             ]);
 
-            $tasksCreated++;
-        }
+            $entities = $response['rows'] ?? [];
+            $pageCount = count($entities);
+            $totalProcessed += $pageCount;
 
-        Log::info('Sync tasks created', [
-            'entity_type' => $entityType,
-            'count' => $tasksCreated
+            // Создать задачи для текущей страницы
+            foreach ($entities as $entity) {
+                // Применить фильтры (только для товаров, комплектов)
+                if (in_array($entityType, ['product', 'bundle'])) {
+                    if ($syncSettings->product_filters_enabled && $syncSettings->product_filters) {
+                        if (!$filterService->passes($entity, $syncSettings->product_filters)) {
+                            continue; // Пропустить
+                        }
+                    }
+                }
+
+                // Создать задачу синхронизации
+                SyncQueue::create([
+                    'account_id' => $accountId,
+                    'entity_type' => $entityType,
+                    'entity_id' => $entity['id'],
+                    'operation' => 'create', // Или 'update' если проверять entity_mappings
+                    'priority' => 10, // Высокий приоритет для ручной синхронизации
+                    'scheduled_at' => now(),
+                    'status' => 'pending',
+                    'attempts' => 0
+                ]);
+
+                $tasksCreated++;
+            }
+
+            Log::info("Processed page for {$entityType}", [
+                'offset' => $offset,
+                'page_size' => $pageCount,
+                'tasks_created_on_page' => $tasksCreated,
+                'total_processed' => $totalProcessed
+            ]);
+
+            $offset += $limit;
+
+            // Продолжать пока получаем полную страницу (1000 записей)
+        } while ($pageCount === $limit);
+
+        Log::info("Finished sync for entity type: {$entityType}", [
+            'total_entities_processed' => $totalProcessed,
+            'total_tasks_created' => $tasksCreated
         ]);
 
         return $tasksCreated;
