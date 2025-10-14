@@ -20,7 +20,30 @@
 
     <!-- Таблица аккаунтов -->
     <div class="bg-white shadow overflow-hidden sm:rounded-lg">
-      <table class="min-w-full divide-y divide-gray-300">
+      <!-- Loading state -->
+      <div v-if="loading" class="px-6 py-12 text-center">
+        <svg class="animate-spin h-8 w-8 mx-auto text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p class="mt-2 text-sm text-gray-500">Загрузка...</p>
+      </div>
+
+      <!-- Error state -->
+      <div v-else-if="error" class="px-6 py-8 text-center">
+        <div class="text-red-600 mb-2">
+          <svg class="h-8 w-8 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <p class="text-sm text-gray-700">{{ error }}</p>
+        <button @click="loadAccounts" class="mt-3 text-indigo-600 hover:text-indigo-500 text-sm font-medium">
+          Попробовать снова
+        </button>
+      </div>
+
+      <!-- Table -->
+      <table v-else class="min-w-full divide-y divide-gray-300">
         <thead class="bg-gray-50">
           <tr>
             <th scope="col" class="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
@@ -45,8 +68,8 @@
             <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
               {{ account.account_name || 'Без названия' }}
             </td>
-            <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-              {{ account.account_id }}
+            <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 font-mono">
+              {{ account.account_id.substring(0, 8) }}...
             </td>
             <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
               <span
@@ -74,6 +97,11 @@
           </tr>
           <tr v-if="accounts.length === 0">
             <td colspan="5" class="px-3 py-8 text-center text-sm text-gray-500">
+              <div class="text-gray-400 mb-2">
+                <svg class="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </div>
               Нет подключенных дочерних аккаунтов
             </td>
           </tr>
@@ -87,6 +115,20 @@
         <h3 class="text-lg font-medium text-gray-900 mb-4">Добавить дочерний аккаунт</h3>
 
         <form @submit.prevent="addAccount" class="space-y-4">
+          <!-- Error message -->
+          <div v-if="addError" class="rounded-md bg-red-50 p-3">
+            <div class="flex">
+              <div class="flex-shrink-0">
+                <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                </svg>
+              </div>
+              <div class="ml-3">
+                <p class="text-sm text-red-800">{{ addError }}</p>
+              </div>
+            </div>
+          </div>
+
           <div>
             <label for="account-name" class="block text-sm font-medium text-gray-700 mb-1">
               Название аккаунта
@@ -109,7 +151,8 @@
             <button
               type="button"
               @click="closeAddModal"
-              class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              :disabled="addingAccount"
+              class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Отмена
             </button>
@@ -118,11 +161,33 @@
               :disabled="!newAccountName.trim() || addingAccount"
               class="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
+              <svg v-if="addingAccount" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
               <span v-if="addingAccount">Добавление...</span>
               <span v-else>Добавить</span>
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Success notification -->
+    <div v-if="showSuccessNotification" class="fixed bottom-4 right-4 z-50 animate-slide-up">
+      <div class="bg-green-50 border border-green-200 rounded-lg p-4 shadow-lg max-w-sm">
+        <div class="flex items-start">
+          <div class="flex-shrink-0">
+            <svg class="h-6 w-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div class="ml-3 flex-1">
+            <p class="text-sm font-medium text-green-800">
+              Аккаунт успешно добавлен!
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -141,6 +206,8 @@ const loading = ref(false)
 const error = ref(null)
 const newAccountName = ref('')
 const addingAccount = ref(false)
+const addError = ref(null)
+const showSuccessNotification = ref(false)
 
 // Загрузка списка аккаунтов
 const loadAccounts = async () => {
@@ -161,6 +228,7 @@ const loadAccounts = async () => {
 watch(showAddModal, (newValue) => {
   if (!newValue) {
     newAccountName.value = ''
+    addError.value = null
   }
 })
 
@@ -204,6 +272,7 @@ async function deleteAccount(account) {
 function closeAddModal() {
   showAddModal.value = false
   newAccountName.value = ''
+  addError.value = null
 }
 
 async function addAccount() {
@@ -213,17 +282,46 @@ async function addAccount() {
 
   try {
     addingAccount.value = true
+    addError.value = null
+
     await api.childAccounts.create({
       account_name: newAccountName.value.trim()
     })
+
+    // Закрыть модалку
     showAddModal.value = false
     newAccountName.value = ''
+
+    // Показать уведомление об успехе
+    showSuccessNotification.value = true
+    setTimeout(() => {
+      showSuccessNotification.value = false
+    }, 3000)
+
+    // Перезагрузить список аккаунтов
     await loadAccounts()
   } catch (err) {
     console.error('Failed to add account:', err)
-    alert('Не удалось добавить аккаунт: ' + (err.response?.data?.error || err.message))
+    addError.value = err.response?.data?.error || err.message || 'Не удалось добавить аккаунт'
   } finally {
     addingAccount.value = false
   }
 }
 </script>
+
+<style scoped>
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+</style>

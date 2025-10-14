@@ -30,10 +30,6 @@ class ChildAccountController extends Controller
         $childAccounts = DB::table('child_accounts')
             ->join('accounts', 'child_accounts.child_account_id', '=', 'accounts.account_id')
             ->leftJoin('sync_settings', 'accounts.account_id', '=', 'sync_settings.account_id')
-            ->leftJoin('sync_statistics', function($join) {
-                $join->on('accounts.account_id', '=', 'sync_statistics.account_id')
-                     ->whereRaw('sync_statistics.id IN (SELECT MAX(id) FROM sync_statistics GROUP BY account_id)');
-            })
             ->where('child_accounts.parent_account_id', $mainAccountId)
             ->select(
                 'accounts.id',
@@ -41,13 +37,23 @@ class ChildAccountController extends Controller
                 'accounts.account_name',
                 'accounts.status',
                 'accounts.created_at',
-                'sync_settings.sync_enabled',
-                'sync_statistics.last_sync_at',
-                'sync_statistics.products_synced',
-                'sync_statistics.orders_synced'
+                'child_accounts.connected_at',
+                'sync_settings.sync_enabled'
             )
-            ->orderBy('accounts.created_at', 'desc')
+            ->orderBy('child_accounts.connected_at', 'desc')
             ->get();
+
+        // Добавить статистику синхронизации для каждого аккаунта отдельным запросом
+        foreach ($childAccounts as $account) {
+            $stats = DB::table('sync_statistics')
+                ->where('account_id', $account->account_id)
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            $account->last_sync_at = $stats->last_sync_at ?? null;
+            $account->products_synced = $stats->products_synced ?? 0;
+            $account->orders_synced = $stats->orders_synced ?? 0;
+        }
 
         return response()->json([
             'data' => $childAccounts
@@ -120,6 +126,13 @@ class ChildAccountController extends Controller
         if ($childAccount->account_id === $mainAccountId) {
             return response()->json([
                 'error' => 'Нельзя добавить самого себя в качестве дочернего аккаунта'
+            ], 400);
+        }
+
+        // Проверить что добавляемый аккаунт не является главным
+        if ($childAccount->account_type === 'main') {
+            return response()->json([
+                'error' => 'Нельзя добавить главный аккаунт в качестве дочернего. Только дочерние аккаунты могут быть подключены к главному.'
             ], 400);
         }
 
