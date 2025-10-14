@@ -145,7 +145,10 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import api from '../api'
+
+const router = useRouter()
 
 const accounts = ref([])
 const showAddModal = ref(false)
@@ -191,10 +194,8 @@ function formatDate(date) {
 }
 
 function editAccount(account) {
-  // TODO: Открыть модальное окно редактирования настроек
-  console.log('Edit account:', account)
   // Переход на страницу настроек для этого аккаунта
-  // router.push(`/app/settings/${account.account_id}`)
+  router.push(`/app/settings/${account.account_id}`)
 }
 
 async function deleteAccount(account) {

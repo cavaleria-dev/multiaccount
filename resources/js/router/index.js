@@ -15,9 +15,10 @@ const routes = [
     component: ChildAccounts
   },
   {
-    path: '/app/settings',
+    path: '/app/settings/:accountId',
     name: 'sync-settings',
-    component: SyncSettings
+    component: SyncSettings,
+    props: true
   }
 ]
 
