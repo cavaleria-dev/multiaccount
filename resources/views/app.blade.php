@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" class="h-full">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -21,8 +21,23 @@
             <script type="module" src="{{ asset('build/' . $jsFile) }}"></script>
         @endif
     @endif
+
+    <style>
+        /* Ensure proper scrolling in iframe */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #app {
+            height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+    </style>
 </head>
-<body>
+<body class="h-full">
     <div id="app"></div>
 </body>
 </html>

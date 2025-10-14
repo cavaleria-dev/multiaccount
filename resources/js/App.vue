@@ -1,7 +1,7 @@
 <template>
-  <div id="app" class="min-h-screen bg-gray-50">
+  <div id="app" class="h-screen overflow-y-auto bg-gray-50">
     <!-- Навигация -->
-    <nav class="bg-white border-b border-gray-200">
+    <nav class="bg-white border-b border-gray-200 sticky top-0 z-10">
       <div class="px-4 sm:px-6">
         <div class="flex justify-between h-14">
           <div class="flex">
