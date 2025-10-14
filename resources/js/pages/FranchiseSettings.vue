@@ -349,9 +349,15 @@
       <!-- Price mappings -->
       <div class="bg-white shadow rounded-lg p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">Сопоставление типов цен</h3>
-        <p class="text-sm text-gray-500 mb-4">
+        <p class="text-sm text-gray-500 mb-2">
           Задайте соответствие между типами цен главного и дочернего аккаунтов. Пусто = синхронизировать все типы цен.
         </p>
+        <div class="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4">
+          <p class="text-xs text-blue-800">
+            <strong>💰 Закупочная цена</strong> - специальный тип для поля buyPrice товаров, услуг и модификаций.
+            Можно сопоставлять с другими типами цен или оставить как buyPrice.
+          </p>
+        </div>
 
         <div v-if="loadingPriceTypes" class="text-center py-4">
           <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
@@ -375,8 +381,9 @@
                   v-for="pt in priceTypes.main"
                   :key="pt.id"
                   :value="pt.id"
+                  :class="{ 'font-semibold': pt.id === 'buyPrice' }"
                 >
-                  {{ pt.name }}
+                  {{ pt.id === 'buyPrice' ? '💰 ' : '' }}{{ pt.name }}
                 </option>
               </select>
             </div>
@@ -391,8 +398,9 @@
                   v-for="pt in priceTypes.child"
                   :key="pt.id"
                   :value="pt.id"
+                  :class="{ 'font-semibold': pt.id === 'buyPrice' }"
                 >
-                  {{ pt.name }}
+                  {{ pt.id === 'buyPrice' ? '💰 ' : '' }}{{ pt.name }}
                 </option>
               </select>
             </div>
