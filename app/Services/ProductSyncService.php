@@ -17,13 +17,16 @@ class ProductSyncService
 {
     protected MoySkladService $moySkladService;
     protected CustomEntitySyncService $customEntitySyncService;
+    protected ProductFilterService $productFilterService;
 
     public function __construct(
         MoySkladService $moySkladService,
-        CustomEntitySyncService $customEntitySyncService
+        CustomEntitySyncService $customEntitySyncService,
+        ProductFilterService $productFilterService
     ) {
         $this->moySkladService = $moySkladService;
         $this->customEntitySyncService = $customEntitySyncService;
+        $this->productFilterService = $productFilterService;
     }
 
     /**
@@ -493,15 +496,26 @@ class ProductSyncService
      */
     protected function passesFilters(array $product, SyncSetting $settings, string $mainAccountId): bool
     {
-        // Если фильтры не настроены - пропускаем все товары
-        if (!$settings->product_filter_type) {
+        // Если фильтры отключены - пропускаем все товары
+        if (!$settings->product_filters_enabled) {
             return true;
         }
 
-        // TODO: Реализовать фильтрацию по доп.полям и группам товаров
-        // Это будет в следующих итерациях
+        // Получить конфигурацию фильтров
+        $filters = $settings->product_filters;
 
-        return true;
+        // Если фильтры не заданы - пропускаем все товары
+        if (!$filters) {
+            return true;
+        }
+
+        // Если это строка JSON - декодировать
+        if (is_string($filters)) {
+            $filters = json_decode($filters, true);
+        }
+
+        // Применить фильтры
+        return $this->productFilterService->passes($product, $filters);
     }
 
     /**
