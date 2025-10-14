@@ -169,8 +169,8 @@ class SyncSettingsController extends Controller
             $moysklad = app(MoySkladService::class);
 
             // Получить типы цен из обоих аккаунтов
-            $mainPriceTypes = $moysklad->setAccessToken($mainAccount->access_token)->get('context/companysettings/pricetype');
-            $childPriceTypes = $moysklad->setAccessToken($childAccount->access_token)->get('context/companysettings/pricetype');
+            $mainPriceTypes = $moysklad->setAccessToken($mainAccount->access_token)->get('context/companysettings');
+            $childPriceTypes = $moysklad->setAccessToken($childAccount->access_token)->get('context/companysettings');
 
             Log::info('Price types loaded', [
                 'main_account_id' => $mainAccountId,

@@ -533,7 +533,7 @@ class ProductSyncService
             $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
             $mainPriceTypesResult = $this->moySkladService
                 ->setAccessToken($mainAccount->access_token)
-                ->get('context/companysettings/pricetype');
+                ->get('context/companysettings');
 
             $mainPriceTypes = $mainPriceTypesResult['data']['priceTypes'] ?? [];
             $mainPriceType = null;

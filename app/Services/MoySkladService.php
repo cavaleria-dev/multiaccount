@@ -362,8 +362,8 @@ class MoySkladService
      */
     public function getPriceTypes(): array
     {
-        $response = $this->get('context/companysettings/pricetype');
-        return $response['priceTypes'] ?? [];
+        $response = $this->get('context/companysettings');
+        return $response['data']['priceTypes'] ?? [];
     }
 
     // ============ Методы для работы с контекстом приложения ============
