@@ -169,8 +169,8 @@ class SyncSettingsController extends Controller
             $moysklad = app(MoySkladService::class);
 
             // Получить типы цен из обоих аккаунтов
-            $mainPriceTypes = $moysklad->request($mainAccount->access_token, 'GET', '/entity/pricetype');
-            $childPriceTypes = $moysklad->request($childAccount->access_token, 'GET', '/entity/pricetype');
+            $mainPriceTypes = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/pricetype');
+            $childPriceTypes = $moysklad->setAccessToken($childAccount->access_token)->get('entity/pricetype');
 
             Log::info('Price types loaded', [
                 'main_account_id' => $mainAccountId,
@@ -234,7 +234,7 @@ class SyncSettingsController extends Controller
             $moysklad = app(MoySkladService::class);
 
             // Получить доп.поля product из main аккаунта
-            $metadata = $moysklad->request($mainAccount->access_token, 'GET', '/entity/product/metadata');
+            $metadata = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/product/metadata');
 
             $result = [];
             foreach ($metadata['attributes'] ?? [] as $attr) {
@@ -297,7 +297,7 @@ class SyncSettingsController extends Controller
             $moysklad = app(MoySkladService::class);
 
             // Получить все папки
-            $folders = $moysklad->request($mainAccount->access_token, 'GET', '/entity/productfolder', [
+            $folders = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/productfolder', [
                 'limit' => 1000
             ]);
 
