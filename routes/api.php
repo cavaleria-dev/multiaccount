@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\MoySkladController;
-use App\Http\Controllers\Api\WebhookController;
+use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\Api\ContextController;
 use App\Http\Middleware\LogMoySkladRequests;
 
@@ -18,8 +18,9 @@ Route::prefix('moysklad/vendor/1.0')->middleware(LogMoySkladRequests::class)->gr
 
 // Internal API
 Route::post('apps/update-status', [MoySkladController::class, 'updateStatus']);
+
+// Webhook endpoints
 Route::post('webhooks/moysklad', [WebhookController::class, 'handle']);
-Route::get('context/{contextKey}', [MoySkladController::class, 'getContext']);
 
 // Context API
 Route::post('context', [ContextController::class, 'getContext']);
