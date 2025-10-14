@@ -228,26 +228,46 @@ class SyncSettingsController extends Controller
             $mainAccount = Account::where('account_id', $mainAccountId)->first();
 
             if (!$mainAccount) {
+                Log::error('Main account not found', ['main_account_id' => $mainAccountId]);
                 return response()->json(['error' => 'Main account not found'], 404);
             }
 
+            if (!$mainAccount->access_token) {
+                Log::error('Main account has no access token', ['main_account_id' => $mainAccountId]);
+                return response()->json(['error' => 'Main account has no access token'], 500);
+            }
+
             $moysklad = app(MoySkladService::class);
+
+            Log::info('Fetching attributes metadata', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'endpoint' => 'entity/product/metadata'
+            ]);
 
             // Получить доп.поля product из main аккаунта
             $metadata = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/product/metadata');
 
             Log::info('Metadata received', [
                 'main_account_id' => $mainAccountId,
+                'response_structure' => array_keys($metadata ?? []),
                 'has_data' => isset($metadata['data']),
                 'has_attributes' => isset($metadata['data']['attributes']),
                 'attributes_count' => count($metadata['data']['attributes'] ?? []),
-                'first_attribute' => ($metadata['data']['attributes'] ?? [])[0] ?? null
+                'full_response' => json_encode($metadata, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
             ]);
 
             $result = [];
-            foreach ($metadata['data']['attributes'] ?? [] as $attr) {
+            $skipped = 0;
+
+            foreach ($metadata['data']['attributes'] ?? [] as $index => $attr) {
                 // Пропустить элементы без id (встроенные поля МойСклад)
                 if (!isset($attr['id'])) {
+                    $skipped++;
+                    Log::warning('Attribute without id skipped', [
+                        'index' => $index,
+                        'attribute' => json_encode($attr, JSON_UNESCAPED_UNICODE)
+                    ]);
                     continue;
                 }
 
@@ -258,10 +278,12 @@ class SyncSettingsController extends Controller
                 ];
             }
 
-            Log::info('Attributes loaded', [
+            Log::info('Attributes processed', [
                 'main_account_id' => $mainAccountId,
                 'child_account_id' => $accountId,
-                'count' => count($result)
+                'total_count' => count($metadata['data']['attributes'] ?? []),
+                'result_count' => count($result),
+                'skipped_count' => $skipped
             ]);
 
             return response()->json(['data' => $result]);
@@ -270,10 +292,20 @@ class SyncSettingsController extends Controller
             Log::error('Failed to load attributes', [
                 'main_account_id' => $mainAccountId,
                 'child_account_id' => $accountId,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
             ]);
 
-            return response()->json(['error' => 'Failed to load attributes: ' . $e->getMessage()], 500);
+            return response()->json([
+                'error' => 'Failed to load attributes: ' . $e->getMessage(),
+                'debug' => config('app.debug') ? [
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'trace' => explode("\n", $e->getTraceAsString())
+                ] : null
+            ], 500);
         }
     }
 
