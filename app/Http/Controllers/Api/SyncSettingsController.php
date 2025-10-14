@@ -466,11 +466,25 @@ class SyncSettingsController extends Controller
                 'name' => $request->input('name')
             ];
 
+            Log::info('Creating price type in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'data' => $priceTypeData
+            ]);
+
             $result = $moysklad
                 ->setAccessToken($childAccount->access_token)
                 ->post('context/companysettings/pricetype', $priceTypeData);
 
             $createdPriceType = $result['data'];
+
+            Log::info('Price type API response', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'response_keys' => array_keys($createdPriceType),
+                'has_id' => isset($createdPriceType['id']),
+                'has_name' => isset($createdPriceType['name'])
+            ]);
 
             Log::info('Price type created in child account', [
                 'main_account_id' => $mainAccountId,
