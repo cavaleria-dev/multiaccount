@@ -226,4 +226,113 @@ class ChildAccountController extends Controller
             'message' => 'Child account link deleted successfully'
         ]);
     }
+
+    /**
+     * Получить список доступных аккаунтов (где установлено приложение)
+     */
+    public function available(Request $request)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Получить все аккаунты где установлено приложение (статус activated)
+        $availableAccounts = Account::where('status', 'activated')
+            ->where('account_id', '!=', $mainAccountId) // Исключить текущий аккаунт
+            ->select('account_id', 'account_name', 'status', 'created_at')
+            ->orderBy('account_name')
+            ->get();
+
+        // Получить список уже подключенных аккаунтов к текущему
+        $connectedIds = DB::table('child_accounts')
+            ->where('parent_account_id', $mainAccountId)
+            ->pluck('child_account_id')
+            ->toArray();
+
+        // Получить список аккаунтов подключенных к другим главным
+        $connectedToOthers = DB::table('child_accounts')
+            ->where('parent_account_id', '!=', $mainAccountId)
+            ->pluck('child_account_id')
+            ->toArray();
+
+        // Отметить статус каждого аккаунта
+        $availableAccounts = $availableAccounts->map(function($account) use ($connectedIds, $connectedToOthers) {
+            if (in_array($account->account_id, $connectedIds)) {
+                $account->availability = 'connected';
+            } elseif (in_array($account->account_id, $connectedToOthers)) {
+                $account->availability = 'connected_to_other';
+            } else {
+                $account->availability = 'available';
+            }
+            return $account;
+        });
+
+        return response()->json([
+            'data' => $availableAccounts
+        ]);
+    }
+
+    /**
+     * Проверить доступность конкретного аккаунта
+     */
+    public function checkAvailability(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Проверить что аккаунт существует и приложение установлено
+        $account = Account::where('account_id', $accountId)
+            ->where('status', 'activated')
+            ->first();
+
+        if (!$account) {
+            return response()->json([
+                'available' => false,
+                'reason' => 'app_not_installed',
+                'message' => 'Приложение не установлено в этом аккаунте или аккаунт не найден'
+            ]);
+        }
+
+        // Проверить что не подключен к текущему
+        $connectedToCurrent = DB::table('child_accounts')
+            ->where('parent_account_id', $mainAccountId)
+            ->where('child_account_id', $accountId)
+            ->exists();
+
+        if ($connectedToCurrent) {
+            return response()->json([
+                'available' => false,
+                'reason' => 'already_connected',
+                'message' => 'Этот аккаунт уже подключен к текущему'
+            ]);
+        }
+
+        // Проверить что не подключен к другому главному
+        $connectedToOther = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if ($connectedToOther) {
+            $parentAccount = Account::where('account_id', $connectedToOther->parent_account_id)->first();
+            return response()->json([
+                'available' => false,
+                'reason' => 'connected_to_other',
+                'message' => 'Этот аккаунт уже подключен к другому главному аккаунту',
+                'parent_account_name' => $parentAccount?->account_name ?? 'Unknown'
+            ]);
+        }
+
+        // Аккаунт доступен
+        return response()->json([
+            'available' => true,
+            'account' => $account
+        ]);
+    }
 }

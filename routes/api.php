@@ -35,6 +35,10 @@ Route::middleware(['moysklad.context'])->group(function () {
     Route::apiResource('child-accounts', ChildAccountController::class)
         ->parameters(['child-accounts' => 'accountId']);
 
+    // Доступные аккаунты для подключения
+    Route::get('child-accounts-available', [ChildAccountController::class, 'available']);
+    Route::get('child-accounts-check/{accountId}', [ChildAccountController::class, 'checkAvailability']);
+
     // Настройки синхронизации
     Route::get('sync-settings/{accountId}', [SyncSettingsController::class, 'show']);
     Route::put('sync-settings/{accountId}', [SyncSettingsController::class, 'update']);

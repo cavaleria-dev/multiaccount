@@ -49,6 +49,12 @@ export default {
     },
     delete(accountId) {
       return api.delete(`/child-accounts/${accountId}`)
+    },
+    available() {
+      return api.get('/child-accounts-available')
+    },
+    checkAvailability(accountId) {
+      return api.get(`/child-accounts-check/${accountId}`)
     }
   },
 
