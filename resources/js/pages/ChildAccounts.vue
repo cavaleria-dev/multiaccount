@@ -214,10 +214,16 @@ const loadAccounts = async () => {
   try {
     loading.value = true
     error.value = null
+
+    console.log('[ChildAccounts] Loading accounts list...')
     const response = await api.childAccounts.list()
+    console.log('[ChildAccounts] Response:', response.data)
+
     accounts.value = response.data.data || []
+    console.log('[ChildAccounts] Accounts loaded:', accounts.value.length, accounts.value)
   } catch (err) {
-    console.error('Failed to load child accounts:', err)
+    console.error('[ChildAccounts] Failed to load child accounts:', err)
+    console.error('[ChildAccounts] Error response:', err.response)
     error.value = 'Не удалось загрузить список аккаунтов'
   } finally {
     loading.value = false

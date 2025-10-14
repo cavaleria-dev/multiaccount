@@ -7,6 +7,7 @@ use App\Models\Account;
 use App\Models\SyncSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * API контроллер для управления дочерними аккаунтами
@@ -26,6 +27,10 @@ class ChildAccountController extends Controller
 
         $mainAccountId = $contextData['accountId'];
 
+        Log::info('ChildAccountController: Getting child accounts list', [
+            'main_account_id' => $mainAccountId
+        ]);
+
         // Получить все дочерние аккаунты
         $childAccounts = DB::table('child_accounts')
             ->join('accounts', 'child_accounts.child_account_id', '=', 'accounts.account_id')
@@ -42,6 +47,15 @@ class ChildAccountController extends Controller
             )
             ->orderBy('child_accounts.connected_at', 'desc')
             ->get();
+
+        Log::info('ChildAccountController: Found child accounts', [
+            'count' => $childAccounts->count(),
+            'accounts' => $childAccounts->map(fn($a) => [
+                'account_id' => $a->account_id,
+                'account_name' => $a->account_name,
+                'status' => $a->status
+            ])->toArray()
+        ]);
 
         // Добавить статистику синхронизации для каждого аккаунта отдельным запросом
         foreach ($childAccounts as $account) {
