@@ -27,7 +27,17 @@
 
     <!-- Сообщение об ошибке -->
     <div v-if="error" class="bg-red-50 border border-red-200 rounded-lg p-4">
-      <p class="text-sm text-red-800">{{ error }}</p>
+      <p class="text-sm text-red-800 font-medium">{{ error }}</p>
+      <details class="mt-2">
+        <summary class="text-xs text-red-600 cursor-pointer">Показать детали</summary>
+        <pre class="mt-2 text-xs text-red-700 bg-red-100 p-2 rounded overflow-auto">{{ JSON.stringify({ accountId: accountId, route: $route }, null, 2) }}</pre>
+      </details>
+    </div>
+
+    <!-- Debug info -->
+    <div v-if="!loading && !error && !accountId" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+      <p class="text-sm text-yellow-800">⚠️ Account ID отсутствует</p>
+      <p class="text-xs text-yellow-700 mt-1">Route params: {{ JSON.stringify($route.params) }}</p>
     </div>
 
     <!-- Форма настроек -->
