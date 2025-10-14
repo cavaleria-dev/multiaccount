@@ -236,12 +236,25 @@ class SyncSettingsController extends Controller
             // Получить доп.поля product из main аккаунта
             $metadata = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/product/metadata');
 
+            Log::info('Metadata received', [
+                'main_account_id' => $mainAccountId,
+                'has_data' => isset($metadata['data']),
+                'has_attributes' => isset($metadata['data']['attributes']),
+                'attributes_count' => count($metadata['data']['attributes'] ?? []),
+                'first_attribute' => ($metadata['data']['attributes'] ?? [])[0] ?? null
+            ]);
+
             $result = [];
             foreach ($metadata['data']['attributes'] ?? [] as $attr) {
+                // Пропустить элементы без id (встроенные поля МойСклад)
+                if (!isset($attr['id'])) {
+                    continue;
+                }
+
                 $result[] = [
                     'id' => $attr['id'],
-                    'name' => $attr['name'],
-                    'type' => $attr['type']
+                    'name' => $attr['name'] ?? 'Без имени',
+                    'type' => $attr['type'] ?? 'unknown'
                 ];
             }
 
