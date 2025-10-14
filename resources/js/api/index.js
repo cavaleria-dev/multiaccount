@@ -65,6 +65,22 @@ export default {
     },
     update(accountId, data) {
       return api.put(`/sync-settings/${accountId}`, data)
+    },
+    getPriceTypes(accountId) {
+      return api.get(`/sync-settings/${accountId}/price-types`)
+    },
+    getAttributes(accountId) {
+      return api.get(`/sync-settings/${accountId}/attributes`)
+    },
+    getFolders(accountId) {
+      return api.get(`/sync-settings/${accountId}/folders`)
+    }
+  },
+
+  // Действия синхронизации
+  syncActions: {
+    syncAllProducts(accountId) {
+      return api.post(`/sync/${accountId}/products/all`)
     }
   },
 
