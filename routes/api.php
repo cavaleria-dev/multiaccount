@@ -76,6 +76,29 @@ Route::post('debug/context-test', function (\Illuminate\Http\Request $request) {
     ]);
 });
 
+// Debug endpoint - для проверки атрибутов
+Route::get('debug/attributes-raw/{accountId}', function ($accountId) {
+    try {
+        $account = \App\Models\Account::where('account_id', $accountId)->first();
+        if (!$account) {
+            return response()->json(['error' => 'Account not found']);
+        }
+
+        $moysklad = app(\App\Services\MoySkladService::class);
+        $metadata = $moysklad->setAccessToken($account->access_token)->get('entity/product/metadata');
+
+        return response()->json([
+            'raw_response' => $metadata,
+            'has_data' => isset($metadata['data']),
+            'has_attributes' => isset($metadata['data']['attributes']),
+            'attributes_count' => count($metadata['data']['attributes'] ?? []),
+            'attributes' => $metadata['data']['attributes'] ?? []
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
+
 // Debug endpoint - для диагностики логов
 Route::get('debug/test-log', function () {
     try {
