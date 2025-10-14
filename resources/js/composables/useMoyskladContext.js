@@ -34,8 +34,10 @@ export function useMoyskladContext() {
 
       context.value = response.data
 
-      // Сохраняем токен для последующих запросов
-      axios.defaults.headers.common['X-Context-Key'] = contextKey
+      // Сохраняем contextKey в sessionStorage для последующих запросов
+      sessionStorage.setItem('moysklad_context_key', contextKey)
+
+      console.log('Context loaded successfully:', context.value)
 
     } catch (err) {
       error.value = err.message || 'Ошибка при получении контекста'
