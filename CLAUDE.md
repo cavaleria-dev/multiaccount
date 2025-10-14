@@ -268,6 +268,8 @@ If valid → Creates row in `child_accounts` → Creates default `sync_settings`
 
 **GET** `/api/sync-settings/{accountId}/price-types`
 - Получить типы цен из main и child аккаунтов
+- **МойСклад API endpoint**: `GET context/companysettings` (возвращает все настройки компании)
+- Структура ответа МойСклад: `{meta, currency, priceTypes: [{id, name, externalCode}], ...}`
 - Возвращает: `{main: [{id, name}], child: [{id, name}]}`
 
 **GET** `/api/sync-settings/{accountId}/attributes`
@@ -347,6 +349,8 @@ SyncQueue::create([
 6. **Rate limits** - Always use `RateLimitHandler`, never direct API calls
 7. **Webhook TariffChanged** - No access_token in payload, must fetch from DB
 8. **CORS** - Only `online.moysklad.ru` and `dev.moysklad.ru` allowed
+9. **Price Types Endpoint** - Use `context/companysettings` (NOT `context/companysettings/pricetype`), returns all company settings including `priceTypes` array
+10. **MoySkladService Response Structure** - All methods return `['data' => ..., 'rateLimitInfo' => ...]`, always access via `$response['data']`
 
 ## Configuration
 
