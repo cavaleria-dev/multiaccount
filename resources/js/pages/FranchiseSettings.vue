@@ -41,32 +41,34 @@
     </div>
 
     <!-- Форма настроек -->
-    <form v-if="!loading && !error" @submit.prevent="saveSettings" class="space-y-6">
-      <!-- Основные настройки -->
-      <div class="bg-white shadow rounded-lg p-6">
-        <h3 class="text-lg font-medium text-gray-900 mb-4">Основные настройки</h3>
-        <div class="space-y-4">
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="sync_enabled"
-                v-model="settings.sync_enabled"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="sync_enabled" class="font-medium text-gray-700">Синхронизация включена</label>
-              <p class="text-gray-500">Глобальное включение/отключение синхронизации</p>
+    <form v-if="!loading && !error" @submit.prevent="saveSettings" class="space-y-4">
+      <!-- Grid для компактных секций (2 колонки) -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- Основные настройки -->
+        <div class="bg-white shadow rounded-lg p-5">
+          <h3 class="text-base font-medium text-gray-900 mb-3">Основные настройки</h3>
+          <div class="space-y-3">
+            <div class="flex items-start">
+              <div class="flex items-center h-5">
+                <input
+                  id="sync_enabled"
+                  v-model="settings.sync_enabled"
+                  type="checkbox"
+                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                />
+              </div>
+              <div class="ml-3 text-sm">
+                <label for="sync_enabled" class="font-medium text-gray-700">Синхронизация включена</label>
+                <p class="text-xs text-gray-500">Глобальное включение/отключение</p>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Синхронизация товаров -->
-      <div class="bg-white shadow rounded-lg p-6">
-        <h3 class="text-lg font-medium text-gray-900 mb-4">Синхронизация товаров</h3>
-        <div class="space-y-4">
+        <!-- Синхронизация товаров -->
+        <div class="bg-white shadow rounded-lg p-5">
+          <h3 class="text-base font-medium text-gray-900 mb-3">Синхронизация товаров</h3>
+          <div class="space-y-3">
           <div class="flex items-start">
             <div class="flex items-center h-5">
               <input
@@ -76,101 +78,35 @@
                 class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
               />
             </div>
-            <div class="ml-3 text-sm">
+            <div class="ml-2 text-sm">
               <label for="sync_products" class="font-medium text-gray-700">Товары</label>
-              <p class="text-gray-500">Синхронизировать простые товары</p>
             </div>
           </div>
-
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="sync_variants"
-                v-model="settings.sync_variants"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="sync_variants" class="font-medium text-gray-700">Модификации</label>
-              <p class="text-gray-500">Синхронизировать модификации товаров</p>
-            </div>
+          <div class="flex items-center">
+            <input id="sync_variants" v-model="settings.sync_variants" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+            <label for="sync_variants" class="ml-2 text-sm font-medium text-gray-700">Модификации</label>
           </div>
-
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="sync_bundles"
-                v-model="settings.sync_bundles"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="sync_bundles" class="font-medium text-gray-700">Комплекты</label>
-              <p class="text-gray-500">Синхронизировать комплекты</p>
-            </div>
+          <div class="flex items-center">
+            <input id="sync_bundles" v-model="settings.sync_bundles" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+            <label for="sync_bundles" class="ml-2 text-sm font-medium text-gray-700">Комплекты</label>
           </div>
-
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="sync_services"
-                v-model="settings.sync_services"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="sync_services" class="font-medium text-gray-700">Услуги</label>
-              <p class="text-gray-500">Синхронизировать услуги</p>
-            </div>
+          <div class="flex items-center">
+            <input id="sync_services" v-model="settings.sync_services" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+            <label for="sync_services" class="ml-2 text-sm font-medium text-gray-700">Услуги</label>
           </div>
-
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="sync_images"
-                v-model="settings.sync_images"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="sync_images" class="font-medium text-gray-700">Изображения</label>
-              <p class="text-gray-500">Синхронизировать изображения товаров</p>
-            </div>
+          <div class="flex items-center">
+            <input id="sync_images" v-model="settings.sync_images" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+            <label for="sync_images" class="ml-2 text-sm font-medium text-gray-700">Изображения</label>
           </div>
-
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="sync_images_all"
-                v-model="settings.sync_images_all"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="sync_images_all" class="font-medium text-gray-700">Все изображения</label>
-              <p class="text-gray-500">Синхронизировать все изображения (медленнее, только первое по умолчанию)</p>
-            </div>
+          <div class="flex items-center">
+            <input id="sync_images_all" v-model="settings.sync_images_all" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+            <label for="sync_images_all" class="ml-2 text-sm font-medium text-gray-700">Все изображения</label>
           </div>
-
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="sync_prices"
-                v-model="settings.sync_prices"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="sync_prices" class="font-medium text-gray-700">Цены</label>
-              <p class="text-gray-500">Синхронизировать цены товаров</p>
-            </div>
+          <div class="flex items-center">
+            <input id="sync_prices" v-model="settings.sync_prices" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+            <label for="sync_prices" class="ml-2 text-sm font-medium text-gray-700">Цены</label>
           </div>
+        </div>
         </div>
       </div>
 
