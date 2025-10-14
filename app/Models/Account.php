@@ -99,6 +99,22 @@ class Account extends Model
     }
 
     /**
+     * Get sync statistics where this account is the parent.
+     */
+    public function parentSyncStatistics(): HasMany
+    {
+        return $this->hasMany(SyncStatistic::class, 'parent_account_id', 'account_id');
+    }
+
+    /**
+     * Get sync statistics where this account is the child.
+     */
+    public function childSyncStatistics(): HasMany
+    {
+        return $this->hasMany(SyncStatistic::class, 'child_account_id', 'account_id');
+    }
+
+    /**
      * Check if account is a main account.
      */
     public function isMainAccount(): bool

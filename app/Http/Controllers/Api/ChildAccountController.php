@@ -96,7 +96,7 @@ class ChildAccountController extends Controller
             return response()->json(['error' => 'Child account not found'], 404);
         }
 
-        $account = Account::with('syncSettings', 'syncStatistics')
+        $account = Account::with('syncSettings', 'childSyncStatistics')
             ->where('account_id', $accountId)
             ->first();
 
