@@ -205,10 +205,16 @@ class ProcessSyncQueueJob implements ShouldQueue
     protected function processProductSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
     {
         if ($task->operation === 'delete') {
-            // TODO: Реализовать удаление товара
-            Log::info('Product delete operation', [
+            // При удалении или архивации товара в главном - архивируем во всех дочерних
+            $archivedCount = $productSyncService->archiveProduct(
+                $payload['main_account_id'],
+                $task->entity_id
+            );
+
+            Log::info('Product archived in child accounts', [
                 'task_id' => $task->id,
-                'product_id' => $task->entity_id
+                'product_id' => $task->entity_id,
+                'archived_count' => $archivedCount
             ]);
             return;
         }
@@ -226,10 +232,16 @@ class ProcessSyncQueueJob implements ShouldQueue
     protected function processVariantSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
     {
         if ($task->operation === 'delete') {
-            // TODO: Реализовать удаление модификации
-            Log::info('Variant delete operation', [
+            // При удалении или архивации модификации в главном - архивируем во всех дочерних
+            $archivedCount = $productSyncService->archiveVariant(
+                $payload['main_account_id'],
+                $task->entity_id
+            );
+
+            Log::info('Variant archived in child accounts', [
                 'task_id' => $task->id,
-                'variant_id' => $task->entity_id
+                'variant_id' => $task->entity_id,
+                'archived_count' => $archivedCount
             ]);
             return;
         }
@@ -247,10 +259,16 @@ class ProcessSyncQueueJob implements ShouldQueue
     protected function processBundleSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
     {
         if ($task->operation === 'delete') {
-            // TODO: Реализовать удаление комплекта
-            Log::info('Bundle delete operation', [
+            // При удалении или архивации комплекта в главном - архивируем во всех дочерних
+            $archivedCount = $productSyncService->archiveBundle(
+                $payload['main_account_id'],
+                $task->entity_id
+            );
+
+            Log::info('Bundle archived in child accounts', [
                 'task_id' => $task->id,
-                'bundle_id' => $task->entity_id
+                'bundle_id' => $task->entity_id,
+                'archived_count' => $archivedCount
             ]);
             return;
         }

@@ -136,7 +136,7 @@ class WebhookController extends Controller
                 $account->account_id,
                 $entityId
             ),
-            'DELETE' => $this->batchSyncService->batchDeleteProduct(
+            'DELETE' => $this->batchSyncService->batchArchiveProduct(
                 $account->account_id,
                 $entityId
             ),
@@ -164,7 +164,10 @@ class WebhookController extends Controller
                 $account->account_id,
                 $entityId
             ),
-            'DELETE' => Log::info('Variant delete', ['variant_id' => $entityId]),
+            'DELETE' => $this->batchSyncService->batchArchiveVariant(
+                $account->account_id,
+                $entityId
+            ),
             default => null
         };
 
@@ -189,7 +192,10 @@ class WebhookController extends Controller
                 $account->account_id,
                 $entityId
             ),
-            'DELETE' => Log::info('Bundle delete', ['bundle_id' => $entityId]),
+            'DELETE' => $this->batchSyncService->batchArchiveBundle(
+                $account->account_id,
+                $entityId
+            ),
             default => null
         };
 

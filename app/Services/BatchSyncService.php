@@ -222,13 +222,14 @@ class BatchSyncService
     }
 
     /**
-     * Удалить товар из всех дочерних аккаунтов
+     * Архивировать товар во всех дочерних аккаунтах
+     * (при удалении или архивации в главном)
      *
      * @param string $mainAccountId UUID главного аккаунта
      * @param string $productId UUID товара
      * @return int Количество добавленных задач
      */
-    public function batchDeleteProduct(string $mainAccountId, string $productId): int
+    public function batchArchiveProduct(string $mainAccountId, string $productId): int
     {
         try {
             $childAccounts = DB::table('child_accounts')
@@ -243,7 +244,7 @@ class BatchSyncService
                     'account_id' => $childAccount->child_account_id,
                     'entity_type' => 'product',
                     'entity_id' => $productId,
-                    'operation' => 'delete',
+                    'operation' => 'delete', // delete = archive
                     'priority' => 3,
                     'status' => 'pending',
                     'payload' => [
@@ -256,7 +257,7 @@ class BatchSyncService
                 $queuedCount++;
             }
 
-            Log::info('Batch delete product queued', [
+            Log::info('Batch archive product queued', [
                 'main_account_id' => $mainAccountId,
                 'product_id' => $productId,
                 'queued_count' => $queuedCount
@@ -265,9 +266,117 @@ class BatchSyncService
             return $queuedCount;
 
         } catch (\Exception $e) {
-            Log::error('Batch delete product failed', [
+            Log::error('Batch archive product failed', [
                 'main_account_id' => $mainAccountId,
                 'product_id' => $productId,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Архивировать модификацию во всех дочерних аккаунтах
+     * (при удалении или архивации в главном)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $variantId UUID модификации
+     * @return int Количество добавленных задач
+     */
+    public function batchArchiveVariant(string $mainAccountId, string $variantId): int
+    {
+        try {
+            $childAccounts = DB::table('child_accounts')
+                ->where('parent_account_id', $mainAccountId)
+                ->where('status', 'active')
+                ->get();
+
+            $queuedCount = 0;
+
+            foreach ($childAccounts as $childAccount) {
+                SyncQueue::create([
+                    'account_id' => $childAccount->child_account_id,
+                    'entity_type' => 'variant',
+                    'entity_id' => $variantId,
+                    'operation' => 'delete', // delete = archive
+                    'priority' => 3,
+                    'status' => 'pending',
+                    'payload' => [
+                        'main_account_id' => $mainAccountId,
+                        'variant_id' => $variantId
+                    ],
+                    'scheduled_at' => now(),
+                ]);
+
+                $queuedCount++;
+            }
+
+            Log::info('Batch archive variant queued', [
+                'main_account_id' => $mainAccountId,
+                'variant_id' => $variantId,
+                'queued_count' => $queuedCount
+            ]);
+
+            return $queuedCount;
+
+        } catch (\Exception $e) {
+            Log::error('Batch archive variant failed', [
+                'main_account_id' => $mainAccountId,
+                'variant_id' => $variantId,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Архивировать комплект во всех дочерних аккаунтах
+     * (при удалении или архивации в главном)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $bundleId UUID комплекта
+     * @return int Количество добавленных задач
+     */
+    public function batchArchiveBundle(string $mainAccountId, string $bundleId): int
+    {
+        try {
+            $childAccounts = DB::table('child_accounts')
+                ->where('parent_account_id', $mainAccountId)
+                ->where('status', 'active')
+                ->get();
+
+            $queuedCount = 0;
+
+            foreach ($childAccounts as $childAccount) {
+                SyncQueue::create([
+                    'account_id' => $childAccount->child_account_id,
+                    'entity_type' => 'bundle',
+                    'entity_id' => $bundleId,
+                    'operation' => 'delete', // delete = archive
+                    'priority' => 3,
+                    'status' => 'pending',
+                    'payload' => [
+                        'main_account_id' => $mainAccountId,
+                        'bundle_id' => $bundleId
+                    ],
+                    'scheduled_at' => now(),
+                ]);
+
+                $queuedCount++;
+            }
+
+            Log::info('Batch archive bundle queued', [
+                'main_account_id' => $mainAccountId,
+                'bundle_id' => $bundleId,
+                'queued_count' => $queuedCount
+            ]);
+
+            return $queuedCount;
+
+        } catch (\Exception $e) {
+            Log::error('Batch archive bundle failed', [
+                'main_account_id' => $mainAccountId,
+                'bundle_id' => $bundleId,
                 'error' => $e->getMessage()
             ]);
             throw $e;

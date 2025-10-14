@@ -1062,4 +1062,232 @@ class ProductSyncService
         $parts = explode('/', $href);
         return end($parts) ?: null;
     }
+
+    /**
+     * Архивировать товар в дочерних аккаунтах (при удалении или архивации в главном)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $productId UUID товара в главном аккаунте
+     * @return int Количество архивированных товаров
+     */
+    public function archiveProduct(string $mainAccountId, string $productId): int
+    {
+        try {
+            // Найти все маппинги этого товара
+            $mappings = EntityMapping::where('parent_account_id', $mainAccountId)
+                ->where('parent_entity_id', $productId)
+                ->where('entity_type', 'product')
+                ->where('sync_direction', 'main_to_child')
+                ->get();
+
+            if ($mappings->isEmpty()) {
+                Log::debug('No mappings found for product archive', [
+                    'main_account_id' => $mainAccountId,
+                    'product_id' => $productId
+                ]);
+                return 0;
+            }
+
+            $archivedCount = 0;
+
+            foreach ($mappings as $mapping) {
+                try {
+                    $childAccount = Account::where('account_id', $mapping->child_account_id)->first();
+
+                    if (!$childAccount) {
+                        Log::warning('Child account not found for product archive', [
+                            'child_account_id' => $mapping->child_account_id
+                        ]);
+                        continue;
+                    }
+
+                    // Архивировать товар в дочернем аккаунте
+                    $this->moySkladService
+                        ->setAccessToken($childAccount->access_token)
+                        ->put("entity/product/{$mapping->child_entity_id}", [
+                            'archived' => true
+                        ]);
+
+                    $archivedCount++;
+
+                    Log::info('Product archived in child account', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $mapping->child_account_id,
+                        'main_product_id' => $productId,
+                        'child_product_id' => $mapping->child_entity_id
+                    ]);
+
+                } catch (\Exception $e) {
+                    Log::error('Failed to archive product in child account', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $mapping->child_account_id,
+                        'product_id' => $productId,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            return $archivedCount;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to archive product', [
+                'main_account_id' => $mainAccountId,
+                'product_id' => $productId,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Архивировать модификацию в дочерних аккаунтах (при удалении или архивации в главном)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $variantId UUID модификации в главном аккаунте
+     * @return int Количество архивированных модификаций
+     */
+    public function archiveVariant(string $mainAccountId, string $variantId): int
+    {
+        try {
+            // Найти все маппинги этой модификации
+            $mappings = EntityMapping::where('parent_account_id', $mainAccountId)
+                ->where('parent_entity_id', $variantId)
+                ->where('entity_type', 'variant')
+                ->where('sync_direction', 'main_to_child')
+                ->get();
+
+            if ($mappings->isEmpty()) {
+                Log::debug('No mappings found for variant archive', [
+                    'main_account_id' => $mainAccountId,
+                    'variant_id' => $variantId
+                ]);
+                return 0;
+            }
+
+            $archivedCount = 0;
+
+            foreach ($mappings as $mapping) {
+                try {
+                    $childAccount = Account::where('account_id', $mapping->child_account_id)->first();
+
+                    if (!$childAccount) {
+                        Log::warning('Child account not found for variant archive', [
+                            'child_account_id' => $mapping->child_account_id
+                        ]);
+                        continue;
+                    }
+
+                    // Архивировать модификацию в дочернем аккаунте
+                    $this->moySkladService
+                        ->setAccessToken($childAccount->access_token)
+                        ->put("entity/variant/{$mapping->child_entity_id}", [
+                            'archived' => true
+                        ]);
+
+                    $archivedCount++;
+
+                    Log::info('Variant archived in child account', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $mapping->child_account_id,
+                        'main_variant_id' => $variantId,
+                        'child_variant_id' => $mapping->child_entity_id
+                    ]);
+
+                } catch (\Exception $e) {
+                    Log::error('Failed to archive variant in child account', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $mapping->child_account_id,
+                        'variant_id' => $variantId,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            return $archivedCount;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to archive variant', [
+                'main_account_id' => $mainAccountId,
+                'variant_id' => $variantId,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Архивировать комплект в дочерних аккаунтах (при удалении или архивации в главном)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $bundleId UUID комплекта в главном аккаунте
+     * @return int Количество архивированных комплектов
+     */
+    public function archiveBundle(string $mainAccountId, string $bundleId): int
+    {
+        try {
+            // Найти все маппинги этого комплекта
+            $mappings = EntityMapping::where('parent_account_id', $mainAccountId)
+                ->where('parent_entity_id', $bundleId)
+                ->where('entity_type', 'bundle')
+                ->where('sync_direction', 'main_to_child')
+                ->get();
+
+            if ($mappings->isEmpty()) {
+                Log::debug('No mappings found for bundle archive', [
+                    'main_account_id' => $mainAccountId,
+                    'bundle_id' => $bundleId
+                ]);
+                return 0;
+            }
+
+            $archivedCount = 0;
+
+            foreach ($mappings as $mapping) {
+                try {
+                    $childAccount = Account::where('account_id', $mapping->child_account_id)->first();
+
+                    if (!$childAccount) {
+                        Log::warning('Child account not found for bundle archive', [
+                            'child_account_id' => $mapping->child_account_id
+                        ]);
+                        continue;
+                    }
+
+                    // Архивировать комплект в дочернем аккаунте
+                    $this->moySkladService
+                        ->setAccessToken($childAccount->access_token)
+                        ->put("entity/bundle/{$mapping->child_entity_id}", [
+                            'archived' => true
+                        ]);
+
+                    $archivedCount++;
+
+                    Log::info('Bundle archived in child account', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $mapping->child_account_id,
+                        'main_bundle_id' => $bundleId,
+                        'child_bundle_id' => $mapping->child_entity_id
+                    ]);
+
+                } catch (\Exception $e) {
+                    Log::error('Failed to archive bundle in child account', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $mapping->child_account_id,
+                        'bundle_id' => $bundleId,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            return $archivedCount;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to archive bundle', [
+                'main_account_id' => $mainAccountId,
+                'bundle_id' => $bundleId,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
 }
