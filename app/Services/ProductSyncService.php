@@ -149,12 +149,16 @@ class ProductSyncService
         }
 
         // Синхронизировать цены
-        $productData['salePrices'] = $this->syncPrices(
+        $prices = $this->syncPrices(
             $mainAccountId,
             $childAccountId,
             $product,
             $settings
         );
+        $productData['salePrices'] = $prices['salePrices'];
+        if (isset($prices['buyPrice'])) {
+            $productData['buyPrice'] = $prices['buyPrice'];
+        }
 
         // Создать товар
         $newProductResult = $this->moySkladService
@@ -240,12 +244,16 @@ class ProductSyncService
         }
 
         // Цены
-        $productData['salePrices'] = $this->syncPrices(
+        $prices = $this->syncPrices(
             $mainAccountId,
             $childAccountId,
             $product,
             $settings
         );
+        $productData['salePrices'] = $prices['salePrices'];
+        if (isset($prices['buyPrice'])) {
+            $productData['buyPrice'] = $prices['buyPrice'];
+        }
 
         // Обновить товар
         $updatedProductResult = $this->moySkladService
@@ -423,14 +431,46 @@ class ProductSyncService
         SyncSetting $settings
     ): array {
         $salePrices = [];
+        $buyPrice = null;
 
         // Получить цены из главного товара
         $mainSalePrices = $product['salePrices'] ?? [];
+        $mainBuyPrice = $product['buyPrice'] ?? null;
 
         // Если настроены маппинги цен, использовать их
         $priceMappings = $settings->price_mappings;
         $useMappings = !empty($priceMappings) && is_array($priceMappings);
 
+        // Обработка закупочной цены
+        if ($mainBuyPrice && $useMappings) {
+            foreach ($priceMappings as $mapping) {
+                $mainPriceTypeId = $mapping['main_price_type_id'] ?? null;
+                $childPriceTypeId = $mapping['child_price_type_id'] ?? null;
+
+                // buyPrice → buyPrice
+                if ($mainPriceTypeId === 'buyPrice' && $childPriceTypeId === 'buyPrice') {
+                    $buyPrice = $mainBuyPrice;
+                }
+                // buyPrice → salePrice
+                elseif ($mainPriceTypeId === 'buyPrice' && $childPriceTypeId && $childPriceTypeId !== 'buyPrice') {
+                    $salePrices[] = [
+                        'value' => $mainBuyPrice['value'] ?? 0,
+                        'priceType' => [
+                            'meta' => [
+                                'href' => config('moysklad.api_url') . "/context/companysettings/pricetype/{$childPriceTypeId}",
+                                'type' => 'pricetype',
+                                'mediaType' => 'application/json'
+                            ]
+                        ]
+                    ];
+                }
+            }
+        } elseif ($mainBuyPrice && !$useMappings) {
+            // Если маппинги не используются - копировать buyPrice как есть
+            $buyPrice = $mainBuyPrice;
+        }
+
+        // Обработка продажных цен
         foreach ($mainSalePrices as $priceInfo) {
             $priceTypeHref = $priceInfo['priceType']['meta']['href'] ?? null;
 
@@ -466,16 +506,28 @@ class ProductSyncService
 
             // Если маппинг указан явно - использовать его
             if ($childPriceTypeId) {
-                $salePrices[] = [
-                    'value' => $priceInfo['value'] ?? 0,
-                    'priceType' => [
-                        'meta' => [
-                            'href' => config('moysklad.api_url') . "/context/companysettings/pricetype/{$childPriceTypeId}",
-                            'type' => 'pricetype',
+                // salePrice → buyPrice
+                if ($childPriceTypeId === 'buyPrice') {
+                    $buyPrice = [
+                        'value' => $priceInfo['value'] ?? 0,
+                        'currency' => $mainBuyPrice['currency'] ?? ['meta' => [
+                            'href' => config('moysklad.api_url') . '/entity/currency/643',
+                            'type' => 'currency',
                             'mediaType' => 'application/json'
+                        ]]
+                    ];
+                } else {
+                    $salePrices[] = [
+                        'value' => $priceInfo['value'] ?? 0,
+                        'priceType' => [
+                            'meta' => [
+                                'href' => config('moysklad.api_url') . "/context/companysettings/pricetype/{$childPriceTypeId}",
+                                'type' => 'pricetype',
+                                'mediaType' => 'application/json'
+                            ]
                         ]
-                    ]
-                ];
+                    ];
+                }
             } else {
                 // Иначе найти или создать тип цены по имени (старая логика)
                 $priceTypeName = $priceInfo['priceType']['name'] ?? null;
@@ -501,7 +553,12 @@ class ProductSyncService
             }
         }
 
-        return $salePrices;
+        $result = ['salePrices' => $salePrices];
+        if ($buyPrice) {
+            $result['buyPrice'] = $buyPrice;
+        }
+
+        return $result;
     }
 
     /**
@@ -742,12 +799,16 @@ class ProductSyncService
         }
 
         // Синхронизировать цены
-        $variantData['salePrices'] = $this->syncPrices(
+        $prices = $this->syncPrices(
             $mainAccountId,
             $childAccountId,
             $variant,
             $settings
         );
+        $variantData['salePrices'] = $prices['salePrices'];
+        if (isset($prices['buyPrice'])) {
+            $variantData['buyPrice'] = $prices['buyPrice'];
+        }
 
         // Создать модификацию
         $newVariantResult = $this->moySkladService
@@ -809,12 +870,16 @@ class ProductSyncService
         }
 
         // Цены
-        $variantData['salePrices'] = $this->syncPrices(
+        $prices = $this->syncPrices(
             $mainAccountId,
             $childAccountId,
             $variant,
             $settings
         );
+        $variantData['salePrices'] = $prices['salePrices'];
+        if (isset($prices['buyPrice'])) {
+            $variantData['buyPrice'] = $prices['buyPrice'];
+        }
 
         // Обновить модификацию
         $updatedVariantResult = $this->moySkladService

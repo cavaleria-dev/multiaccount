@@ -105,12 +105,16 @@ class ServiceSyncService
         }
 
         // Синхронизировать цены
-        $serviceData['salePrices'] = $this->syncPrices(
+        $prices = $this->syncPrices(
             $mainAccountId,
             $childAccountId,
             $service,
             $settings
         );
+        $serviceData['salePrices'] = $prices['salePrices'];
+        if (isset($prices['buyPrice'])) {
+            $serviceData['buyPrice'] = $prices['buyPrice'];
+        }
 
         // Создать услугу
         $newServiceResult = $this->moySkladService
@@ -170,12 +174,16 @@ class ServiceSyncService
         }
 
         // Цены
-        $serviceData['salePrices'] = $this->syncPrices(
+        $prices = $this->syncPrices(
             $mainAccountId,
             $childAccountId,
             $service,
             $settings
         );
+        $serviceData['salePrices'] = $prices['salePrices'];
+        if (isset($prices['buyPrice'])) {
+            $serviceData['buyPrice'] = $prices['buyPrice'];
+        }
 
         // Обновить услугу
         $updatedServiceResult = $this->moySkladService
@@ -337,7 +345,7 @@ class ServiceSyncService
     }
 
     /**
-     * Синхронизировать цены (копия из ProductSyncService)
+     * Синхронизировать цены включая закупочную
      */
     protected function syncPrices(
         string $mainAccountId,
@@ -346,11 +354,71 @@ class ServiceSyncService
         SyncSetting $settings
     ): array {
         $salePrices = [];
+        $buyPrice = null;
         $mainSalePrices = $service['salePrices'] ?? [];
+        $mainBuyPrice = $service['buyPrice'] ?? null;
 
         $priceMappings = $settings->price_mappings;
         $useMappings = !empty($priceMappings) && is_array($priceMappings);
 
+        // Обработать закупочную цену (buyPrice)
+        if ($mainBuyPrice && isset($mainBuyPrice['value'])) {
+            $buyPriceMapped = false;
+
+            if ($useMappings) {
+                foreach ($priceMappings as $mapping) {
+                    if (($mapping['main_price_type_id'] ?? null) === 'buyPrice') {
+                        $childPriceTypeId = $mapping['child_price_type_id'] ?? null;
+
+                        // buyPrice → buyPrice
+                        if ($childPriceTypeId === 'buyPrice') {
+                            $buyPrice = [
+                                'value' => $mainBuyPrice['value'],
+                                'currency' => [
+                                    'meta' => [
+                                        'href' => $mainBuyPrice['currency']['meta']['href'] ?? config('moysklad.api_url') . '/entity/currency/00000000-0000-0000-0000-000000000001',
+                                        'type' => 'currency',
+                                        'mediaType' => 'application/json'
+                                    ]
+                                ]
+                            ];
+                            $buyPriceMapped = true;
+                        }
+                        // buyPrice → salePrice (в определенный тип цены)
+                        else {
+                            $salePrices[] = [
+                                'value' => $mainBuyPrice['value'],
+                                'priceType' => [
+                                    'meta' => [
+                                        'href' => config('moysklad.api_url') . "/context/companysettings/pricetype/{$childPriceTypeId}",
+                                        'type' => 'pricetype',
+                                        'mediaType' => 'application/json'
+                                    ]
+                                ]
+                            ];
+                            $buyPriceMapped = true;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Если маппинг не используется или buyPrice не замаплен - копировать как есть
+            if (!$buyPriceMapped) {
+                $buyPrice = [
+                    'value' => $mainBuyPrice['value'],
+                    'currency' => [
+                        'meta' => [
+                            'href' => $mainBuyPrice['currency']['meta']['href'] ?? config('moysklad.api_url') . '/entity/currency/00000000-0000-0000-0000-000000000001',
+                            'type' => 'currency',
+                            'mediaType' => 'application/json'
+                        ]
+                    ]
+                ];
+            }
+        }
+
+        // Обработать типы цен (salePrices)
         foreach ($mainSalePrices as $priceInfo) {
             $priceTypeHref = $priceInfo['priceType']['meta']['href'] ?? null;
 
@@ -377,6 +445,21 @@ class ServiceSyncService
                 }
 
                 if (!$allowed) {
+                    continue;
+                }
+
+                // salePrice → buyPrice
+                if ($childPriceTypeId === 'buyPrice') {
+                    $buyPrice = [
+                        'value' => $priceInfo['value'] ?? 0,
+                        'currency' => [
+                            'meta' => [
+                                'href' => config('moysklad.api_url') . '/entity/currency/00000000-0000-0000-0000-000000000001',
+                                'type' => 'currency',
+                                'mediaType' => 'application/json'
+                            ]
+                        ]
+                    ];
                     continue;
                 }
             }
@@ -416,7 +499,12 @@ class ServiceSyncService
             }
         }
 
-        return $salePrices;
+        $result = ['salePrices' => $salePrices];
+        if ($buyPrice !== null) {
+            $result['buyPrice'] = $buyPrice;
+        }
+
+        return $result;
     }
 
     /**

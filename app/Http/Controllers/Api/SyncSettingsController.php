@@ -179,15 +179,29 @@ class SyncSettingsController extends Controller
                 'child_count' => count($childPriceTypes['data']['priceTypes'] ?? [])
             ]);
 
+            // Подготовить типы цен с добавлением buyPrice
+            $mainPrices = array_map(fn($pt) => [
+                'id' => $pt['id'],
+                'name' => $pt['name']
+            ], $mainPriceTypes['data']['priceTypes'] ?? []);
+
+            $childPrices = array_map(fn($pt) => [
+                'id' => $pt['id'],
+                'name' => $pt['name']
+            ], $childPriceTypes['data']['priceTypes'] ?? []);
+
+            // Добавить закупочную цену как специальный тип
+            $buyPriceItem = [
+                'id' => 'buyPrice',
+                'name' => 'Закупочная цена'
+            ];
+
+            array_unshift($mainPrices, $buyPriceItem);
+            array_unshift($childPrices, $buyPriceItem);
+
             return response()->json([
-                'main' => array_map(fn($pt) => [
-                    'id' => $pt['id'],
-                    'name' => $pt['name']
-                ], $mainPriceTypes['data']['priceTypes'] ?? []),
-                'child' => array_map(fn($pt) => [
-                    'id' => $pt['id'],
-                    'name' => $pt['name']
-                ], $childPriceTypes['data']['priceTypes'] ?? [])
+                'main' => $mainPrices,
+                'child' => $childPrices
             ]);
 
         } catch (\Exception $e) {
