@@ -6,6 +6,7 @@ use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\Api\ContextController;
 use App\Http\Controllers\Api\ChildAccountController;
 use App\Http\Controllers\Api\SyncSettingsController;
+use App\Http\Controllers\Api\SyncActionsController;
 use App\Http\Controllers\Api\StatsController;
 use App\Http\Middleware\LogMoySkladRequests;
 
@@ -45,6 +46,9 @@ Route::middleware(['moysklad.context'])->group(function () {
     Route::get('sync-settings/{accountId}/price-types', [SyncSettingsController::class, 'getPriceTypes']);
     Route::get('sync-settings/{accountId}/attributes', [SyncSettingsController::class, 'getAttributes']);
     Route::get('sync-settings/{accountId}/folders', [SyncSettingsController::class, 'getFolders']);
+
+    // Действия синхронизации
+    Route::post('sync/{accountId}/products/all', [SyncActionsController::class, 'syncAllProducts']);
 
     // Статистика
     Route::get('stats/dashboard', [StatsController::class, 'dashboard']);
