@@ -215,7 +215,18 @@ const loadAccounts = async () => {
     loading.value = true
     error.value = null
 
+    // Проверить наличие contextKey
+    const contextKey = sessionStorage.getItem('moysklad_context_key')
+    if (!contextKey) {
+      console.error('[ChildAccounts] No contextKey found in sessionStorage')
+      error.value = 'Контекст приложения не загружен. Пожалуйста, перезагрузите страницу или откройте приложение из МойСклад.'
+      loading.value = false
+      return
+    }
+
     console.log('[ChildAccounts] Loading accounts list...')
+    console.log('[ChildAccounts] Using contextKey:', contextKey.substring(0, 20) + '...')
+
     const response = await api.childAccounts.list()
     console.log('[ChildAccounts] Response:', response.data)
 
@@ -224,7 +235,12 @@ const loadAccounts = async () => {
   } catch (err) {
     console.error('[ChildAccounts] Failed to load child accounts:', err)
     console.error('[ChildAccounts] Error response:', err.response)
-    error.value = 'Не удалось загрузить список аккаунтов'
+
+    if (err.response?.status === 401) {
+      error.value = 'Сессия истекла. Пожалуйста, перезагрузите приложение из МойСклад.'
+    } else {
+      error.value = err.response?.data?.error || 'Не удалось загрузить список аккаунтов'
+    }
   } finally {
     loading.value = false
   }
