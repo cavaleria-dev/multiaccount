@@ -461,30 +461,62 @@ class SyncSettingsController extends Controller
 
             $moysklad = app(MoySkladService::class);
 
-            // Создать тип цены через МойСклад API
-            $priceTypeData = [
-                'name' => $request->input('name')
+            $newPriceTypeName = $request->input('name');
+
+            // Получить все существующие типы цен
+            $existingPriceTypesResponse = $moysklad
+                ->setAccessToken($childAccount->access_token)
+                ->get('context/companysettings/pricetype');
+
+            $existingPriceTypes = $existingPriceTypesResponse['data'];
+
+            Log::info('Fetched existing price types', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'existing_count' => count($existingPriceTypes),
+                'new_name' => $newPriceTypeName
+            ]);
+
+            // Проверить лимит (максимум 100 типов цен)
+            if (count($existingPriceTypes) >= 100) {
+                Log::warning('Price type limit reached', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $accountId,
+                    'count' => count($existingPriceTypes)
+                ]);
+                return response()->json([
+                    'error' => 'Достигнут лимит типов цен (максимум 100)'
+                ], 400);
+            }
+
+            // Проверить уникальность имени
+            foreach ($existingPriceTypes as $priceType) {
+                if (strcasecmp($priceType['name'], $newPriceTypeName) === 0) {
+                    Log::warning('Price type name already exists', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $accountId,
+                        'name' => $newPriceTypeName
+                    ]);
+                    return response()->json([
+                        'error' => 'Тип цены с таким названием уже существует'
+                    ], 409);
+                }
+            }
+
+            // Добавить новый тип цены в массив
+            $existingPriceTypes[] = [
+                'name' => $newPriceTypeName
             ];
 
-            Log::info('Creating price type in child account', [
-                'main_account_id' => $mainAccountId,
-                'child_account_id' => $accountId,
-                'data' => $priceTypeData
-            ]);
-
+            // Отправить весь массив обратно (МойСклад требует полный список)
             $result = $moysklad
                 ->setAccessToken($childAccount->access_token)
-                ->post('context/companysettings/pricetype', $priceTypeData);
+                ->post('context/companysettings/pricetype', $existingPriceTypes);
 
-            $createdPriceType = $result['data'];
+            $allPriceTypes = $result['data'];
 
-            Log::info('Price type API response', [
-                'main_account_id' => $mainAccountId,
-                'child_account_id' => $accountId,
-                'response_keys' => array_keys($createdPriceType),
-                'has_id' => isset($createdPriceType['id']),
-                'has_name' => isset($createdPriceType['name'])
-            ]);
+            // Найти только что созданный тип (последний в массиве)
+            $createdPriceType = end($allPriceTypes);
 
             Log::info('Price type created in child account', [
                 'main_account_id' => $mainAccountId,
