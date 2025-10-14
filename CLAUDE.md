@@ -74,10 +74,17 @@ This app integrates with МойСклад (Russian inventory management system) 
 ### Synchronization Architecture
 
 **Main Account → Child Accounts (Products):**
-- Products, variants, bundles, custom entities
-- Attributes, characteristics, prices, barcodes
+- Products, variants, bundles, services, custom entities
+- Product folders (groups) - рекурсивное создание иерархии
+- Attributes, characteristics, prices, barcodes, packages
 - Queued with priorities and delays (ProcessSyncQueueJob)
 - **Deletion/archiving**: Archived in children (NOT deleted) when deleted in main
+- **New features:**
+  - Price mappings (main ↔ child)
+  - Attribute filtering (sync only selected attributes)
+  - Product match field (code/article/externalCode/barcode)
+  - Optional product folder creation
+  - Visual filter constructor for selective sync
 
 **Child Accounts → Main Account (Orders):**
 - customerorder → customerorder
@@ -90,7 +97,8 @@ This app integrates with МойСклад (Russian inventory management system) 
 **Core Services** (`app/Services/`):
 - `MoySkladService` - Low-level API client, rate limit handling
 - `VendorApiService` - JWT generation, context retrieval
-- `ProductSyncService` - Products, variants, bundles sync
+- `ProductSyncService` - Products, variants, bundles sync + product folders
+- `ServiceSyncService` - Services sync (NEW)
 - `CustomerOrderSyncService` - Customer orders sync
 - `RetailDemandSyncService` - Retail sales sync
 - `PurchaseOrderSyncService` - Purchase orders sync (проведенные only)
@@ -98,6 +106,7 @@ This app integrates with МойСклад (Russian inventory management system) 
 - `CustomEntitySyncService` - Custom entity sync
 - `BatchSyncService` - Batch sync with queues
 - `WebhookService` - Webhook management
+- `ProductFilterService` - Apply visual filters to products
 - `RateLimitHandler` - API rate limit handling (45 req/sec burst, exponential backoff)
 
 **Key Jobs:**
@@ -127,11 +136,11 @@ This app integrates with МойСклад (Russian inventory management system) 
 
 `child_accounts` - Parent-child links (parent_account_id, child_account_id, invitation_code, status)
 
-`sync_settings` - Per-account sync config (30+ fields: sync_enabled, sync_products, sync_orders, sync_images, price type mappings, counterparty IDs, priorities, delays)
+`sync_settings` - Per-account sync config (35+ fields: sync_enabled, sync_products, sync_services, sync_orders, sync_images, product_match_field, create_product_folders, price_mappings JSON, attribute_sync_list JSON, counterparty IDs, priorities, delays)
 
 `sync_queue` - Task queue (entity_type, entity_id, operation: create/update/delete, priority, scheduled_at, status: pending/processing/completed/failed, attempts, error_message)
 
-`entity_mappings` - Cross-account entity mapping (parent_account_id, child_account_id, parent_entity_id UUID, child_entity_id UUID, entity_type: product/variant/bundle/customerorder, sync_direction: main_to_child/child_to_main)
+`entity_mappings` - Cross-account entity mapping (parent_account_id, child_account_id, parent_entity_id UUID, child_entity_id UUID, entity_type: product/variant/bundle/service/productfolder/customerorder, sync_direction: main_to_child/child_to_main, match_field, match_value)
 
 `webhook_health` - Webhook monitoring (account_id, webhook_id, entity_type, is_active, last_check_at, check_attempts, error_message)
 
