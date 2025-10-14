@@ -8,11 +8,26 @@ const api = axios.create({
   }
 })
 
+// Добавить contextKey в заголовки всех запросов
+api.interceptors.request.use(
+  config => {
+    const contextKey = sessionStorage.getItem('moysklad_context_key')
+    if (contextKey) {
+      config.headers['X-MoySklad-Context-Key'] = contextKey
+    }
+    return config
+  },
+  error => Promise.reject(error)
+)
+
 // Обработка ошибок
 api.interceptors.response.use(
   response => response,
   error => {
     console.error('API Error:', error)
+    if (error.response?.status === 401) {
+      console.error('Context expired, please reload')
+    }
     return Promise.reject(error)
   }
 )
@@ -23,24 +38,27 @@ export default {
     list() {
       return api.get('/child-accounts')
     },
+    get(accountId) {
+      return api.get(`/child-accounts/${accountId}`)
+    },
     create(data) {
       return api.post('/child-accounts', data)
     },
-    update(id, data) {
-      return api.put(`/child-accounts/${id}`, data)
+    update(accountId, data) {
+      return api.put(`/child-accounts/${accountId}`, data)
     },
-    delete(id) {
-      return api.delete(`/child-accounts/${id}`)
+    delete(accountId) {
+      return api.delete(`/child-accounts/${accountId}`)
     }
   },
 
   // Настройки синхронизации
   syncSettings: {
-    get() {
-      return api.get('/sync-settings')
+    get(accountId) {
+      return api.get(`/sync-settings/${accountId}`)
     },
-    update(data) {
-      return api.put('/sync-settings', data)
+    update(accountId, data) {
+      return api.put(`/sync-settings/${accountId}`, data)
     }
   },
 
@@ -48,6 +66,9 @@ export default {
   stats: {
     dashboard() {
       return api.get('/stats/dashboard')
+    },
+    childAccount(accountId) {
+      return api.get(`/stats/child-account/${accountId}`)
     }
   },
 

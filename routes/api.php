@@ -4,6 +4,9 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\MoySkladController;
 use App\Http\Controllers\WebhookController;
 use App\Http\Controllers\Api\ContextController;
+use App\Http\Controllers\Api\ChildAccountController;
+use App\Http\Controllers\Api\SyncSettingsController;
+use App\Http\Controllers\Api\StatsController;
 use App\Http\Middleware\LogMoySkladRequests;
 
 // Vendor API для МойСклад
@@ -25,6 +28,21 @@ Route::post('webhooks/moysklad', [WebhookController::class, 'handle']);
 // Context API
 Route::post('context', [ContextController::class, 'getContext']);
 Route::get('stats', [ContextController::class, 'getStats']);
+
+// Frontend API - требует контекст МойСклад
+Route::middleware(['moysklad.context'])->group(function () {
+    // Дочерние аккаунты
+    Route::apiResource('child-accounts', ChildAccountController::class)
+        ->parameters(['child-accounts' => 'accountId']);
+
+    // Настройки синхронизации
+    Route::get('sync-settings/{accountId}', [SyncSettingsController::class, 'show']);
+    Route::put('sync-settings/{accountId}', [SyncSettingsController::class, 'update']);
+
+    // Статистика
+    Route::get('stats/dashboard', [StatsController::class, 'dashboard']);
+    Route::get('stats/child-account/{accountId}', [StatsController::class, 'childAccount']);
+});
 
 // Debug endpoint - для проверки что запрос доходит
 Route::post('debug/context-test', function (\Illuminate\Http\Request $request) {

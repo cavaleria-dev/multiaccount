@@ -95,8 +95,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, defineProps } from 'vue'
-import axios from 'axios'
+import { ref, onMounted, defineProps, watch } from 'vue'
+import api from '../api'
 
 const props = defineProps({
   context: Object,
@@ -106,7 +106,11 @@ const props = defineProps({
 const stats = ref({
   childAccounts: 0,
   activeAccounts: 0,
-  syncsToday: 0
+  syncsToday: 0,
+  totalProductsSynced: 0,
+  totalOrdersSynced: 0,
+  queuedTasks: 0,
+  recentErrors: 0
 })
 
 const loadingStats = ref(false)
@@ -117,7 +121,7 @@ const fetchStats = async () => {
 
   try {
     loadingStats.value = true
-    const response = await axios.get('/api/stats')
+    const response = await api.stats.dashboard()
     stats.value = response.data
   } catch (error) {
     console.error('Error fetching stats:', error)
@@ -125,7 +129,11 @@ const fetchStats = async () => {
     stats.value = {
       childAccounts: 0,
       activeAccounts: 0,
-      syncsToday: 0
+      syncsToday: 0,
+      totalProductsSynced: 0,
+      totalOrdersSynced: 0,
+      queuedTasks: 0,
+      recentErrors: 0
     }
   } finally {
     loadingStats.value = false
@@ -134,6 +142,13 @@ const fetchStats = async () => {
 
 onMounted(() => {
   if (props.context) {
+    fetchStats()
+  }
+})
+
+// Обновить статистику когда появляется контекст
+watch(() => props.context, (newContext) => {
+  if (newContext) {
     fetchStats()
   }
 })

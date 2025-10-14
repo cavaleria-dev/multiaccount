@@ -30,6 +30,11 @@ return Application::configure(basePath: dirname(__DIR__))
             // Только базовые middleware, без аутентификации
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ]);
+
+        // Регистрируем алиас для middleware контекста МойСклад
+        $middleware->alias([
+            'moysklad.context' => \App\Http\Middleware\MoySkladContext::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

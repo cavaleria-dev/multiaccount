@@ -41,12 +41,12 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-200 bg-white">
-          <tr v-for="account in accounts" :key="account.id">
+          <tr v-for="account in accounts" :key="account.account_id">
             <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
-              {{ account.name }}
+              {{ account.account_name || 'Без названия' }}
             </td>
             <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-              {{ account.accountId }}
+              {{ account.account_id }}
             </td>
             <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
               <span
@@ -61,7 +61,7 @@
               </span>
             </td>
             <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-              {{ formatDate(account.lastSync) }}
+              {{ formatDate(account.last_sync_at) }}
             </td>
             <td class="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
               <button @click="editAccount(account)" class="text-indigo-600 hover:text-indigo-900 mr-4">
@@ -88,25 +88,38 @@
         <form @submit.prevent="addAccount">
           <div class="space-y-4">
             <div>
-              <label for="accountId" class="block text-sm font-medium text-gray-700">ID аккаунта МойСклад</label>
+              <label for="child_account_id" class="block text-sm font-medium text-gray-700">ID дочернего аккаунта</label>
               <input
                 type="text"
-                id="accountId"
-                v-model="newAccount.accountId"
+                id="child_account_id"
+                v-model="newAccount.child_account_id"
                 required
                 class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
               />
+              <p class="mt-1 text-xs text-gray-500">UUID аккаунта из МойСклад</p>
             </div>
             <div>
-              <label for="name" class="block text-sm font-medium text-gray-700">Название (опционально)</label>
+              <label for="counterparty_id" class="block text-sm font-medium text-gray-700">ID контрагента франшизы</label>
               <input
                 type="text"
-                id="name"
-                v-model="newAccount.name"
+                id="counterparty_id"
+                v-model="newAccount.counterparty_id"
                 class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                placeholder="Франшиза Москва"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
               />
+              <p class="mt-1 text-xs text-gray-500">ID контрагента франшизы в главном аккаунте (опционально)</p>
+            </div>
+            <div>
+              <label for="supplier_counterparty_id" class="block text-sm font-medium text-gray-700">ID поставщика (главного офиса)</label>
+              <input
+                type="text"
+                id="supplier_counterparty_id"
+                v-model="newAccount.supplier_counterparty_id"
+                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              />
+              <p class="mt-1 text-xs text-gray-500">ID контрагента главного офиса в дочернем аккаунте (опционально)</p>
             </div>
           </div>
           <div class="mt-6 flex justify-end space-x-3">
@@ -132,26 +145,35 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import api from '../api'
 
 const accounts = ref([])
 const showAddModal = ref(false)
+const loading = ref(false)
+const error = ref(null)
 const newAccount = ref({
-  accountId: '',
-  name: ''
+  child_account_id: '',
+  counterparty_id: '',
+  supplier_counterparty_id: ''
 })
 
 // Загрузка списка аккаунтов
-onMounted(async () => {
-  // TODO: Загрузка данных с API
-  accounts.value = [
-    {
-      id: 1,
-      name: 'Франшиза Москва',
-      accountId: 'abc123-def456',
-      status: 'activated',
-      lastSync: new Date()
-    }
-  ]
+const loadAccounts = async () => {
+  try {
+    loading.value = true
+    error.value = null
+    const response = await api.childAccounts.list()
+    accounts.value = response.data.data || []
+  } catch (err) {
+    console.error('Failed to load child accounts:', err)
+    error.value = 'Не удалось загрузить список аккаунтов'
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  loadAccounts()
 })
 
 function getStatusLabel(status) {
@@ -169,21 +191,39 @@ function formatDate(date) {
 }
 
 function editAccount(account) {
-  // TODO: Открыть модальное окно редактирования
+  // TODO: Открыть модальное окно редактирования настроек
   console.log('Edit account:', account)
+  // Переход на страницу настроек для этого аккаунта
+  // router.push(`/app/settings/${account.account_id}`)
 }
 
-function deleteAccount(account) {
-  if (confirm(`Удалить аккаунт "${account.name}"?`)) {
-    // TODO: Удаление через API
-    console.log('Delete account:', account)
+async function deleteAccount(account) {
+  if (!confirm(`Удалить связь с аккаунтом "${account.account_name}"?`)) {
+    return
+  }
+
+  try {
+    await api.childAccounts.delete(account.account_id)
+    await loadAccounts()
+  } catch (err) {
+    console.error('Failed to delete account:', err)
+    alert('Не удалось удалить аккаунт')
   }
 }
 
-function addAccount() {
-  // TODO: Добавление через API
-  console.log('Add account:', newAccount.value)
-  showAddModal.value = false
-  newAccount.value = { accountId: '', name: '' }
+async function addAccount() {
+  try {
+    await api.childAccounts.create(newAccount.value)
+    showAddModal.value = false
+    newAccount.value = {
+      child_account_id: '',
+      counterparty_id: '',
+      supplier_counterparty_id: ''
+    }
+    await loadAccounts()
+  } catch (err) {
+    console.error('Failed to add account:', err)
+    alert('Не удалось добавить аккаунт: ' + (err.response?.data?.error || err.message))
+  }
 }
 </script>
