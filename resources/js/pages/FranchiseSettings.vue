@@ -42,28 +42,34 @@
 
     <!-- Форма настроек -->
     <form v-if="!loading && !error" @submit.prevent="saveSettings" class="space-y-4">
-      <!-- Grid для компактных секций (2 колонки) -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <!-- Основные настройки -->
-        <div class="bg-white shadow rounded-lg p-5">
-          <h3 class="text-base font-medium text-gray-900 mb-3">Основные настройки</h3>
-          <div class="space-y-3">
-            <div class="flex items-start">
-              <div class="flex items-center h-5">
-                <input
-                  id="sync_enabled"
-                  v-model="settings.sync_enabled"
-                  type="checkbox"
-                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-                />
-              </div>
-              <div class="ml-3 text-sm">
-                <label for="sync_enabled" class="font-medium text-gray-700">Синхронизация включена</label>
-                <p class="text-xs text-gray-500">Глобальное включение/отключение</p>
-              </div>
+      <!-- Главный выключатель синхронизации -->
+      <div class="bg-gradient-to-r from-indigo-500 to-purple-600 shadow-lg rounded-lg p-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="bg-white rounded-lg p-2">
+              <svg class="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-base font-semibold text-white">Синхронизация</h3>
+              <p class="text-xs text-indigo-100">Глобальное управление всеми настройками</p>
             </div>
           </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input
+              v-model="settings.sync_enabled"
+              type="checkbox"
+              class="sr-only peer"
+            />
+            <div class="w-14 h-7 bg-white/20 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-white/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-white"></div>
+            <span class="ml-3 text-sm font-medium text-white">{{ settings.sync_enabled ? 'Вкл' : 'Выкл' }}</span>
+          </label>
         </div>
+      </div>
+
+      <!-- Grid для компактных секций (2 колонки) -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
         <!-- Синхронизация товаров -->
         <div class="bg-white shadow rounded-lg p-5">

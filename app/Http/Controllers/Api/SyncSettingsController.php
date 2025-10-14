@@ -169,25 +169,25 @@ class SyncSettingsController extends Controller
             $moysklad = app(MoySkladService::class);
 
             // Получить типы цен из обоих аккаунтов
-            $mainPriceTypes = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/pricetype');
-            $childPriceTypes = $moysklad->setAccessToken($childAccount->access_token)->get('entity/pricetype');
+            $mainPriceTypes = $moysklad->setAccessToken($mainAccount->access_token)->get('context/companysettings/pricetype');
+            $childPriceTypes = $moysklad->setAccessToken($childAccount->access_token)->get('context/companysettings/pricetype');
 
             Log::info('Price types loaded', [
                 'main_account_id' => $mainAccountId,
                 'child_account_id' => $accountId,
-                'main_count' => count($mainPriceTypes['rows'] ?? []),
-                'child_count' => count($childPriceTypes['rows'] ?? [])
+                'main_count' => count($mainPriceTypes['priceTypes'] ?? []),
+                'child_count' => count($childPriceTypes['priceTypes'] ?? [])
             ]);
 
             return response()->json([
                 'main' => array_map(fn($pt) => [
                     'id' => $pt['id'],
                     'name' => $pt['name']
-                ], $mainPriceTypes['rows'] ?? []),
+                ], $mainPriceTypes['priceTypes'] ?? []),
                 'child' => array_map(fn($pt) => [
                     'id' => $pt['id'],
                     'name' => $pt['name']
-                ], $childPriceTypes['rows'] ?? [])
+                ], $childPriceTypes['priceTypes'] ?? [])
             ]);
 
         } catch (\Exception $e) {
