@@ -60,7 +60,7 @@ class ChildAccountController extends Controller
         // Добавить статистику синхронизации для каждого аккаунта отдельным запросом
         foreach ($childAccounts as $account) {
             $stats = DB::table('sync_statistics')
-                ->where('account_id', $account->account_id)
+                ->where('child_account_id', $account->account_id)
                 ->orderBy('created_at', 'desc')
                 ->first();
 

@@ -38,9 +38,8 @@ class StatsController extends Controller
 
         // Количество синхронизаций сегодня
         $syncsToday = DB::table('sync_statistics')
-            ->join('child_accounts', 'sync_statistics.account_id', '=', 'child_accounts.child_account_id')
-            ->where('child_accounts.parent_account_id', $mainAccountId)
-            ->whereDate('sync_statistics.last_sync_at', Carbon::today())
+            ->where('parent_account_id', $mainAccountId)
+            ->whereDate('last_sync_at', Carbon::today())
             ->count();
 
         // Общее количество синхронизированных товаров
@@ -109,7 +108,7 @@ class StatsController extends Controller
 
         // Последняя статистика синхронизации
         $lastStats = DB::table('sync_statistics')
-            ->where('account_id', $accountId)
+            ->where('child_account_id', $accountId)
             ->orderBy('id', 'desc')
             ->first();
 
