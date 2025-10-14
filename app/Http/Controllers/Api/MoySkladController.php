@@ -114,6 +114,11 @@ class MoySkladController extends Controller
                 $accountData['access_token'] = $accessToken;
             }
 
+            // Добавляем accountName если есть
+            if ($accountName) {
+                $accountData['account_name'] = $accountName;
+            }
+
             if ($cause === 'Install') {
                 // Первая установка или переустановка приложения
                 $accountData['app_id'] = $appId;
@@ -121,7 +126,20 @@ class MoySkladController extends Controller
                 $accountData['suspended_at'] = null;
                 $accountData['uninstalled_at'] = null;
                 $accountData['tariff_name'] = $subscription['tariffName'] ?? null;
+                $accountData['tariff_id'] = $subscription['tariffId'] ?? null;
                 $accountData['price_per_month'] = 0;
+
+                // Парсим и сохраняем дату истечения подписки
+                if (isset($subscription['expiryMoment'])) {
+                    try {
+                        $accountData['subscription_expires_at'] = new \DateTime($subscription['expiryMoment']);
+                    } catch (\Exception $e) {
+                        Log::warning('МойСклад: Не удалось распарсить expiryMoment', [
+                            'expiryMoment' => $subscription['expiryMoment'],
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
 
                 if ($account) {
                     // Переустановка - обновляем существующую запись
@@ -194,17 +212,33 @@ class MoySkladController extends Controller
             if ($cause === 'TariffChanged') {
                 // Изменение тарифа
                 if ($account) {
+                    $tariffData = [
+                        'tariff_name' => $subscription['tariffName'] ?? null,
+                        'tariff_id' => $subscription['tariffId'] ?? null,
+                        'subscription_status' => $subscription['trial'] ?? false ? 'Trial' : 'Active',
+                        'updated_at' => now()
+                    ];
+
+                    // Обновляем дату истечения подписки если есть
+                    if (isset($subscription['expiryMoment'])) {
+                        try {
+                            $tariffData['subscription_expires_at'] = new \DateTime($subscription['expiryMoment']);
+                        } catch (\Exception $e) {
+                            Log::warning('МойСклад: Не удалось распарсить expiryMoment при смене тарифа', [
+                                'expiryMoment' => $subscription['expiryMoment'],
+                                'error' => $e->getMessage()
+                            ]);
+                        }
+                    }
+
                     DB::table('accounts')
                         ->where('account_id', $accountId)
-                        ->update([
-                            'tariff_name' => $subscription['tariffName'] ?? null,
-                            'subscription_status' => $subscription['trial'] ?? false ? 'Trial' : 'Active',
-                            'updated_at' => now()
-                        ]);
+                        ->update($tariffData);
 
                     Log::info('МойСклад: Тариф изменен', [
                         'accountId' => $accountId,
-                        'tariff' => $subscription['tariffName'] ?? null
+                        'tariff' => $subscription['tariffName'] ?? null,
+                        'tariffId' => $subscription['tariffId'] ?? null
                     ]);
                 }
 

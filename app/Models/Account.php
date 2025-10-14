@@ -24,7 +24,9 @@ class Account extends Model
         'access_token',
         'status',
         'subscription_status',
+        'subscription_expires_at',
         'tariff_name',
+        'tariff_id',
         'price_per_month',
         'cause',
         'organization_id',
@@ -40,6 +42,7 @@ class Account extends Model
      */
     protected $casts = [
         'price_per_month' => 'decimal:2',
+        'subscription_expires_at' => 'datetime',
         'installed_at' => 'datetime',
         'suspended_at' => 'datetime',
         'uninstalled_at' => 'datetime',
@@ -117,5 +120,30 @@ class Account extends Model
     public function isActivated(): bool
     {
         return $this->status === 'activated';
+    }
+
+    /**
+     * Check if subscription is expired.
+     */
+    public function isSubscriptionExpired(): bool
+    {
+        if (!$this->subscription_expires_at) {
+            return false;
+        }
+
+        return $this->subscription_expires_at->isPast();
+    }
+
+    /**
+     * Check if subscription is about to expire (within N days).
+     */
+    public function isSubscriptionExpiringSoon(int $days = 7): bool
+    {
+        if (!$this->subscription_expires_at) {
+            return false;
+        }
+
+        return $this->subscription_expires_at->isFuture()
+            && $this->subscription_expires_at->diffInDays(now()) <= $days;
     }
 }
