@@ -6,6 +6,7 @@ use App\Models\SyncQueue;
 use App\Services\ProductSyncService;
 use App\Services\CustomerOrderSyncService;
 use App\Services\RetailDemandSyncService;
+use App\Services\PurchaseOrderSyncService;
 use App\Services\SyncStatisticsService;
 use App\Services\WebhookService;
 use App\Exceptions\RateLimitException;
@@ -33,6 +34,7 @@ class ProcessSyncQueueJob implements ShouldQueue
         ProductSyncService $productSyncService,
         CustomerOrderSyncService $customerOrderSyncService,
         RetailDemandSyncService $retailDemandSyncService,
+        PurchaseOrderSyncService $purchaseOrderSyncService,
         SyncStatisticsService $statisticsService,
         WebhookService $webhookService
     ): void {
@@ -71,6 +73,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                     $productSyncService,
                     $customerOrderSyncService,
                     $retailDemandSyncService,
+                    $purchaseOrderSyncService,
                     $webhookService
                 );
 
@@ -184,6 +187,7 @@ class ProcessSyncQueueJob implements ShouldQueue
         ProductSyncService $productSyncService,
         CustomerOrderSyncService $customerOrderSyncService,
         RetailDemandSyncService $retailDemandSyncService,
+        PurchaseOrderSyncService $purchaseOrderSyncService,
         WebhookService $webhookService
     ): void {
         $payload = $task->payload;
@@ -194,6 +198,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             'bundle' => $this->processBundleSync($task, $payload, $productSyncService),
             'customerorder' => $this->processCustomerOrderSync($task, $payload, $customerOrderSyncService),
             'retaildemand' => $this->processRetailDemandSync($task, $payload, $retailDemandSyncService),
+            'purchaseorder' => $this->processPurchaseOrderSync($task, $payload, $purchaseOrderSyncService),
             'webhook' => $this->processWebhookCheck($task, $webhookService),
             default => Log::warning("Unknown entity type in queue: {$task->entity_type}")
         };
@@ -297,6 +302,17 @@ class ProcessSyncQueueJob implements ShouldQueue
     protected function processRetailDemandSync(SyncQueue $task, array $payload, RetailDemandSyncService $retailDemandSyncService): void
     {
         $retailDemandSyncService->syncRetailDemand(
+            $task->account_id,
+            $task->entity_id
+        );
+    }
+
+    /**
+     * Обработать синхронизацию заказа поставщику
+     */
+    protected function processPurchaseOrderSync(SyncQueue $task, array $payload, PurchaseOrderSyncService $purchaseOrderSyncService): void
+    {
+        $purchaseOrderSyncService->syncPurchaseOrder(
             $task->account_id,
             $task->entity_id
         );

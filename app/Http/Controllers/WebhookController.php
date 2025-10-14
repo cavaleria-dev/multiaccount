@@ -6,6 +6,7 @@ use App\Models\Account;
 use App\Services\BatchSyncService;
 use App\Services\CustomerOrderSyncService;
 use App\Services\RetailDemandSyncService;
+use App\Services\PurchaseOrderSyncService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
@@ -18,15 +19,18 @@ class WebhookController extends Controller
     protected BatchSyncService $batchSyncService;
     protected CustomerOrderSyncService $customerOrderSyncService;
     protected RetailDemandSyncService $retailDemandSyncService;
+    protected PurchaseOrderSyncService $purchaseOrderSyncService;
 
     public function __construct(
         BatchSyncService $batchSyncService,
         CustomerOrderSyncService $customerOrderSyncService,
-        RetailDemandSyncService $retailDemandSyncService
+        RetailDemandSyncService $retailDemandSyncService,
+        PurchaseOrderSyncService $purchaseOrderSyncService
     ) {
         $this->batchSyncService = $batchSyncService;
         $this->customerOrderSyncService = $customerOrderSyncService;
         $this->retailDemandSyncService = $retailDemandSyncService;
+        $this->purchaseOrderSyncService = $purchaseOrderSyncService;
     }
 
     /**
@@ -290,12 +294,43 @@ class WebhookController extends Controller
      */
     protected function handlePurchaseOrder(Account $account, string $action, string $entityId): void
     {
-        // TODO: Реализовать синхронизацию purchaseorder → customerorder
-        Log::info('Purchase order event (not implemented yet)', [
-            'account_id' => $account->account_id,
-            'order_id' => $entityId,
-            'action' => $action
-        ]);
+        // Заказы поставщику синхронизируются из дочерних в главный
+        if ($account->account_type !== 'child') {
+            Log::debug('Purchase order event from non-child account, ignoring', [
+                'account_id' => $account->account_id,
+                'entity_id' => $entityId
+            ]);
+            return;
+        }
+
+        if ($action !== 'UPDATE') {
+            Log::debug('Purchase order non-update action, ignoring', [
+                'action' => $action,
+                'entity_id' => $entityId
+            ]);
+            return;
+        }
+
+        try {
+            // Синхронизировать немедленно (не через очередь)
+            // Так как заказы критичны по времени
+            $this->purchaseOrderSyncService->syncPurchaseOrder(
+                $account->account_id,
+                $entityId
+            );
+
+            Log::info('Purchase order synced', [
+                'account_id' => $account->account_id,
+                'order_id' => $entityId
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Purchase order sync failed', [
+                'account_id' => $account->account_id,
+                'order_id' => $entityId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 
     /**
