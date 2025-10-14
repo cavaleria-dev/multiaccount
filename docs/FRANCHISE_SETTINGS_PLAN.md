@@ -1,8 +1,20 @@
 # План: Расширенные настройки синхронизации франшизы
 
 **Дата создания:** 2025-10-14
-**Статус:** В работе
+**Дата обновления:** 2025-10-14
+**Статус:** В работе (Фазы 2, 4-8 завершены)
 **Цель:** Добавить визуальный конструктор фильтров, маппинг цен, выбор доп.полей и кнопку "Синхронизировать всю номенклатуру"
+
+## Прогресс:
+- ✅ Фаза 2: Backend API endpoints
+- ✅ Фаза 4: Frontend API client
+- ✅ Фаза 5: FolderTreeNode.vue
+- ✅ Фаза 6: ProductFolderPicker.vue
+- ✅ Фаза 7: ProductFilterBuilder.vue
+- ✅ Фаза 8: FranchiseSettings.vue
+- ⏳ Фаза 1: Database migration (pending deployment)
+- ⏳ Фаза 3: ProductSyncService updates (pending)
+- ⏳ Фаза 9: Testing (pending)
 
 ---
 
@@ -580,16 +592,9 @@ if (!$syncSettings->create_product_folders) {
 
 ---
 
-## Фаза 4-6: Frontend (4.5 часа) ⏳
+## Фаза 4: Frontend API клиент ✅
 
-### Компоненты для создания:
-1. `ProductFolderPicker.vue` - модальное окно с деревом папок
-2. `FolderTreeNode.vue` - рекурсивный узел дерева
-3. `ProductFilterBuilder.vue` - конструктор фильтров
-4. Обновить `FranchiseSettings.vue` - добавить все новые секции
-
-### API клиент:
-Обновить `resources/js/api/index.js`:
+Обновлен `resources/js/api/index.js`:
 ```js
 syncSettings: {
   getPriceTypes: (accountId) => axios.get(`/api/sync-settings/${accountId}/price-types`),
@@ -601,7 +606,87 @@ syncActions: {
 }
 ```
 
-**Статус:** ❌ Не начато
+**Статус:** ✅ ГОТОВО
+
+---
+
+## Фаза 5: Компонент FolderTreeNode.vue ✅
+
+**Файл:** `resources/js/components/FolderTreeNode.vue`
+
+Рекурсивный компонент для отображения узлов дерева:
+- Чекбокс для выбора папки
+- Отображение названия и количества детей
+- Рекурсивный рендеринг дочерних папок
+- Левая граница для визуальной иерархии
+- Emit события `toggle` при изменении
+
+**Статус:** ✅ ГОТОВО
+
+---
+
+## Фаза 6: Компонент ProductFolderPicker.vue ✅
+
+**Файл:** `resources/js/components/ProductFolderPicker.vue`
+
+Модальное окно выбора папок:
+- Backdrop с затемнением
+- Centered modal panel
+- Состояния: loading, empty, tree view
+- Отображение количества выбранных
+- Кнопки Confirm/Cancel
+- Transitions (fade + scale)
+- Expose метод `open()`
+- v-model для selectedIds
+
+**Статус:** ✅ ГОТОВО
+
+---
+
+## Фаза 7: Компонент ProductFilterBuilder.vue ✅
+
+**Файл:** `resources/js/components/ProductFilterBuilder.vue`
+
+Визуальный конструктор фильтров:
+- До 10 групп условий
+- Типы условий: folder (открывает ProductFolderPicker), attribute_flag
+- Логика: ИЛИ внутри группы, И между группами
+- Кнопки добавления/удаления групп и условий
+- Интеграция с ProductFolderPicker модалом
+- v-model для filters object
+
+**Статус:** ✅ ГОТОВО
+
+---
+
+## Фаза 8: Обновление FranchiseSettings.vue ✅
+
+**Файл:** `resources/js/pages/FranchiseSettings.vue`
+
+Добавлены новые секции:
+
+### 1. Расширенные настройки товаров:
+- Поле для сопоставления (code/article/externalCode/barcode)
+- Синхронизация услуг (toggle)
+- Создание групп товаров (toggle)
+- Кнопка "Синхронизировать все товары" с progress
+
+### 2. Сопоставление типов цен:
+- Загрузка типов цен из main и child
+- Массив mappings: main_price_type_id → child_price_type_id
+- Добавление/удаление сопоставлений
+
+### 3. Выбор дополнительных полей:
+- Загрузка attributes из main
+- Checkbox list с фильтрацией
+- Отображение типа атрибута
+- Счетчик выбранных
+
+### 4. Фильтрация товаров:
+- Заменен JSON editor на ProductFilterBuilder
+- Интеграция с компонентами
+
+**Статус:** ✅ ГОТОВО
 
 ---
 
