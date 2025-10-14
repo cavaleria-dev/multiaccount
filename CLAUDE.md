@@ -4,296 +4,359 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Laravel 11 + Vue 3 application for managing МойСклад franchise networks. The application runs as an iframe inside МойСклад interface and uses Vendor API for user context retrieval.
+МойСклад Franchise Management Application - Laravel 11 + Vue 3 application for managing franchise networks in МойСклад with automatic data synchronization between main and child accounts. Runs as an iframe application inside МойСклад interface.
 
-**Stack:** PHP 8.2+, Laravel 11/12, PostgreSQL 18, Vue 3 Composition API, Tailwind CSS 3, Redis 7.x
+**Stack:** PHP 8.4, Laravel 11, PostgreSQL 18, Redis 7, Vue 3, Tailwind CSS 3
 
-## Essential Commands
+## Development Commands
 
-### Development
 ```bash
-# Setup project (first time)
-composer setup                  # Runs install, .env copy, key:generate, migrate, npm install & build
+# Setup (first time only)
+composer install
+npm install
+cp .env.example .env
+php artisan key:generate
+php artisan migrate
 
-# Development with hot reload (all services at once)
-composer dev                    # Runs server, queue, logs (pail), and vite concurrently
+# Development (runs all services concurrently)
+composer dev
+# This starts: artisan serve, queue:listen, pail (logs), npm run dev
 
 # Individual services
-php artisan serve               # Dev server on http://localhost:8000
-npm run dev                     # Vite dev server with hot reload
-php artisan queue:listen        # Queue worker
-php artisan pail                # Real-time logs viewer
+php artisan serve              # Backend server (localhost:8000)
+npm run dev                    # Frontend hot reload (Vite)
+php artisan queue:listen       # Process queue jobs
+php artisan pail               # Real-time logs
+
+# Database
+php artisan migrate            # Run migrations
+php artisan migrate:rollback   # Rollback last migration
+php artisan migrate:fresh      # Drop all tables and re-migrate (WARNING: deletes data!)
+
+# Cache management
+php artisan cache:clear        # Clear application cache
+php artisan config:clear       # Clear config cache
+php artisan config:cache       # Cache config (production)
+php artisan route:cache        # Cache routes (production)
+php artisan view:cache         # Cache views (production)
+
+# Frontend
+npm run build                  # Production build
+npm run preview                # Preview production build
+
+# Testing
+composer test                  # Run PHPUnit tests
+php artisan test               # Same as above
+
+# Scheduler (production)
+# Add to crontab: * * * * * cd /path && php artisan schedule:run >> /dev/null 2>&1
 ```
 
-### Database
-```bash
-php artisan migrate             # Run migrations
-php artisan migrate:rollback    # Rollback last batch
-php artisan migrate:fresh       # WARNING: Drops all tables and re-runs migrations
-php artisan tinker              # REPL for testing DB queries
-```
+## Architecture Overview
 
-### Cache Management
-```bash
-php artisan config:clear        # Clear config cache
-php artisan cache:clear         # Clear application cache
-php artisan view:clear          # Clear compiled views
-php artisan route:list          # List all registered routes
-```
+### МойСклад Integration Context
 
-### Frontend Build
-```bash
-npm run build                   # Production build (generates public/build/)
-npm run dev                     # Development with hot reload
-npm run preview                 # Preview production build
-```
+This app integrates with МойСклад (Russian inventory management system) using three APIs:
 
-### Testing
-```bash
-composer test                   # Run PHPUnit tests
-php artisan test                # Alternative test command
-```
+1. **Vendor API (JWT-based)**: App lifecycle (install/uninstall), context retrieval
+2. **JSON API 1.2 (Bearer token)**: CRUD operations on entities (products, orders, etc.)
+3. **Webhook API**: Real-time event notifications
 
-### Production Deployment
-```bash
-cd /var/www/app.cavaleria.ru
-git pull origin main
-npm install
-npm run build
-php artisan config:clear
-php artisan cache:clear
-```
+**Critical Flow:**
+1. User opens app iframe → МойСклад provides `contextKey` in URL
+2. Frontend calls `/api/context` with contextKey + appUid
+3. Backend generates JWT, calls Vendor API to get full context (accountId, userId, permissions)
+4. **Context cached for 30min** with key `moysklad_context:{contextKey}`
+5. **contextKey stored in sessionStorage**
+6. All subsequent API calls include `X-MoySklad-Context-Key` header
+7. Middleware `MoySkladContext` validates context from cache
 
-## Architecture
+### Synchronization Architecture
 
-### МойСклад Integration Flow
+**Main Account → Child Accounts (Products):**
+- Products, variants, bundles, custom entities
+- Attributes, characteristics, prices, barcodes
+- Queued with priorities and delays (ProcessSyncQueueJob)
+- **Deletion/archiving**: Archived in children (NOT deleted) when deleted in main
 
-1. **Installation**: МойСклад sends PUT request to Vendor API endpoint with `accessToken`
-2. **Context Retrieval**: Frontend extracts `contextKey` and `appUid` from URL parameters
-3. **JWT Authentication**: Backend generates JWT token using `appUid` and `secretKey`
-4. **API Communication**: Use JWT for Vendor API, use `accessToken` for JSON API 1.2
+**Child Accounts → Main Account (Orders):**
+- customerorder → customerorder
+- retaildemand → customerorder
+- purchaseorder → customerorder (проведенные only)
+- Immediate sync without queue
 
-### Service Layer Pattern
+### Service Layer
 
-**Controllers** (`app/Http/Controllers/Api/`) - Handle HTTP requests/responses only
-- `MoySkladController.php` - Vendor API endpoints (install/uninstall/status)
-- `ContextController.php` - Context retrieval and stats
-- `WebhookController.php` - МойСклад webhook processing
+**Core Services** (`app/Services/`):
+- `MoySkladService` - Low-level API client, rate limit handling
+- `VendorApiService` - JWT generation, context retrieval
+- `ProductSyncService` - Products, variants, bundles sync
+- `CustomerOrderSyncService` - Customer orders sync
+- `RetailDemandSyncService` - Retail sales sync
+- `PurchaseOrderSyncService` - Purchase orders sync (проведенные only)
+- `CounterpartySyncService` - Counterparty management
+- `CustomEntitySyncService` - Custom entity sync
+- `BatchSyncService` - Batch sync with queues
+- `WebhookService` - Webhook management
+- `RateLimitHandler` - API rate limit handling (45 req/sec burst, exponential backoff)
 
-**Services** (`app/Services/`) - Business logic and external API communication
-- `VendorApiService.php` - Vendor API 1.0 (JWT-based, context retrieval)
-- `MoySkladService.php` - JSON API 1.2 (Token-based, CRUD operations)
+**Key Jobs:**
+- `ProcessSyncQueueJob` - Runs every minute via scheduler, processes 50 tasks per batch
 
-**Models** (`app/Models/`)
-- `Account.php` - Installed applications
-- Other models handle child accounts, sync settings, logs, webhooks
+### Frontend Architecture
 
-### Frontend Architecture (Vue 3)
+**Vue 3 Composition API** - Options API is NOT used
 
-```
-resources/js/
-├── composables/
-│   └── useMoyskladContext.js    # Extracts contextKey/appUid, fetches context
-├── pages/
-│   ├── Dashboard.vue            # Main page with stats
-│   ├── ChildAccounts.vue        # Child account management
-│   └── SyncSettings.vue         # Synchronization settings
-├── App.vue                      # Root component with navigation
-└── router.js                    # Vue Router setup
-```
+**Key Composables** (`resources/js/composables/`):
+- `useMoyskladContext.js` - Context management, loads from URL params, saves to sessionStorage
 
-### Database Schema
+**Pages** (`resources/js/pages/`):
+- `Dashboard.vue` - Statistics overview
+- `ChildAccounts.vue` - Franchise management, add by account name
+- `GeneralSettings.vue` - App-wide settings (account type: main/child)
+- `FranchiseSettings.vue` - Per-franchise sync settings
 
-**Key tables:**
-- `accounts` - Installed apps (app_id, account_id, access_token, status)
-- `child_accounts` - Parent-child account relationships
-- `sync_settings` - Synchronization configuration
-- `sync_logs` - Operation logs
-- `entity_mappings` - Entity ID mappings between accounts
-- `webhooks` - Registered webhooks
-- `accounts_archive` - Deleted account history
+**API Client** (`resources/js/api/index.js`):
+- Axios instance with interceptor that auto-adds `X-MoySklad-Context-Key` from sessionStorage
 
-## Critical МойСклад API Specifics
+### Database Structure
 
-### Vendor API JWT Generation
+**Critical Tables:**
 
-**CRITICAL:** Always use `JSON_UNESCAPED_SLASHES` when encoding JSON for JWT:
+`accounts` - Installed apps (account_id UUID PK, access_token, account_type: main/child, status: activated/suspended/uninstalled)
+
+`child_accounts` - Parent-child links (parent_account_id, child_account_id, invitation_code, status)
+
+`sync_settings` - Per-account sync config (30+ fields: sync_enabled, sync_products, sync_orders, sync_images, price type mappings, counterparty IDs, priorities, delays)
+
+`sync_queue` - Task queue (entity_type, entity_id, operation: create/update/delete, priority, scheduled_at, status: pending/processing/completed/failed, attempts, error_message)
+
+`entity_mappings` - Cross-account entity mapping (parent_account_id, child_account_id, parent_entity_id UUID, child_entity_id UUID, entity_type: product/variant/bundle/customerorder, sync_direction: main_to_child/child_to_main)
+
+`webhook_health` - Webhook monitoring (account_id, webhook_id, entity_type, is_active, last_check_at, check_attempts, error_message)
+
+`sync_statistics` - Daily stats (account_id, entity_type, operation, success_count, failed_count, avg_duration)
+
+**Mapping Tables:**
+- `attribute_mappings` - Attribute (additional fields) mapping
+- `characteristic_mappings` - Variant characteristics mapping
+- `price_type_mappings` - Price type mapping
+- `custom_entity_mappings` - Custom entity metadata mapping
+- `custom_entity_element_mappings` - Custom entity elements mapping
+
+### JWT Generation for МойСклад Vendor API
+
+**CRITICAL:** Must use `JSON_UNESCAPED_SLASHES` flag when encoding!
 
 ```php
-// ✅ CORRECT
-$header = json_encode(['alg' => 'HS256', 'typ' => 'JWT'], JSON_UNESCAPED_SLASHES);
-$payload = json_encode([
+$header = ['alg' => 'HS256', 'typ' => 'JWT'];
+$payload = [
     'sub' => $appUid,
     'iat' => time(),
     'exp' => time() + 60,
     'jti' => bin2hex(random_bytes(12))
-], JSON_UNESCAPED_SLASHES);
+];
 
-// ❌ WRONG - Will cause signature mismatch
-$header = json_encode(['alg' => 'HS256', 'typ' => 'JWT']);
+$headerEncoded = base64UrlEncode(json_encode($header, JSON_UNESCAPED_SLASHES));
+$payloadEncoded = base64UrlEncode(json_encode($payload, JSON_UNESCAPED_SLASHES));
+$signature = base64UrlEncode(hash_hmac('sha256', "$headerEncoded.$payloadEncoded", $secretKey, true));
+$jwt = "$headerEncoded.$payloadEncoded.$signature";
 ```
 
-See `VendorApiService::generateJWT()` for reference implementation.
+### Webhook Flow
 
-### Vendor API Context Request
+Webhooks handled in `WebhookController`:
 
-```php
-// POST (not GET!) with empty array body
-Http::withHeaders([
-    'Authorization' => 'Bearer ' . $jwt,
-    'Content-Type' => 'application/json; charset=utf-8',
-])->post($url, []); // Empty array, not null!
-```
+1. МойСклад sends POST to `/api/webhooks/moysklad`
+2. Parse `auditContext` to get accountId, entityType, action (CREATE/UPDATE/DELETE)
+3. Route to appropriate service based on entity type
+4. For products: Queue task in `sync_queue` with priority
+5. For orders: Immediate sync without queue
+6. For purchaseorder: Only sync if `applicable=true` (проведенные)
 
-### Webhook Events
+**Important:** TariffChanged event does NOT include access_token - must fetch from DB.
 
-- `Install` - Installation (includes `accessToken`)
-- `Delete` - Uninstallation
-- `TariffChanged` - Tariff change (**NO** `accessToken` in payload!)
-
-## Code Standards
+## Coding Standards
 
 ### PHP/Laravel
 
-**Mandatory practices:**
-- Strict typing: `public function method(Request $request): JsonResponse`
-- Logging: `Log::info('Operation', ['data' => $data])`
-- Try-catch with error logging for all external API calls
-- Service Layer Pattern - business logic in services, not controllers
-- PSR-12 coding standard
-
-**Example:**
-```php
-public function getContext(Request $request): JsonResponse
-{
-    try {
-        $data = $this->vendorApiService->getContext($contextKey, $appUid);
-        Log::info('Context retrieved successfully', ['account_id' => $data['accountId']]);
-        return response()->json($data);
-    } catch (\Exception $e) {
-        Log::error('Failed to get context', ['error' => $e->getMessage()]);
-        return response()->json(['error' => 'Failed to retrieve context'], 500);
-    }
-}
-```
+1. **PSR-12** formatting
+2. **Strict typing required:**
+   ```php
+   public function getContext(Request $request): JsonResponse
+   ```
+3. **Always log operations:**
+   ```php
+   Log::info('Operation completed', ['data' => $data]);
+   ```
+4. **Try-catch mandatory:**
+   ```php
+   try {
+       // code
+       Log::info('Success');
+   } catch (\Exception $e) {
+       Log::error('Error', ['error' => $e->getMessage()]);
+       return response()->json(['error' => 'Message'], 500);
+   }
+   ```
+5. **Service Layer Pattern** - Business logic in `app/Services/`, controllers only for HTTP handling
+6. **Never use raw SQL** - Use Eloquent or Query Builder
 
 ### Vue 3
 
-**Mandatory:**
-- Composition API with `<script setup>` syntax only (no Options API)
-- Composables for reusable logic in `resources/js/composables/`
-- Loading and error state handling in all async operations
-
-**Example:**
-```vue
-<script setup>
-import { ref, onMounted } from 'vue'
-
-const data = ref(null)
-const loading = ref(false)
-const error = ref(null)
-
-const fetchData = async () => {
-  loading.value = true
-  try {
-    const response = await axios.get('/api/endpoint')
-    data.value = response.data
-  } catch (err) {
-    error.value = err.message
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(fetchData)
-</script>
-```
+1. **Composition API only** - No Options API
+   ```vue
+   <script setup>
+   import { ref, onMounted } from 'vue'
+   const data = ref(null)
+   </script>
+   ```
+2. **Composables for reusable logic** in `resources/js/composables/`
+3. **Always handle loading and error states**
 
 ### Tailwind CSS
 
-**Design system for iframe context:**
-- Colors: `indigo-500/600/700` (primary), `purple-500/600` (secondary)
-- Gradients: `bg-gradient-to-r from-indigo-500 to-purple-600`
-- Spacing: Compact design (small padding/margins for iframe)
-- Borders: `rounded-lg`, `rounded-xl`
-- Shadows: `shadow`, `shadow-md`, `shadow-lg`
-- Always add transitions: `transition-shadow duration-200`
+1. **Utility classes only** - No custom CSS
+2. **Color scheme:**
+   - Primary: `indigo-500` to `indigo-700`
+   - Secondary: `purple-500` to `purple-600`
+   - Gradients: `bg-gradient-to-r from-indigo-500 to-purple-600`
+3. **Always add transitions** for hover states
 
-**Important:** Only use Tailwind utility classes. No custom CSS or inline styles.
+## Adding New Features
 
-**Version:** Tailwind CSS v3 (stable). Do NOT use v4 - it has class generation issues.
+### Backend Feature
 
-## Asset Loading
+1. Create migration if needed: `php artisan make:migration create_table_name`
+2. Create/update model in `app/Models/`
+3. Create service in `app/Services/` for business logic
+4. Create controller in `app/Http/Controllers/Api/`
+5. Add route in `routes/api.php`
+6. Add comprehensive logging
+7. Wrap in try-catch with error handling
 
-### Production vs Development
+### Frontend Feature
 
-The application uses environment-based asset loading in `resources/views/app.blade.php`:
+1. Create component/page in `resources/js/pages/`
+2. Add route in `resources/js/router/index.js`
+3. Create composable if needed in `resources/js/composables/`
+4. Style with Tailwind
+5. Add loading and error state handling
 
-- **Development:** Uses `@vite()` directive with Vite dev server
-- **Production:** Reads `public/build/manifest.json` and loads static assets
+### Adding Franchise (Example Flow)
 
-This is critical for iframe deployment - assets must load correctly in production.
+User enters account name → Backend finds account by `account_name` → Checks:
+- App installed (status='activated')
+- Not adding self
+- Not already connected to current main
+- Not connected to another main
 
-## CORS Configuration
+If valid → Creates row in `child_accounts` → Creates default `sync_settings`
 
-CORS is configured to allow iframe loading from МойСклад domains:
-- `online.moysklad.ru` (production)
-- `dev.moysklad.ru` (development)
+## Rate Limiting
 
-CORS headers must be set for:
-1. API endpoints (`app/Http/Middleware/CorsMiddleware.php`)
-2. Static files (CSS/JS) in nginx configuration
+МойСклад API limits: 45 requests/sec burst, sustained rate lower
 
-## Security
+`RateLimitHandler` tracks:
+- Requests per second
+- `X-Lognex-Reset` header for rate limit reset time
+- Exponential backoff on 429 responses
+- Automatic retry with delays
 
-- CORS restricted to МойСклад domains only
-- CSRF protection disabled for `/api/*` routes
-- Always validate incoming data
-- Use Eloquent/Query Builder (never raw SQL)
-- Never commit `.env` file
-- Store sensitive data in `.env` (app_uid, secret_key, etc.)
+## Common Patterns
 
-## Git Commit Format
+### Checking Context in Controller
 
+```php
+public function index(Request $request)
+{
+    $contextData = $request->get('moysklad_context');
+    if (!$contextData || !isset($contextData['accountId'])) {
+        return response()->json(['error' => 'Account context not found'], 400);
+    }
+    $mainAccountId = $contextData['accountId'];
+    // ... rest of logic
+}
 ```
-<type>: <description>
 
-Types: feat, fix, style, refactor, docs
+### Frontend API Call with Context
+
+```javascript
+// contextKey automatically added by interceptor in api/index.js
+const response = await api.childAccounts.list()
 ```
 
-**Examples:**
+### Queueing Sync Task
+
+```php
+SyncQueue::create([
+    'account_id' => $accountId,
+    'entity_type' => 'product',
+    'entity_id' => $productId,
+    'operation' => 'update',
+    'priority' => 5,
+    'scheduled_at' => now()->addSeconds(10), // Delay if needed
+    'status' => 'pending'
+]);
 ```
-feat: Add context retrieval endpoint
-fix: Fix JWT signature generation for МойСклад
-style: Improve dashboard layout for iframe
+
+## Important Gotchas
+
+1. **JWT for МойСклад MUST use `JSON_UNESCAPED_SLASHES`** - will fail without it
+2. **Context must be cached** - Middleware expects it in cache with key `moysklad_context:{contextKey}`
+3. **contextKey must be in sessionStorage** - API interceptor reads from there
+4. **PurchaseOrder sync** - Only проведенные (applicable=true), on CREATE and UPDATE
+5. **Product deletion** - Archive in children, don't delete
+6. **Rate limits** - Always use `RateLimitHandler`, never direct API calls
+7. **Webhook TariffChanged** - No access_token in payload, must fetch from DB
+8. **CORS** - Only `online.moysklad.ru` and `dev.moysklad.ru` allowed
+
+## Configuration
+
+Key `.env` variables:
+```env
+MOYSKLAD_APP_ID=         # App UUID from developer console
+MOYSKLAD_APP_UID=        # App UID (appUid)
+MOYSKLAD_SECRET_KEY=     # Secret key from developer console
+
+DB_CONNECTION=pgsql
+DB_DATABASE=moysklad_db
+DB_USERNAME=moysklad_user
+DB_PASSWORD=
+
+REDIS_HOST=127.0.0.1
+REDIS_PASSWORD=null
+REDIS_PORT=6379
+
+CACHE_STORE=redis        # Context caching requires Redis/Memcached
 ```
 
-## Common Pitfalls
+## Git Workflow
 
-❌ **DON'T:**
-- Use Options API in Vue (use Composition API)
-- Write custom CSS (use Tailwind only)
-- Put business logic in controllers (use services)
-- Forget `JSON_UNESCAPED_SLASHES` for МойСклад JWT
-- Use `var` in JavaScript (use `const`/`let`)
-- Make DB queries in controllers
-- Ignore errors (always use try-catch)
-- Use Tailwind v4 (use v3 - it's stable)
+Format: `<type>: <description>`
 
-✅ **DO:**
-- Add strict typing to PHP methods
-- Log all operations with context data
-- Handle loading and error states in Vue
-- Use Tailwind utility classes only
-- Keep controllers thin, services fat
-- Use Composition API with `<script setup>`
-- Test in МойСклад iframe before deployment
+Types: `feat`, `fix`, `style`, `refactor`, `docs`
 
-## Additional Resources
+Always commit with descriptive messages including:
+```
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+## Deployment
+
+Auto-deploy via GitHub Actions on push to `main` branch.
+
+Required GitHub Secrets:
+- `SERVER_HOST`
+- `SERVER_USER`
+- `SSH_PRIVATE_KEY`
+
+Manual deploy: `cd /var/www/app.cavaleria.ru && ./deploy.sh`
+
+## Resources
 
 - [МойСклад JSON API 1.2](https://dev.moysklad.ru/doc/api/remap/1.2/)
 - [МойСклад Vendor API 1.0](https://dev.moysklad.ru/doc/api/vendor/1.0/)
-- [Laravel 11 Documentation](https://laravel.com/docs/11.x)
-- [Vue 3 Documentation](https://vuejs.org/)
-- [Tailwind CSS Documentation](https://tailwindcss.com/)
-- [МойСклад Developer Cabinet](https://apps.moysklad.ru/cabinet/)
+- [Developer Console](https://apps.moysklad.ru/cabinet/)
