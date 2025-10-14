@@ -135,7 +135,7 @@ This app integrates with МойСклад (Russian inventory management system) 
 
 `webhook_health` - Webhook monitoring (account_id, webhook_id, entity_type, is_active, last_check_at, check_attempts, error_message)
 
-`sync_statistics` - Daily stats (account_id, entity_type, operation, success_count, failed_count, avg_duration)
+`sync_statistics` - Daily stats (parent_account_id, child_account_id, date, products_synced, products_failed, orders_synced, orders_failed, sync_duration_avg, api_calls_count, last_sync_at) - unique per (parent, child, date)
 
 **Mapping Tables:**
 - `attribute_mappings` - Attribute (additional fields) mapping
