@@ -22,7 +22,13 @@ server {
     # ВАЖНО: CORS заголовки убраны из nginx, они обрабатываются в Laravel CorsMiddleware
     # Это предотвращает дублирование заголовков и конфликты
 
-    # Основной location
+    # API обработка - КРИТИЧНО для корректной работы JSON API
+    # Без этого блока Nginx отдаст HTML SPA страницу вместо JSON для API endpoints
+    location /api {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # Основной location для SPA
     location / {
         try_files $uri $uri/ /index.php?$query_string;
     }
@@ -33,6 +39,10 @@ server {
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         include fastcgi_params;
         fastcgi_hide_header X-Powered-By;
+
+        # КРИТИЧНО: Передача custom заголовков для Laravel middleware
+        # Без этого middleware MoySkladContext не получит заголовок X-MoySklad-Context-Key
+        fastcgi_param HTTP_X_MOYSKLAD_CONTEXT_KEY $http_x_moysklad_context_key;
     }
 
     # Запрет доступа к скрытым файлам
