@@ -52,13 +52,23 @@ class ContextController extends Controller
             }
 
             // Извлекаем нужные данные из ответа МойСклад
-            return response()->json([
+            $contextData = [
                 'accountId' => $context['accountId'] ?? null,
                 'accountName' => $context['accountName'] ?? 'Неизвестный аккаунт',
                 'userId' => $context['uid'] ?? null,
                 'appId' => $context['appId'] ?? null,
                 'permissions' => $context['permissions'] ?? [],
+            ];
+
+            // Сохраняем контекст в кеш на 30 минут для использования middleware
+            \Cache::put("moysklad_context:{$contextKey}", $contextData, now()->addMinutes(30));
+
+            Log::info('Контекст сохранен в кеш', [
+                'contextKey' => substr($contextKey, 0, 20) . '...',
+                'accountId' => $contextData['accountId']
             ]);
+
+            return response()->json($contextData);
 
         } catch (\Exception $e) {
             Log::error('Error getting context', [
