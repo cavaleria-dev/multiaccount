@@ -175,19 +175,19 @@ class SyncSettingsController extends Controller
             Log::info('Price types loaded', [
                 'main_account_id' => $mainAccountId,
                 'child_account_id' => $accountId,
-                'main_count' => count($mainPriceTypes['priceTypes'] ?? []),
-                'child_count' => count($childPriceTypes['priceTypes'] ?? [])
+                'main_count' => count($mainPriceTypes['data']['priceTypes'] ?? []),
+                'child_count' => count($childPriceTypes['data']['priceTypes'] ?? [])
             ]);
 
             return response()->json([
                 'main' => array_map(fn($pt) => [
                     'id' => $pt['id'],
                     'name' => $pt['name']
-                ], $mainPriceTypes['priceTypes'] ?? []),
+                ], $mainPriceTypes['data']['priceTypes'] ?? []),
                 'child' => array_map(fn($pt) => [
                     'id' => $pt['id'],
                     'name' => $pt['name']
-                ], $childPriceTypes['priceTypes'] ?? [])
+                ], $childPriceTypes['data']['priceTypes'] ?? [])
             ]);
 
         } catch (\Exception $e) {
@@ -237,7 +237,7 @@ class SyncSettingsController extends Controller
             $metadata = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/product/metadata');
 
             $result = [];
-            foreach ($metadata['attributes'] ?? [] as $attr) {
+            foreach ($metadata['data']['attributes'] ?? [] as $attr) {
                 $result[] = [
                     'id' => $attr['id'],
                     'name' => $attr['name'],
@@ -302,12 +302,12 @@ class SyncSettingsController extends Controller
             ]);
 
             // Построить дерево
-            $folderTree = $this->buildFolderTree($folders['rows'] ?? []);
+            $folderTree = $this->buildFolderTree($folders['data']['rows'] ?? []);
 
             Log::info('Folders loaded', [
                 'main_account_id' => $mainAccountId,
                 'child_account_id' => $accountId,
-                'count' => count($folders['rows'] ?? [])
+                'count' => count($folders['data']['rows'] ?? [])
             ]);
 
             return response()->json(['data' => $folderTree]);
