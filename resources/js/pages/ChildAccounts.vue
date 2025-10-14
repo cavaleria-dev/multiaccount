@@ -83,46 +83,25 @@
 
     <!-- Модальное окно добавления аккаунта -->
     <div v-if="showAddModal" class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
-      <div class="bg-white rounded-lg p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+      <div class="bg-white rounded-lg p-6 max-w-md w-full">
         <h3 class="text-lg font-medium text-gray-900 mb-4">Добавить дочерний аккаунт</h3>
 
-        <!-- Загрузка -->
-        <div v-if="loadingAvailable" class="py-8 text-center">
-          <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-          <p class="mt-2 text-sm text-gray-500">Загрузка доступных аккаунтов...</p>
-        </div>
-
-        <!-- Список доступных аккаунтов -->
-        <div v-else-if="availableAccounts.length > 0" class="space-y-3">
-          <p class="text-sm text-gray-700">Выберите аккаунт для подключения:</p>
-          <div
-            v-for="account in availableAccounts"
-            :key="account.account_id"
-            @click="selectAccount(account)"
-            :class="[
-              'border-2 rounded-lg p-3 cursor-pointer transition-all',
-              selectedAccount?.account_id === account.account_id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-300',
-              account.availability === 'connected' ? 'opacity-50 cursor-not-allowed' : '',
-              account.availability === 'connected_to_other' ? 'opacity-70' : ''
-            ]"
-          >
-            <div class="flex items-start justify-between">
-              <div class="flex-1">
-                <p class="font-medium text-gray-900">{{ account.account_name || 'Без названия' }}</p>
-                <p class="text-xs text-gray-500 font-mono mt-1">{{ account.account_id }}</p>
-              </div>
-              <div>
-                <span v-if="account.availability === 'connected'" class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                  Уже подключен
-                </span>
-                <span v-else-if="account.availability === 'connected_to_other'" class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                  Занят
-                </span>
-                <span v-else class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  Доступен
-                </span>
-              </div>
-            </div>
+        <form @submit.prevent="addAccount" class="space-y-4">
+          <div>
+            <label for="account-name" class="block text-sm font-medium text-gray-700 mb-1">
+              Название аккаунта
+            </label>
+            <input
+              id="account-name"
+              v-model="newAccountName"
+              type="text"
+              required
+              placeholder="Введите название аккаунта МойСклад"
+              class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            />
+            <p class="mt-1 text-xs text-gray-500">
+              Укажите точное название аккаунта, на котором установлено приложение
+            </p>
           </div>
 
           <!-- Кнопки -->
@@ -135,31 +114,15 @@
               Отмена
             </button>
             <button
-              type="button"
-              @click="addAccount"
-              :disabled="!selectedAccount || selectedAccount.availability !== 'available'"
+              type="submit"
+              :disabled="!newAccountName.trim() || addingAccount"
               class="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Добавить
+              <span v-if="addingAccount">Добавление...</span>
+              <span v-else>Добавить</span>
             </button>
           </div>
-        </div>
-
-        <!-- Нет доступных аккаунтов -->
-        <div v-else class="py-8 text-center">
-          <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-          </svg>
-          <p class="mt-2 text-sm text-gray-900 font-medium">Нет доступных аккаунтов</p>
-          <p class="mt-1 text-xs text-gray-500">Установите приложение на других аккаунтах МойСклад</p>
-          <button
-            type="button"
-            @click="closeAddModal"
-            class="mt-4 inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-          >
-            Закрыть
-          </button>
-        </div>
+        </form>
       </div>
     </div>
   </div>
@@ -176,9 +139,8 @@ const accounts = ref([])
 const showAddModal = ref(false)
 const loading = ref(false)
 const error = ref(null)
-const loadingAvailable = ref(false)
-const availableAccounts = ref([])
-const selectedAccount = ref(null)
+const newAccountName = ref('')
+const addingAccount = ref(false)
 
 // Загрузка списка аккаунтов
 const loadAccounts = async () => {
@@ -195,20 +157,10 @@ const loadAccounts = async () => {
   }
 }
 
-// Загрузка доступных аккаунтов при открытии модального окна
-watch(showAddModal, async (newValue) => {
-  if (newValue) {
-    try {
-      loadingAvailable.value = true
-      const response = await api.childAccounts.available()
-      availableAccounts.value = response.data.data || []
-      selectedAccount.value = null
-    } catch (err) {
-      console.error('Failed to load available accounts:', err)
-      alert('Не удалось загрузить список доступных аккаунтов')
-    } finally {
-      loadingAvailable.value = false
-    }
+// Очистка формы при закрытии модального окна
+watch(showAddModal, (newValue) => {
+  if (!newValue) {
+    newAccountName.value = ''
   }
 })
 
@@ -249,33 +201,29 @@ async function deleteAccount(account) {
   }
 }
 
-function selectAccount(account) {
-  if (account.availability === 'connected') {
-    return // Уже подключен
-  }
-  selectedAccount.value = account
-}
-
 function closeAddModal() {
   showAddModal.value = false
-  selectedAccount.value = null
+  newAccountName.value = ''
 }
 
 async function addAccount() {
-  if (!selectedAccount.value || selectedAccount.value.availability !== 'available') {
+  if (!newAccountName.value.trim()) {
     return
   }
 
   try {
+    addingAccount.value = true
     await api.childAccounts.create({
-      child_account_id: selectedAccount.value.account_id
+      account_name: newAccountName.value.trim()
     })
     showAddModal.value = false
-    selectedAccount.value = null
+    newAccountName.value = ''
     await loadAccounts()
   } catch (err) {
     console.error('Failed to add account:', err)
     alert('Не удалось добавить аккаунт: ' + (err.response?.data?.error || err.message))
+  } finally {
+    addingAccount.value = false
   }
 }
 </script>

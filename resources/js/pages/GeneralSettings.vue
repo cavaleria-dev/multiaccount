@@ -8,32 +8,36 @@
     </div>
 
     <form @submit.prevent="saveSettings" class="space-y-6">
-      <!-- Настройки приложения -->
+      <!-- Тип аккаунта -->
       <div class="bg-white shadow rounded-lg p-6">
-        <h3 class="text-lg font-medium text-gray-900 mb-4">Настройки приложения</h3>
+        <h3 class="text-lg font-medium text-gray-900 mb-4">Тип аккаунта</h3>
         <div class="space-y-4">
           <div>
-            <label for="app_name" class="block text-sm font-medium text-gray-700">Название приложения</label>
-            <input
-              type="text"
-              id="app_name"
-              v-model="settings.app_name"
-              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              placeholder="Мультиаккаунты МойСклад"
-            />
-            <p class="mt-1 text-xs text-gray-500">Отображается в заголовке приложения</p>
-          </div>
-
-          <div>
-            <label for="webhook_url" class="block text-sm font-medium text-gray-700">URL для вебхуков</label>
-            <input
-              type="text"
-              id="webhook_url"
-              v-model="settings.webhook_url"
-              readonly
-              class="mt-1 block w-full rounded-md border-gray-300 bg-gray-50 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-            />
-            <p class="mt-1 text-xs text-gray-500">Используйте этот URL для настройки вебхуков в МойСклад</p>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Этот аккаунт является:</label>
+            <div class="flex items-center space-x-4">
+              <label class="inline-flex items-center">
+                <input
+                  type="radio"
+                  v-model="settings.account_type"
+                  value="main"
+                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300"
+                />
+                <span class="ml-2 text-sm text-gray-700">Главный аккаунт</span>
+              </label>
+              <label class="inline-flex items-center">
+                <input
+                  type="radio"
+                  v-model="settings.account_type"
+                  value="child"
+                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300"
+                />
+                <span class="ml-2 text-sm text-gray-700">Дочерний аккаунт (франшиза)</span>
+              </label>
+            </div>
+            <p class="mt-2 text-xs text-gray-500">
+              <strong>Главный:</strong> управляет франшизами, отправляет товары<br>
+              <strong>Дочерний:</strong> получает товары, отправляет заказы
+            </p>
           </div>
         </div>
       </div>
@@ -219,8 +223,7 @@ const saving = ref(false)
 const saveSuccess = ref(false)
 
 const settings = ref({
-  app_name: 'Мультиаккаунты МойСклад',
-  webhook_url: window.location.origin + '/api/webhooks/moysklad',
+  account_type: 'main',
   default_sync_enabled: true,
   default_sync_products: true,
   default_sync_orders: false,
@@ -271,8 +274,7 @@ function saveSettings() {
 function resetSettings() {
   if (confirm('Сбросить все настройки на значения по умолчанию?')) {
     settings.value = {
-      app_name: 'Мультиаккаунты МойСклад',
-      webhook_url: window.location.origin + '/api/webhooks/moysklad',
+      account_type: 'main',
       default_sync_enabled: true,
       default_sync_products: true,
       default_sync_orders: false,

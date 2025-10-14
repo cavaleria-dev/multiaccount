@@ -95,9 +95,7 @@ class ChildAccountController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'child_account_id' => 'required|uuid',
-            'counterparty_id' => 'nullable|uuid',
-            'supplier_counterparty_id' => 'nullable|uuid',
+            'account_name' => 'required|string|max:255',
         ]);
 
         $contextData = $request->get('moysklad_context');
@@ -107,43 +105,59 @@ class ChildAccountController extends Controller
 
         $mainAccountId = $contextData['accountId'];
 
-        // Проверить что дочерний аккаунт существует
-        $childAccount = Account::where('account_id', $request->child_account_id)->first();
+        // Найти аккаунт по названию
+        $childAccount = Account::where('account_name', $request->account_name)
+            ->where('status', 'activated')
+            ->first();
+
         if (!$childAccount) {
-            return response()->json(['error' => 'Child account not found in system'], 404);
+            return response()->json([
+                'error' => 'Аккаунт с таким названием не найден или приложение не установлено'
+            ], 404);
+        }
+
+        // Проверить что это не текущий аккаунт
+        if ($childAccount->account_id === $mainAccountId) {
+            return response()->json([
+                'error' => 'Нельзя добавить самого себя в качестве дочернего аккаунта'
+            ], 400);
         }
 
         // Проверить что связь еще не существует
         $existingLink = DB::table('child_accounts')
             ->where('parent_account_id', $mainAccountId)
-            ->where('child_account_id', $request->child_account_id)
+            ->where('child_account_id', $childAccount->account_id)
             ->exists();
 
         if ($existingLink) {
-            return response()->json(['error' => 'Link already exists'], 409);
+            return response()->json(['error' => 'Этот аккаунт уже подключен'], 409);
+        }
+
+        // Проверить что не подключен к другому главному аккаунту
+        $connectedToOther = DB::table('child_accounts')
+            ->where('child_account_id', $childAccount->account_id)
+            ->first();
+
+        if ($connectedToOther) {
+            $parentAccount = Account::where('account_id', $connectedToOther->parent_account_id)->first();
+            return response()->json([
+                'error' => 'Этот аккаунт уже подключен к другому главному аккаунту: ' . ($parentAccount?->account_name ?? 'Unknown')
+            ], 409);
         }
 
         // Создать связь
         DB::table('child_accounts')->insert([
             'parent_account_id' => $mainAccountId,
-            'child_account_id' => $request->child_account_id,
+            'child_account_id' => $childAccount->account_id,
             'created_at' => now(),
             'updated_at' => now()
         ]);
 
-        // Обновить counterparty_id если передан
-        if ($request->counterparty_id) {
-            $childAccount->update([
-                'counterparty_id' => $request->counterparty_id
-            ]);
-        }
-
         // Создать настройки синхронизации если не существуют
         if (!$childAccount->syncSettings) {
             SyncSetting::create([
-                'account_id' => $request->child_account_id,
+                'account_id' => $childAccount->account_id,
                 'sync_enabled' => true,
-                'supplier_counterparty_id' => $request->supplier_counterparty_id,
             ]);
         }
 
