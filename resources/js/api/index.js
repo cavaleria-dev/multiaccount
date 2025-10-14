@@ -69,6 +69,9 @@ export default {
     getPriceTypes(accountId) {
       return api.get(`/sync-settings/${accountId}/price-types`)
     },
+    createPriceType(accountId, data) {
+      return api.post(`/sync-settings/${accountId}/price-types`, data)
+    },
     getAttributes(accountId) {
       return api.get(`/sync-settings/${accountId}/attributes`)
     },

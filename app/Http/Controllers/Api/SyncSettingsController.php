@@ -419,4 +419,94 @@ class SyncSettingsController extends Controller
 
         return $tree;
     }
+
+    /**
+     * Создать новый тип цены в дочернем аккаунте
+     */
+    public function createPriceType(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Проверить что это дочерний аккаунт текущего главного
+        $link = DB::table('child_accounts')
+            ->where('parent_account_id', $mainAccountId)
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account not found'], 404);
+        }
+
+        // Валидация
+        $request->validate([
+            'name' => 'required|string|min:2|max:255'
+        ]);
+
+        try {
+            // Получить дочерний аккаунт
+            $childAccount = Account::where('account_id', $accountId)->first();
+
+            if (!$childAccount) {
+                return response()->json(['error' => 'Child account not found'], 404);
+            }
+
+            if (!$childAccount->access_token) {
+                return response()->json(['error' => 'Child account has no access token'], 500);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            // Создать тип цены через МойСклад API
+            $priceTypeData = [
+                'name' => $request->input('name')
+            ];
+
+            $result = $moysklad
+                ->setAccessToken($childAccount->access_token)
+                ->post('context/companysettings/pricetype', $priceTypeData);
+
+            $createdPriceType = $result['data'];
+
+            Log::info('Price type created in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'price_type_id' => $createdPriceType['id'] ?? null,
+                'price_type_name' => $createdPriceType['name'] ?? null
+            ]);
+
+            return response()->json([
+                'message' => 'Price type created successfully',
+                'data' => [
+                    'id' => $createdPriceType['id'],
+                    'name' => $createdPriceType['name']
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create price type', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'name' => $request->input('name'),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            // Проверить на ошибку дубликата от МойСклад API
+            $errorMessage = $e->getMessage();
+            if (str_contains($errorMessage, 'duplicate') || str_contains($errorMessage, 'already exists')) {
+                return response()->json([
+                    'error' => 'Тип цены с таким названием уже существует'
+                ], 409);
+            }
+
+            return response()->json([
+                'error' => 'Failed to create price type: ' . $errorMessage
+            ], 500);
+        }
+    }
 }

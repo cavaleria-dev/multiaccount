@@ -389,25 +389,75 @@
             </div>
             <div class="flex-1">
               <label class="block text-xs font-medium text-gray-700 mb-1">Тип цены (дочерний)</label>
-              <select
-                v-model="mapping.child_price_type_id"
-                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-              >
-                <option value="">Выберите...</option>
-                <option
-                  v-for="pt in priceTypes.child"
-                  :key="pt.id"
-                  :value="pt.id"
-                  :class="{ 'font-semibold': pt.id === 'buyPrice' }"
+              <div class="flex gap-2">
+                <select
+                  v-model="mapping.child_price_type_id"
+                  class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
                 >
-                  {{ pt.id === 'buyPrice' ? '💰 ' : '' }}{{ pt.name }}
-                </option>
-              </select>
+                  <option value="">Выберите...</option>
+                  <option
+                    v-for="pt in priceTypes.child"
+                    :key="pt.id"
+                    :value="pt.id"
+                    :class="{ 'font-semibold': pt.id === 'buyPrice' }"
+                  >
+                    {{ pt.id === 'buyPrice' ? '💰 ' : '' }}{{ pt.name }}
+                  </option>
+                </select>
+                <button
+                  type="button"
+                  @click="showCreatePriceTypeForm(index)"
+                  class="flex-shrink-0 px-2 py-1 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-colors"
+                  title="Создать новый тип цены"
+                >
+                  <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </div>
+
+              <!-- Inline форма создания типа цены -->
+              <div
+                v-if="creatingPriceTypeForIndex === index"
+                class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-md"
+              >
+                <label class="block text-xs font-medium text-gray-700 mb-2">Новый тип цены:</label>
+                <input
+                  ref="newPriceTypeInput"
+                  v-model="newPriceTypeName"
+                  type="text"
+                  placeholder="Название типа цены"
+                  class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm mb-2"
+                  @keyup.enter="createNewPriceType(index)"
+                  @keyup.escape="hideCreatePriceTypeForm"
+                  autofocus
+                />
+                <p v-if="createPriceTypeError" class="text-xs text-red-600 mb-2">{{ createPriceTypeError }}</p>
+                <div class="flex gap-2">
+                  <button
+                    type="button"
+                    @click="createNewPriceType(index)"
+                    :disabled="creatingPriceType"
+                    class="flex-1 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50 transition-colors"
+                  >
+                    <span v-if="creatingPriceType">Создание...</span>
+                    <span v-else>Создать</span>
+                  </button>
+                  <button
+                    type="button"
+                    @click="hideCreatePriceTypeForm"
+                    :disabled="creatingPriceType"
+                    class="flex-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-md disabled:opacity-50 transition-colors"
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </div>
             </div>
             <button
               type="button"
               @click="removePriceMapping(index)"
-              class="mt-6 text-gray-400 hover:text-red-600 focus:outline-none transition-colors"
+              class="mt-6 text-gray-400 hover:text-red-600 focus:outline-none transition-colors flex-shrink-0"
             >
               <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -573,7 +623,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import ProductFilterBuilder from '../components/ProductFilterBuilder.vue'
@@ -598,6 +648,12 @@ const loadingAttributes = ref(false)
 const loadingFolders = ref(false)
 const syncing = ref(false)
 const syncProgress = ref(null)
+
+// Create price type state
+const creatingPriceTypeForIndex = ref(null)
+const newPriceTypeName = ref('')
+const creatingPriceType = ref(false)
+const createPriceTypeError = ref(null)
 
 const settings = ref({
   sync_enabled: true,
@@ -741,6 +797,65 @@ const addPriceMapping = () => {
 
 const removePriceMapping = (index) => {
   priceMappings.value.splice(index, 1)
+}
+
+// Create price type management
+const showCreatePriceTypeForm = (index) => {
+  creatingPriceTypeForIndex.value = index
+  newPriceTypeName.value = ''
+  createPriceTypeError.value = null
+}
+
+const hideCreatePriceTypeForm = () => {
+  creatingPriceTypeForIndex.value = null
+  newPriceTypeName.value = ''
+  createPriceTypeError.value = null
+}
+
+const createNewPriceType = async (index) => {
+  // Валидация
+  if (!newPriceTypeName.value || newPriceTypeName.value.trim().length < 2) {
+    createPriceTypeError.value = 'Название должно содержать минимум 2 символа'
+    return
+  }
+
+  try {
+    creatingPriceType.value = true
+    createPriceTypeError.value = null
+
+    const response = await api.syncSettings.createPriceType(accountId.value, {
+      name: newPriceTypeName.value.trim()
+    })
+
+    const createdPriceType = response.data.data
+
+    // Добавить в список типов цен дочернего аккаунта
+    priceTypes.value.child.push({
+      id: createdPriceType.id,
+      name: createdPriceType.name
+    })
+
+    // Автоматически выбрать созданный тип в текущем маппинге
+    priceMappings.value[index].child_price_type_id = createdPriceType.id
+
+    // Скрыть форму
+    hideCreatePriceTypeForm()
+
+    // Показать успешное уведомление (можно добавить позже)
+    console.log('Price type created successfully:', createdPriceType)
+
+  } catch (err) {
+    console.error('Failed to create price type:', err)
+
+    // Обработка ошибок
+    if (err.response?.status === 409) {
+      createPriceTypeError.value = 'Тип цены с таким названием уже существует'
+    } else {
+      createPriceTypeError.value = err.response?.data?.error || 'Не удалось создать тип цены'
+    }
+  } finally {
+    creatingPriceType.value = false
+  }
 }
 
 // Sync all products action
