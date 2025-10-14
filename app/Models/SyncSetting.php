@@ -17,6 +17,7 @@ class SyncSetting extends Model
      */
     protected $fillable = [
         'account_id',
+        'sync_enabled',
         'sync_catalog',
         'sync_orders',
         'sync_prices',
@@ -70,6 +71,7 @@ class SyncSetting extends Model
      * The attributes that should be cast.
      */
     protected $casts = [
+        'sync_enabled' => 'boolean',
         'sync_catalog' => 'boolean',
         'sync_orders' => 'boolean',
         'sync_prices' => 'boolean',
