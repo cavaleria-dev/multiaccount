@@ -233,13 +233,24 @@ class ProductSyncService
     ): array {
         $syncedAttributes = [];
 
+        // Получить настройки для фильтрации атрибутов
+        $settings = SyncSetting::where('account_id', $childAccountId)->first();
+        $attributeSyncList = $settings && $settings->attribute_sync_list ? $settings->attribute_sync_list : null;
+        $useFilter = !empty($attributeSyncList) && is_array($attributeSyncList);
+
         foreach ($attributes as $attribute) {
             // Проверить маппинг атрибута
             $attributeName = $attribute['name'] ?? null;
             $attributeType = $attribute['type'] ?? null;
+            $attributeId = $attribute['id'] ?? null;
 
-            if (!$attributeName || !$attributeType) {
+            if (!$attributeName || !$attributeType || !$attributeId) {
                 continue;
+            }
+
+            // Если используется фильтр - проверить разрешен ли этот атрибут
+            if ($useFilter && !in_array($attributeId, $attributeSyncList)) {
+                continue; // Атрибут не в списке разрешенных - пропустить
             }
 
             $attributeMapping = AttributeMapping::where('parent_account_id', $mainAccountId)
@@ -376,32 +387,77 @@ class ProductSyncService
         // Получить цены из главного товара
         $mainSalePrices = $product['salePrices'] ?? [];
 
+        // Если настроены маппинги цен, использовать их
+        $priceMappings = $settings->price_mappings;
+        $useMappings = !empty($priceMappings) && is_array($priceMappings);
+
         foreach ($mainSalePrices as $priceInfo) {
-            $priceTypeName = $priceInfo['priceType'] ?? null;
+            $priceTypeHref = $priceInfo['priceType']['meta']['href'] ?? null;
 
-            if (!$priceTypeName) {
+            if (!$priceTypeHref) {
                 continue;
             }
 
-            // Проверить нужно ли синхронизировать этот тип цены
-            if ($settings->sale_price_type_id && $priceTypeName !== $settings->sale_price_type_id) {
+            // Извлечь ID типа цены из href
+            $mainPriceTypeId = $this->extractEntityId($priceTypeHref);
+
+            if (!$mainPriceTypeId) {
                 continue;
             }
 
-            // Найти или создать тип цены в дочернем
-            $priceTypeMapping = $this->getOrCreatePriceType($mainAccountId, $childAccountId, $priceTypeName);
+            // Если используются маппинги - проверить разрешен ли этот тип цены
+            $childPriceTypeId = null;
 
-            if ($priceTypeMapping) {
+            if ($useMappings) {
+                $allowed = false;
+                foreach ($priceMappings as $mapping) {
+                    if (($mapping['main_price_type_id'] ?? null) === $mainPriceTypeId) {
+                        $childPriceTypeId = $mapping['child_price_type_id'] ?? null;
+                        $allowed = true;
+                        break;
+                    }
+                }
+
+                // Если тип цены не в маппинге - пропустить
+                if (!$allowed) {
+                    continue;
+                }
+            }
+
+            // Если маппинг указан явно - использовать его
+            if ($childPriceTypeId) {
                 $salePrices[] = [
                     'value' => $priceInfo['value'] ?? 0,
                     'priceType' => [
                         'meta' => [
-                            'href' => config('moysklad.api_url') . "/context/companysettings/pricetype/{$priceTypeMapping->child_price_type_id}",
+                            'href' => config('moysklad.api_url') . "/context/companysettings/pricetype/{$childPriceTypeId}",
                             'type' => 'pricetype',
                             'mediaType' => 'application/json'
                         ]
                     ]
                 ];
+            } else {
+                // Иначе найти или создать тип цены по имени (старая логика)
+                $priceTypeName = $priceInfo['priceType']['name'] ?? null;
+
+                if (!$priceTypeName) {
+                    continue;
+                }
+
+                $priceTypeMapping = $this->getOrCreatePriceType($mainAccountId, $childAccountId, $priceTypeName);
+
+                if ($priceTypeMapping) {
+                    $salePrices[] = [
+                        'value' => $priceInfo['value'] ?? 0,
+                        'priceType' => [
+                            'meta' => [
+                                'href' => config('moysklad.api_url') . "/context/companysettings/pricetype/{$priceTypeMapping->child_price_type_id}",
+                                'type' => 'pricetype',
+                                'mediaType' => 'application/json'
+                            ]
+                        ]
+                    ];
+                }
             }
         }
 
