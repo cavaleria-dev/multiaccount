@@ -145,25 +145,33 @@ class ProductFilterService
             return true;
         }
 
-        // Найти значение атрибута в товаре
-        $attributeValue = $this->findAttributeValue($product, $attributeId);
+        // Найти атрибут в товаре
+        $attribute = $this->findAttribute($product, $attributeId);
 
         // Если атрибут не найден
+        if (!$attribute) {
+            return $operator === 'is_null';
+        }
+
+        // Извлечь значение с учетом типа
+        $attributeValue = $this->extractAttributeValue($attribute);
+
+        // Если значение не найдено
         if ($attributeValue === null) {
             return $operator === 'is_null';
         }
 
-        return $this->compareValues($attributeValue, $filterValue, $operator);
+        return $this->compareValues($attributeValue, $filterValue, $operator, $attribute['type'] ?? 'string');
     }
 
     /**
-     * Найти значение атрибута в товаре
+     * Найти атрибут в товаре
      *
      * @param array $product Товар
      * @param string $attributeId UUID атрибута
-     * @return mixed|null
+     * @return array|null Полные данные атрибута или null
      */
-    protected function findAttributeValue(array $product, string $attributeId): mixed
+    protected function findAttribute(array $product, string $attributeId): ?array
     {
         $attributes = $product['attributes'] ?? [];
 
@@ -172,7 +180,7 @@ class ProductFilterService
             $attrId = $this->extractIdFromHref($attrHref);
 
             if ($attrId === $attributeId) {
-                return $attribute['value'] ?? null;
+                return $attribute;
             }
         }
 
@@ -180,14 +188,214 @@ class ProductFilterService
     }
 
     /**
-     * Сравнить значения с учетом оператора
+     * Извлечь значение атрибута с учетом его типа
+     *
+     * @param array $attribute Данные атрибута
+     * @return mixed Значение атрибута
+     */
+    protected function extractAttributeValue(array $attribute): mixed
+    {
+        $type = $attribute['type'] ?? 'string';
+        $value = $attribute['value'] ?? null;
+
+        return match($type) {
+            'customentity' => $this->extractCustomEntityId($value),
+            'file' => $this->extractFileId($value),
+            'time' => $this->extractTimeValue($value),
+            'boolean' => (bool)$value,
+            'long' => (int)$value,
+            'double' => (float)$value,
+            default => $value // string, text, link
+        };
+    }
+
+    /**
+     * Извлечь ID элемента справочника из customentity
+     *
+     * @param mixed $value Значение customentity (может быть строкой или массивом с meta)
+     * @return string|null
+     */
+    protected function extractCustomEntityId(mixed $value): ?string
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+
+        if (is_array($value)) {
+            $href = $value['meta']['href'] ?? null;
+            if ($href) {
+                return $this->extractIdFromHref($href);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Извлечь ID файла
+     *
+     * @param mixed $value Значение file
+     * @return string|null
+     */
+    protected function extractFileId(mixed $value): ?string
+    {
+        if (is_string($value)) {
+            return $value;
+        }
+
+        if (is_array($value)) {
+            return $value['filename'] ?? null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Извлечь значение времени
+     *
+     * @param mixed $value Значение time (timestamp в миллисекундах)
+     * @return int|null Timestamp в секундах
+     */
+    protected function extractTimeValue(mixed $value): ?int
+    {
+        if (is_numeric($value)) {
+            // МойСклад возвращает timestamp в миллисекундах
+            return (int)($value / 1000);
+        }
+
+        if (is_string($value)) {
+            // Попробовать распарсить дату
+            $timestamp = strtotime($value);
+            return $timestamp !== false ? $timestamp : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Сравнить значения с учетом оператора и типа атрибута
      *
      * @param mixed $actualValue Фактическое значение
      * @param mixed $filterValue Значение для сравнения
      * @param string $operator Оператор
+     * @param string $attributeType Тип атрибута (string, long, double, boolean, time, customentity, etc.)
      * @return bool
      */
-    protected function compareValues(mixed $actualValue, mixed $filterValue, string $operator): bool
+    protected function compareValues(mixed $actualValue, mixed $filterValue, string $operator, string $attributeType = 'string'): bool
+    {
+        // Для флагов (boolean) - специальная обработка
+        if ($attributeType === 'boolean') {
+            return $this->compareBooleanValues($actualValue, $filterValue, $operator);
+        }
+
+        // Для чисел (long, double) - специальная обработка
+        if (in_array($attributeType, ['long', 'double'])) {
+            return $this->compareNumericValues($actualValue, $filterValue, $operator);
+        }
+
+        // Для времени (time) - специальная обработка
+        if ($attributeType === 'time') {
+            return $this->compareDateTimeValues($actualValue, $filterValue, $operator);
+        }
+
+        // Для справочника (customentity) - сравнение по ID
+        if ($attributeType === 'customentity') {
+            return $this->compareCustomEntityValues($actualValue, $filterValue, $operator);
+        }
+
+        // Для строк и остальных типов
+        return $this->compareStringValues($actualValue, $filterValue, $operator);
+    }
+
+    /**
+     * Сравнить булевы значения
+     */
+    protected function compareBooleanValues(mixed $actualValue, mixed $filterValue, string $operator): bool
+    {
+        $actual = (bool)$actualValue;
+        $filter = (bool)$filterValue;
+
+        return match($operator) {
+            'equals' => $actual === $filter,
+            'not_equals' => $actual !== $filter,
+            'is_null' => $actualValue === null,
+            'is_not_null' => $actualValue !== null,
+            default => false
+        };
+    }
+
+    /**
+     * Сравнить числовые значения
+     */
+    protected function compareNumericValues(mixed $actualValue, mixed $filterValue, string $operator): bool
+    {
+        if (!is_numeric($actualValue) || !is_numeric($filterValue)) {
+            return false;
+        }
+
+        return match($operator) {
+            'equals' => $actualValue == $filterValue,
+            'not_equals' => $actualValue != $filterValue,
+            'greater_than' => $actualValue > $filterValue,
+            'less_than' => $actualValue < $filterValue,
+            'greater_or_equal' => $actualValue >= $filterValue,
+            'less_or_equal' => $actualValue <= $filterValue,
+            'is_null' => $actualValue === null,
+            'is_not_null' => $actualValue !== null,
+            'in' => is_array($filterValue) && in_array($actualValue, $filterValue),
+            'not_in' => is_array($filterValue) && !in_array($actualValue, $filterValue),
+            default => false
+        };
+    }
+
+    /**
+     * Сравнить значения даты/времени
+     */
+    protected function compareDateTimeValues(mixed $actualValue, mixed $filterValue, string $operator): bool
+    {
+        // Конвертировать в timestamp если строка
+        if (is_string($filterValue)) {
+            $filterValue = strtotime($filterValue);
+        }
+
+        if (!is_numeric($actualValue) || !is_numeric($filterValue)) {
+            return false;
+        }
+
+        return match($operator) {
+            'equals' => abs($actualValue - $filterValue) < 60, // В пределах минуты
+            'not_equals' => abs($actualValue - $filterValue) >= 60,
+            'greater_than' => $actualValue > $filterValue,
+            'less_than' => $actualValue < $filterValue,
+            'greater_or_equal' => $actualValue >= $filterValue,
+            'less_or_equal' => $actualValue <= $filterValue,
+            'is_null' => $actualValue === null,
+            'is_not_null' => $actualValue !== null,
+            default => false
+        };
+    }
+
+    /**
+     * Сравнить значения справочника (customentity)
+     */
+    protected function compareCustomEntityValues(mixed $actualValue, mixed $filterValue, string $operator): bool
+    {
+        // Значения уже должны быть ID элементов справочника
+        return match($operator) {
+            'equals' => $actualValue === $filterValue,
+            'not_equals' => $actualValue !== $filterValue,
+            'in' => is_array($filterValue) && in_array($actualValue, $filterValue),
+            'not_in' => is_array($filterValue) && !in_array($actualValue, $filterValue),
+            'is_null' => $actualValue === null,
+            'is_not_null' => $actualValue !== null,
+            default => false
+        };
+    }
+
+    /**
+     * Сравнить строковые значения
+     */
+    protected function compareStringValues(mixed $actualValue, mixed $filterValue, string $operator): bool
     {
         return match($operator) {
             'equals' => $actualValue == $filterValue,
@@ -196,10 +404,6 @@ class ProductFilterService
             'not_contains' => is_string($actualValue) && !str_contains($actualValue, (string)$filterValue),
             'starts_with' => is_string($actualValue) && str_starts_with($actualValue, (string)$filterValue),
             'ends_with' => is_string($actualValue) && str_ends_with($actualValue, (string)$filterValue),
-            'greater_than' => is_numeric($actualValue) && $actualValue > $filterValue,
-            'less_than' => is_numeric($actualValue) && $actualValue < $filterValue,
-            'greater_or_equal' => is_numeric($actualValue) && $actualValue >= $filterValue,
-            'less_or_equal' => is_numeric($actualValue) && $actualValue <= $filterValue,
             'is_null' => $actualValue === null,
             'is_not_null' => $actualValue !== null,
             'in' => is_array($filterValue) && in_array($actualValue, $filterValue),

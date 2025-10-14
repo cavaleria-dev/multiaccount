@@ -46,14 +46,71 @@
 
 ### 2. Фильтр по доп.полю (attribute)
 
-Синхронизировать товары с определенными значениями доп.полей:
+Синхронизировать товары с определенными значениями доп.полей.
 
+**Важно:** Система автоматически определяет тип доп.поля (string, long, double, boolean, time, customentity) и применяет соответствующие операторы сравнения.
+
+#### Типы доп.полей МойСклад:
+
+- **string** - строка
+- **long** - целое число
+- **double** - дробное число
+- **boolean** - флаг (true/false)
+- **time** - дата/время (timestamp)
+- **customentity** - справочник (ссылка на элемент справочника)
+- **text** - многострочный текст
+- **link** - ссылка
+- **file** - файл
+
+#### Примеры для разных типов:
+
+**Строка (string/text/link):**
 ```json
 {
   "type": "attribute",
-  "attribute_id": "attr-uuid",
+  "attribute_id": "region-attr-uuid",
   "operator": "equals",
   "value": "Москва"
+}
+```
+
+**Число (long/double):**
+```json
+{
+  "type": "attribute",
+  "attribute_id": "price-attr-uuid",
+  "operator": "greater_than",
+  "value": 1000
+}
+```
+
+**Флаг (boolean):**
+```json
+{
+  "type": "attribute",
+  "attribute_id": "for-franchise-uuid",
+  "operator": "equals",
+  "value": true
+}
+```
+
+**Справочник (customentity):**
+```json
+{
+  "type": "attribute",
+  "attribute_id": "brand-attr-uuid",
+  "operator": "in",
+  "value": ["brand-element-uuid-1", "brand-element-uuid-2"]
+}
+```
+
+**Дата/время (time):**
+```json
+{
+  "type": "attribute",
+  "attribute_id": "created-date-uuid",
+  "operator": "greater_than",
+  "value": "2024-01-01"
 }
 ```
 
