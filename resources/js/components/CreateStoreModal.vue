@@ -71,21 +71,6 @@
                     </p>
                   </div>
 
-                  <!-- Address field -->
-                  <div>
-                    <label for="store-address" class="block text-sm font-medium text-gray-700 mb-1">
-                      Адрес
-                    </label>
-                    <textarea
-                      id="store-address"
-                      v-model="formData.address"
-                      rows="3"
-                      maxlength="4096"
-                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="Введите адрес склада (необязательно)"
-                    ></textarea>
-                  </div>
-
                   <!-- Error message -->
                   <div v-if="errors.general" class="p-3 bg-red-50 border border-red-200 rounded-lg">
                     <p class="text-sm text-red-600">{{ errors.general }}</p>
@@ -142,12 +127,10 @@ const emit = defineEmits(['close', 'created'])
 
 const loading = ref(false)
 const formData = ref({
-  name: '',
-  address: ''
+  name: ''
 })
 const errors = ref({
   name: null,
-  address: null,
   general: null
 })
 
@@ -155,12 +138,10 @@ const errors = ref({
 watch(() => props.show, (newValue) => {
   if (newValue) {
     formData.value = {
-      name: '',
-      address: ''
+      name: ''
     }
     errors.value = {
       name: null,
-      address: null,
       general: null
     }
   }
@@ -176,7 +157,6 @@ const handleSubmit = async () => {
   // Clear previous errors
   errors.value = {
     name: null,
-    address: null,
     general: null
   }
 
@@ -191,15 +171,9 @@ const handleSubmit = async () => {
     return
   }
 
-  if (formData.value.address && formData.value.address.length > 4096) {
-    errors.value.address = 'Адрес не может быть длиннее 4096 символов'
-    return
-  }
-
   // Emit data for parent to handle API call
   emit('created', {
-    name: formData.value.name.trim(),
-    address: formData.value.address?.trim() || null
+    name: formData.value.name.trim()
   })
 }
 
