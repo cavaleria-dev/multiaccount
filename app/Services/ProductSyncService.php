@@ -581,10 +581,39 @@ class ProductSyncService
                 // buyPrice → buyPrice
                 if ($mainPriceTypeId === 'buyPrice' && $childPriceTypeId === 'buyPrice') {
                     $buyPrice = $mainBuyPrice;
+
+                    // Синхронизировать валюту в buyPrice
+                    if (isset($buyPrice['currency']['meta']['href'])) {
+                        $parentCurrencyId = $this->extractEntityId($buyPrice['currency']['meta']['href']);
+                        if ($parentCurrencyId) {
+                            $childCurrencyId = $this->standardEntitySync->syncCurrency(
+                                $mainAccountId,
+                                $childAccountId,
+                                $parentCurrencyId
+                            );
+                            if ($childCurrencyId) {
+                                $buyPrice['currency'] = [
+                                    'meta' => [
+                                        'href' => config('moysklad.api_url') . "/entity/currency/{$childCurrencyId}",
+                                        'type' => 'currency',
+                                        'mediaType' => 'application/json'
+                                    ]
+                                ];
+                            } else {
+                                // Если валюта не найдена - удалить ссылку, МойСклад использует дефолтную
+                                Log::warning('Failed to sync currency for buyPrice, using default', [
+                                    'main_account_id' => $mainAccountId,
+                                    'child_account_id' => $childAccountId,
+                                    'parent_currency_id' => $parentCurrencyId
+                                ]);
+                                unset($buyPrice['currency']);
+                            }
+                        }
+                    }
                 }
                 // buyPrice → salePrice
                 elseif ($mainPriceTypeId === 'buyPrice' && $childPriceTypeId && $childPriceTypeId !== 'buyPrice') {
-                    $salePrices[] = [
+                    $priceData = [
                         'value' => $mainBuyPrice['value'] ?? 0,
                         'priceType' => [
                             'meta' => [
@@ -594,11 +623,63 @@ class ProductSyncService
                             ]
                         ]
                     ];
+
+                    // Синхронизировать валюту если указана
+                    if (isset($mainBuyPrice['currency']['meta']['href'])) {
+                        $parentCurrencyId = $this->extractEntityId($mainBuyPrice['currency']['meta']['href']);
+                        if ($parentCurrencyId) {
+                            $childCurrencyId = $this->standardEntitySync->syncCurrency(
+                                $mainAccountId,
+                                $childAccountId,
+                                $parentCurrencyId
+                            );
+                            if ($childCurrencyId) {
+                                $priceData['currency'] = [
+                                    'meta' => [
+                                        'href' => config('moysklad.api_url') . "/entity/currency/{$childCurrencyId}",
+                                        'type' => 'currency',
+                                        'mediaType' => 'application/json'
+                                    ]
+                                ];
+                            }
+                        }
+                    }
+
+                    $salePrices[] = $priceData;
                 }
             }
         } elseif ($mainBuyPrice && !$useMappings) {
-            // Если маппинги не используются - копировать buyPrice как есть
+            // Если маппинги не используются - копировать buyPrice с синхронизацией валюты
             $buyPrice = $mainBuyPrice;
+
+            // Синхронизировать валюту в buyPrice
+            if (isset($buyPrice['currency']['meta']['href'])) {
+                $parentCurrencyId = $this->extractEntityId($buyPrice['currency']['meta']['href']);
+                if ($parentCurrencyId) {
+                    $childCurrencyId = $this->standardEntitySync->syncCurrency(
+                        $mainAccountId,
+                        $childAccountId,
+                        $parentCurrencyId
+                    );
+                    if ($childCurrencyId) {
+                        $buyPrice['currency'] = [
+                            'meta' => [
+                                'href' => config('moysklad.api_url') . "/entity/currency/{$childCurrencyId}",
+                                'type' => 'currency',
+                                'mediaType' => 'application/json'
+                            ]
+                        ];
+                    } else {
+                        // Если валюта не найдена - удалить ссылку, МойСклад использует дефолтную
+                        Log::warning('Failed to sync currency for buyPrice (no mappings), using default', [
+                            'main_account_id' => $mainAccountId,
+                            'child_account_id' => $childAccountId,
+                            'parent_currency_id' => $parentCurrencyId
+                        ]);
+                        unset($buyPrice['currency']);
+                    }
+                }
+            }
         }
 
         // Обработка продажных цен
@@ -640,15 +721,33 @@ class ProductSyncService
                 // salePrice → buyPrice
                 if ($childPriceTypeId === 'buyPrice') {
                     $buyPrice = [
-                        'value' => $priceInfo['value'] ?? 0,
-                        'currency' => $mainBuyPrice['currency'] ?? ['meta' => [
-                            'href' => config('moysklad.api_url') . '/entity/currency/643',
-                            'type' => 'currency',
-                            'mediaType' => 'application/json'
-                        ]]
+                        'value' => $priceInfo['value'] ?? 0
                     ];
+
+                    // Синхронизировать валюту (приоритет: из priceInfo, потом из mainBuyPrice)
+                    $currencySource = $priceInfo['currency'] ?? $mainBuyPrice['currency'] ?? null;
+                    if ($currencySource && isset($currencySource['meta']['href'])) {
+                        $parentCurrencyId = $this->extractEntityId($currencySource['meta']['href']);
+                        if ($parentCurrencyId) {
+                            $childCurrencyId = $this->standardEntitySync->syncCurrency(
+                                $mainAccountId,
+                                $childAccountId,
+                                $parentCurrencyId
+                            );
+                            if ($childCurrencyId) {
+                                $buyPrice['currency'] = [
+                                    'meta' => [
+                                        'href' => config('moysklad.api_url') . "/entity/currency/{$childCurrencyId}",
+                                        'type' => 'currency',
+                                        'mediaType' => 'application/json'
+                                    ]
+                                ];
+                            }
+                        }
+                    }
                 } else {
-                    $salePrices[] = [
+                    // salePrice → salePrice
+                    $priceData = [
                         'value' => $priceInfo['value'] ?? 0,
                         'priceType' => [
                             'meta' => [
@@ -658,6 +757,29 @@ class ProductSyncService
                             ]
                         ]
                     ];
+
+                    // Синхронизировать валюту если указана
+                    if (isset($priceInfo['currency']['meta']['href'])) {
+                        $parentCurrencyId = $this->extractEntityId($priceInfo['currency']['meta']['href']);
+                        if ($parentCurrencyId) {
+                            $childCurrencyId = $this->standardEntitySync->syncCurrency(
+                                $mainAccountId,
+                                $childAccountId,
+                                $parentCurrencyId
+                            );
+                            if ($childCurrencyId) {
+                                $priceData['currency'] = [
+                                    'meta' => [
+                                        'href' => config('moysklad.api_url') . "/entity/currency/{$childCurrencyId}",
+                                        'type' => 'currency',
+                                        'mediaType' => 'application/json'
+                                    ]
+                                ];
+                            }
+                        }
+                    }
+
+                    $salePrices[] = $priceData;
                 }
             } else {
                 // Иначе найти или создать тип цены по имени (старая логика)
@@ -670,7 +792,7 @@ class ProductSyncService
                 $priceTypeMapping = $this->getOrCreatePriceType($mainAccountId, $childAccountId, $priceTypeName);
 
                 if ($priceTypeMapping) {
-                    $salePrices[] = [
+                    $priceData = [
                         'value' => $priceInfo['value'] ?? 0,
                         'priceType' => [
                             'meta' => [
@@ -680,6 +802,29 @@ class ProductSyncService
                             ]
                         ]
                     ];
+
+                    // Синхронизировать валюту если указана
+                    if (isset($priceInfo['currency']['meta']['href'])) {
+                        $parentCurrencyId = $this->extractEntityId($priceInfo['currency']['meta']['href']);
+                        if ($parentCurrencyId) {
+                            $childCurrencyId = $this->standardEntitySync->syncCurrency(
+                                $mainAccountId,
+                                $childAccountId,
+                                $parentCurrencyId
+                            );
+                            if ($childCurrencyId) {
+                                $priceData['currency'] = [
+                                    'meta' => [
+                                        'href' => config('moysklad.api_url') . "/entity/currency/{$childCurrencyId}",
+                                        'type' => 'currency',
+                                        'mediaType' => 'application/json'
+                                    ]
+                                ];
+                            }
+                        }
+                    }
+
+                    $salePrices[] = $priceData;
                 }
             }
         }
