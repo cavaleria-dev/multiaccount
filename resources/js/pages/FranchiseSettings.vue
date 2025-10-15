@@ -69,566 +69,92 @@
       </div>
 
       <!-- Секция 1: Синхронизация товаров + Расширенные настройки -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <!-- Синхронизация товаров -->
-        <div class="bg-white shadow rounded-lg p-5">
-          <h3 class="text-base font-medium text-gray-900 mb-3">Синхронизация товаров</h3>
-          <div class="space-y-3">
-            <div class="flex items-start">
-              <div class="flex items-center h-5">
-                <input
-                  id="sync_products"
-                  v-model="settings.sync_products"
-                  type="checkbox"
-                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-                />
-              </div>
-              <div class="ml-2 text-sm">
-                <label for="sync_products" class="font-medium text-gray-700">Товары</label>
-              </div>
-            </div>
-            <div class="flex items-center">
-              <input id="sync_variants" v-model="settings.sync_variants" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-              <label for="sync_variants" class="ml-2 text-sm font-medium text-gray-700">Модификации</label>
-            </div>
-            <div class="flex items-center">
-              <input id="sync_bundles" v-model="settings.sync_bundles" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-              <label for="sync_bundles" class="ml-2 text-sm font-medium text-gray-700">Комплекты</label>
-            </div>
-            <div class="flex items-center">
-              <input id="sync_services" v-model="settings.sync_services" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-              <label for="sync_services" class="ml-2 text-sm font-medium text-gray-700">Услуги</label>
-            </div>
-            <div class="flex items-center">
-              <input id="sync_images" v-model="settings.sync_images" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-              <label for="sync_images" class="ml-2 text-sm font-medium text-gray-700">Изображения</label>
-            </div>
-            <div class="flex items-center">
-              <input id="sync_images_all" v-model="settings.sync_images_all" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-              <label for="sync_images_all" class="ml-2 text-sm font-medium text-gray-700">Все изображения</label>
-            </div>
-            <div class="flex items-center">
-              <input id="sync_prices" v-model="settings.sync_prices" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-              <label for="sync_prices" class="ml-2 text-sm font-medium text-gray-700">Цены</label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Расширенные настройки товаров -->
-        <div class="bg-white shadow rounded-lg p-5">
-          <h3 class="text-base font-medium text-gray-900 mb-3">Расширенные настройки товаров</h3>
-          <div class="space-y-4">
-            <!-- Product match field -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Поле для сопоставления товаров</label>
-              <select
-                v-model="settings.product_match_field"
-                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              >
-                <option value="code">Код (code)</option>
-                <option value="article">Артикул (article)</option>
-                <option value="externalCode">Внешний код (externalCode)</option>
-                <option value="barcode">Штрихкод (первый barcode)</option>
-              </select>
-              <p class="mt-1 text-xs text-gray-500">По какому полю искать существующие товары в дочернем аккаунте</p>
-            </div>
-
-            <!-- Create product folders -->
-            <div class="flex items-start">
-              <div class="flex items-center h-5">
-                <input
-                  id="create_product_folders"
-                  v-model="settings.create_product_folders"
-                  type="checkbox"
-                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-                />
-              </div>
-              <div class="ml-3 text-sm">
-                <label for="create_product_folders" class="font-medium text-gray-700">Создавать группы товаров</label>
-                <p class="text-gray-500">Создавать соответствующие группы товаров в дочернем аккаунте (структура каталога)</p>
-              </div>
-            </div>
-
-            <!-- Sync all products button -->
-            <div class="border-t border-gray-200 pt-3">
-              <button
-                type="button"
-                @click="syncAllProducts"
-                :disabled="syncing"
-                class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-all"
-              >
-                <svg v-if="syncing" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                <span v-if="syncing">Синхронизация...</span>
-                <span v-else>Синхронизировать все товары</span>
-              </button>
-              <p v-if="syncProgress" class="mt-2 text-sm text-green-600">{{ syncProgress }}</p>
-              <p class="mt-2 text-xs text-gray-500">Запустит синхронизацию всех товаров согласно настройкам и фильтрам</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <ProductSyncSection
+        v-model:settings="settings"
+        :syncing="syncing"
+        :sync-progress="syncProgress"
+        @sync-all-products="syncAllProducts"
+      />
 
       <!-- Секция 2: Сопоставление типов цен + Выбор доп.полей -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <!-- Сопоставление типов цен (left column, moved from below) -->
-        <div class="bg-white shadow rounded-lg p-5">
-          <h3 class="text-base font-medium text-gray-900 mb-3">Сопоставление типов цен</h3>
-          <p class="text-sm text-gray-500 mb-2">
-            Задайте соответствие между типами цен главного и дочернего аккаунтов. Пусто = синхронизировать все типы цен.
-          </p>
-          <div class="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4">
-            <p class="text-xs text-blue-800">
-              <strong>💰 Закупочная цена</strong> - специальный тип для поля buyPrice товаров, услуг и модификаций.
-              Можно сопоставлять с другими типами цен или оставить как buyPrice.
-            </p>
-          </div>
-
-          <div v-if="loadingPriceTypes" class="text-center py-4">
-            <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
-            <p class="text-sm text-gray-500 mt-2">Загрузка типов цен...</p>
-          </div>
-
-          <div v-else class="space-y-3 max-h-96 overflow-y-auto pr-1">
-            <div
-              v-for="(mapping, index) in priceMappings"
-              :key="`price-mapping-${index}`"
-              class="flex gap-2 items-start"
-            >
-              <div class="flex-1 min-w-0">
-                <label class="block text-xs font-semibold text-gray-800 mb-1">Главный</label>
-                <select
-                  v-model="mapping.main_price_type_id"
-                  class="block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                >
-                  <option value="">Выберите...</option>
-                  <option
-                    v-for="pt in priceTypes.main"
-                    :key="pt.id"
-                    :value="pt.id"
-                    :class="{ 'font-bold': pt.id === 'buyPrice' }"
-                  >
-                    {{ pt.id === 'buyPrice' ? '💰 ' : '' }}{{ pt.name }}
-                  </option>
-                </select>
-              </div>
-              <div class="flex-1 min-w-0">
-                <label class="block text-xs font-semibold text-gray-800 mb-1">Дочерний</label>
-                <div class="flex gap-1">
-                  <select
-                    v-model="mapping.child_price_type_id"
-                    class="block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                  >
-                    <option value="">Выберите...</option>
-                    <option
-                      v-for="pt in priceTypes.child"
-                      :key="pt.id"
-                      :value="pt.id"
-                      :class="{ 'font-bold': pt.id === 'buyPrice' }"
-                    >
-                      {{ pt.id === 'buyPrice' ? '💰 ' : '' }}{{ pt.name }}
-                    </option>
-                  </select>
-                  <button
-                    type="button"
-                    @click="showCreatePriceTypeForm(index)"
-                    class="flex-shrink-0 p-1 text-indigo-600 hover:bg-indigo-50 rounded"
-                    title="Создать новый тип цены"
-                  >
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                    </svg>
-                  </button>
-                </div>
-
-                <!-- Inline форма создания типа цены -->
-                <div
-                  v-if="creatingPriceTypeForIndex === index"
-                  class="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-md"
-                >
-                  <input
-                    v-model="newPriceTypeName"
-                    type="text"
-                    placeholder="Название"
-                    class="block w-full rounded-md border-gray-300 text-xs mb-1"
-                    @keyup.enter="createNewPriceType(index)"
-                    @keyup.escape="hideCreatePriceTypeForm"
-                  />
-                  <p v-if="createPriceTypeError" class="text-xs text-red-600 mb-1">{{ createPriceTypeError }}</p>
-                  <div class="flex gap-1">
-                    <button
-                      type="button"
-                      @click="createNewPriceType(index)"
-                      :disabled="creatingPriceType"
-                      class="flex-1 px-2 py-1 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded"
-                    >
-                      <span v-if="creatingPriceType">...</span>
-                      <span v-else>Создать</span>
-                    </button>
-                    <button
-                      type="button"
-                      @click="hideCreatePriceTypeForm"
-                      class="flex-1 px-2 py-1 text-xs text-gray-700 bg-white border border-gray-300 rounded"
-                    >
-                      Отмена
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                @click="removePriceMapping(index)"
-                class="mt-5 text-gray-400 hover:text-red-600"
-              >
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            </div>
-
-            <button
-              type="button"
-              @click="addPriceMapping"
-              class="w-full px-3 py-2 border border-dashed border-gray-300 rounded-md text-sm text-gray-600 hover:border-indigo-500 hover:text-indigo-600"
-            >
-              + Добавить сопоставление
-            </button>
-          </div>
-        </div>
-
-        <!-- Выбор дополнительных полей (right column, moved from below) -->
-        <div class="bg-white shadow rounded-lg p-5">
-          <h3 class="text-base font-medium text-gray-900 mb-3">Выбор дополнительных полей для синхронизации</h3>
-          <p class="text-sm text-gray-500 mb-3">
-            Выберите дополнительные поля (атрибуты), которые нужно синхронизировать. Пусто = синхронизировать все поля.
-          </p>
-
-          <div v-if="loadingAttributes" class="text-center py-4">
-            <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
-            <p class="text-sm text-gray-500 mt-2">Загрузка атрибутов...</p>
-          </div>
-
-          <div v-else-if="attributes.length === 0" class="text-center py-6">
-            <svg class="mx-auto h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <p class="text-sm text-gray-500 mt-2">Дополнительных полей не найдено</p>
-          </div>
-
-          <div v-else class="max-h-80 overflow-y-auto border border-gray-200 rounded-md p-2 space-y-1">
-            <label
-              v-for="attr in attributes"
-              :key="attr.id"
-              class="flex items-center py-1 px-2 hover:bg-gray-50 rounded cursor-pointer"
-            >
-              <input
-                type="checkbox"
-                :value="attr.id"
-                v-model="selectedAttributes"
-                class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded mr-2"
-              />
-              <span class="text-sm text-gray-900">{{ attr.name }}</span>
-              <span class="ml-2 text-xs text-gray-500">({{ attr.type }})</span>
-            </label>
-          </div>
-
-          <p v-if="selectedAttributes.length > 0" class="mt-2 text-sm text-gray-600">
-            Выбрано: <span class="font-medium text-indigo-600">{{ selectedAttributes.length }}</span>
-          </p>
-        </div>
-      </div>
+      <PriceMappingsSection
+        v-model="priceMappings"
+        v-model:selected-attributes="selectedAttributes"
+        v-model:new-price-type-name="newPriceTypeName"
+        :price-types="priceTypes"
+        :attributes="attributes"
+        :loading-price-types="loadingPriceTypes"
+        :loading-attributes="loadingAttributes"
+        :creating-price-type-for-index="creatingPriceTypeForIndex"
+        :creating-price-type="creatingPriceType"
+        :create-price-type-error="createPriceTypeError"
+        @add-price-mapping="addPriceMapping"
+        @remove-price-mapping="removePriceMapping"
+        @show-create-price-type="showCreatePriceTypeForm"
+        @hide-create-price-type="hideCreatePriceTypeForm"
+        @create-price-type="createNewPriceType"
+      />
 
       <!-- Секция 3: Фильтрация товаров (full width) -->
-      <div class="bg-white shadow rounded-lg p-6">
-        <div class="flex items-start mb-4">
-          <div class="flex items-center h-5">
-            <input
-              id="product_filters_enabled"
-              v-model="settings.product_filters_enabled"
-              type="checkbox"
-              class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-            />
-          </div>
-          <div class="ml-3">
-            <label for="product_filters_enabled" class="text-sm font-medium text-gray-700">Включить фильтрацию товаров</label>
-            <p class="text-sm text-gray-500">Использовать фильтры для выборочной синхронизации товаров</p>
-          </div>
-        </div>
-
-        <div v-if="settings.product_filters_enabled">
-          <ProductFilterBuilder
-            v-model="settings.product_filters"
-            :account-id="accountId"
-            :attributes="attributes"
-            :folders="folders"
-            :loading-folders="loadingFolders"
-          />
-        </div>
-      </div>
+      <ProductFiltersSection
+        v-model:settings="settings"
+        :account-id="accountId"
+        :attributes="attributes"
+        :folders="folders"
+        :loading-folders="loadingFolders"
+      />
 
       <!-- Секция 4: Синхронизация документов + Целевые объекты -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <!-- Синхронизация документов (left column, moved from above) -->
-        <div class="bg-white shadow rounded-lg p-5">
-          <h3 class="text-base font-medium text-gray-900 mb-3">Синхронизация документов</h3>
-          <div class="space-y-3">
-            <div class="flex items-start">
-              <div class="flex items-center h-5">
-                <input
-                  id="sync_customer_orders"
-                  v-model="settings.sync_customer_orders"
-                  type="checkbox"
-                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-                />
-              </div>
-              <div class="ml-2 text-sm">
-                <label for="sync_customer_orders" class="font-medium text-gray-700">Заказы покупателей</label>
-                <p class="text-gray-500 text-xs">Синхронизировать заказы покупателей из дочернего в главный</p>
-              </div>
-            </div>
-
-            <div v-if="settings.sync_customer_orders" class="ml-7 space-y-2">
-              <SearchableSelect
-                v-model="settings.customer_order_state_id"
-                label="Статус заказа"
-                placeholder="Выберите статус"
-                :options="customerOrderStates"
-                :loading="loadingCustomerOrderStates"
-                :error="customerOrderStatesError"
-                :initial-name="targetObjectsMeta?.customer_order_state_id?.name"
-                :can-create="true"
-                :show-color="true"
-                @open="loadCustomerOrderStates"
-                @create="showCreateCustomerOrderStateModal = true"
-                @clear="clearCustomerOrderState"
-              />
-              <SearchableSelect
-                v-model="settings.customer_order_sales_channel_id"
-                label="Канал продаж"
-                placeholder="Выберите канал продаж"
-                :options="salesChannels"
-                :loading="loadingSalesChannels"
-                :error="salesChannelsError"
-                :initial-name="targetObjectsMeta?.customer_order_sales_channel_id?.name"
-                :can-create="true"
-                @open="loadSalesChannels"
-                @create="showCreateSalesChannelModal = true"
-                @clear="clearCustomerOrderSalesChannel"
-              />
-            </div>
-
-            <div class="flex items-start">
-              <div class="flex items-center h-5">
-                <input
-                  id="sync_retail_demands"
-                  v-model="settings.sync_retail_demands"
-                  type="checkbox"
-                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-                />
-              </div>
-              <div class="ml-2 text-sm">
-                <label for="sync_retail_demands" class="font-medium text-gray-700">Розничные продажи</label>
-                <p class="text-gray-500 text-xs">Синхронизировать розничные продажи из дочернего в главный</p>
-              </div>
-            </div>
-
-            <div v-if="settings.sync_retail_demands" class="ml-7 space-y-2">
-              <SearchableSelect
-                v-model="settings.retail_demand_state_id"
-                label="Статус розничной продажи"
-                placeholder="Выберите статус"
-                :options="customerOrderStates"
-                :loading="loadingCustomerOrderStates"
-                :error="customerOrderStatesError"
-                :initial-name="targetObjectsMeta?.retail_demand_state_id?.name"
-                :can-create="true"
-                :show-color="true"
-                @open="loadCustomerOrderStates"
-                @create="showCreateRetailDemandStateModal = true"
-                @clear="clearRetailDemandState"
-              />
-              <SearchableSelect
-                v-model="settings.retail_demand_sales_channel_id"
-                label="Канал продаж"
-                placeholder="Выберите канал продаж"
-                :options="salesChannels"
-                :loading="loadingSalesChannels"
-                :error="salesChannelsError"
-                :initial-name="targetObjectsMeta?.retail_demand_sales_channel_id?.name"
-                :can-create="true"
-                @open="loadSalesChannels"
-                @create="showCreateSalesChannelModal = true"
-                @clear="clearRetailDemandSalesChannel"
-              />
-            </div>
-
-            <div class="flex items-start">
-              <div class="flex items-center h-5">
-                <input
-                  id="sync_purchase_orders"
-                  v-model="settings.sync_purchase_orders"
-                  type="checkbox"
-                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-                />
-              </div>
-              <div class="ml-2 text-sm">
-                <label for="sync_purchase_orders" class="font-medium text-gray-700">Заказы поставщику</label>
-                <p class="text-gray-500 text-xs">Синхронизировать заказы поставщику из дочернего в главный</p>
-              </div>
-            </div>
-
-            <div v-if="settings.sync_purchase_orders" class="ml-7 space-y-2">
-              <SearchableSelect
-                v-model="settings.purchase_order_state_id"
-                label="Статус заказа поставщику"
-                placeholder="Выберите статус"
-                :options="purchaseOrderStates"
-                :loading="loadingPurchaseOrderStates"
-                :error="purchaseOrderStatesError"
-                :initial-name="targetObjectsMeta?.purchase_order_state_id?.name"
-                :can-create="true"
-                :show-color="true"
-                @open="loadPurchaseOrderStates"
-                @create="showCreatePurchaseOrderStateModal = true"
-                @clear="clearPurchaseOrderState"
-              />
-              <SearchableSelect
-                v-model="settings.purchase_order_sales_channel_id"
-                label="Канал продаж для заказов поставщику"
-                placeholder="Выберите канал продаж"
-                :options="salesChannels"
-                :loading="loadingSalesChannels"
-                :error="salesChannelsError"
-                :initial-name="targetObjectsMeta?.purchase_order_sales_channel_id?.name"
-                :can-create="true"
-                @open="loadSalesChannels"
-                @create="showCreateSalesChannelModal = true"
-                @clear="clearPurchaseOrderSalesChannel"
-              />
-              <div class="bg-yellow-50 border border-yellow-200 rounded-md p-2">
-                <p class="text-xs text-yellow-800">
-                  <strong>⚠️ Примечание:</strong> ID контрагента-поставщика (supplier_counterparty_id) в данный момент не поддерживает выбор через интерфейс и должен быть настроен в базе данных.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Целевые объекты в главном аккаунте (right column) -->
-        <div class="bg-white shadow rounded-lg p-5">
-          <h3 class="text-base font-medium text-gray-900 mb-3">Целевые объекты в главном аккаунте</h3>
-          <div class="space-y-3">
-          <SearchableSelect
-            v-model="settings.target_organization_id"
-            label="Организация"
-            placeholder="Выберите организацию"
-            :options="organizations"
-            :loading="loadingOrganizations"
-            :error="organizationsError"
-            :initial-name="targetObjectsMeta?.target_organization_id?.name"
-            required
-            @open="loadOrganizations"
-          />
-          <p class="mt-1 text-xs text-gray-500">Организация для создаваемых документов</p>
-
-          <SearchableSelect
-            v-model="settings.target_store_id"
-            label="Склад"
-            placeholder="Выберите склад"
-            :options="stores"
-            :loading="loadingStores"
-            :error="storesError"
-            :initial-name="targetObjectsMeta?.target_store_id?.name"
-            :can-create="true"
-            @open="loadStores"
-            @create="showCreateStoreModal = true"
-            @clear="clearTargetStore"
-          />
-          <p class="mt-1 text-xs text-gray-500">Склад для создаваемых документов (опционально)</p>
-
-          <SearchableSelect
-            v-model="settings.target_project_id"
-            label="Проект"
-            placeholder="Выберите проект"
-            :options="projects"
-            :loading="loadingProjects"
-            :error="projectsError"
-            :initial-name="targetObjectsMeta?.target_project_id?.name"
-            :can-create="true"
-            @open="loadProjects"
-            @create="showCreateProjectModal = true"
-            @clear="clearTargetProject"
-          />
-          <p class="mt-1 text-xs text-gray-500">Проект для создаваемых документов (опционально)</p>
-
-          <SearchableSelect
-            v-model="settings.responsible_employee_id"
-            label="Ответственный сотрудник"
-            placeholder="Выберите сотрудника"
-            :options="employees"
-            :loading="loadingEmployees"
-            :error="employeesError"
-            :initial-name="targetObjectsMeta?.responsible_employee_id?.name"
-            @open="loadEmployees"
-            @clear="clearResponsibleEmployee"
-          />
-          <p class="mt-1 text-xs text-gray-500">Ответственный за создаваемые документы</p>
-          </div>
-        </div>
-      </div>
+      <DocumentSyncSection
+        v-model:settings="settings"
+        :organizations="organizations"
+        :stores="stores"
+        :projects="projects"
+        :employees="employees"
+        :sales-channels="salesChannels"
+        :customer-order-states="customerOrderStates"
+        :purchase-order-states="purchaseOrderStates"
+        :loading-organizations="loadingOrganizations"
+        :loading-stores="loadingStores"
+        :loading-projects="loadingProjects"
+        :loading-employees="loadingEmployees"
+        :loading-sales-channels="loadingSalesChannels"
+        :loading-customer-order-states="loadingCustomerOrderStates"
+        :loading-purchase-order-states="loadingPurchaseOrderStates"
+        :organizations-error="organizationsError"
+        :stores-error="storesError"
+        :projects-error="projectsError"
+        :employees-error="employeesError"
+        :sales-channels-error="salesChannelsError"
+        :customer-order-states-error="customerOrderStatesError"
+        :purchase-order-states-error="purchaseOrderStatesError"
+        :target-objects-meta="targetObjectsMeta"
+        @load-organizations="loadOrganizations"
+        @load-stores="loadStores"
+        @load-projects="loadProjects"
+        @load-employees="loadEmployees"
+        @load-sales-channels="loadSalesChannels"
+        @load-customer-order-states="loadCustomerOrderStates"
+        @load-purchase-order-states="loadPurchaseOrderStates"
+        @create-customer-order-state="showCreateCustomerOrderStateModal = true"
+        @create-retail-demand-state="showCreateRetailDemandStateModal = true"
+        @create-purchase-order-state="showCreatePurchaseOrderStateModal = true"
+        @create-sales-channel="showCreateSalesChannelModal = true"
+        @create-store="showCreateStoreModal = true"
+        @create-project="showCreateProjectModal = true"
+        @clear-target-store="clearTargetStore"
+        @clear-target-project="clearTargetProject"
+        @clear-responsible-employee="clearResponsibleEmployee"
+        @clear-customer-order-state="clearCustomerOrderState"
+        @clear-customer-order-sales-channel="clearCustomerOrderSalesChannel"
+        @clear-retail-demand-state="clearRetailDemandState"
+        @clear-retail-demand-sales-channel="clearRetailDemandSalesChannel"
+        @clear-purchase-order-state="clearPurchaseOrderState"
+        @clear-purchase-order-sales-channel="clearPurchaseOrderSalesChannel"
+      />
 
       <!-- Автосоздание объектов -->
-      <div class="bg-white shadow rounded-lg p-6">
-        <h3 class="text-lg font-medium text-gray-900 mb-4">Автоматическое создание</h3>
-        <div class="space-y-4">
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="auto_create_attributes"
-                v-model="settings.auto_create_attributes"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="auto_create_attributes" class="font-medium text-gray-700">Дополнительные поля</label>
-              <p class="text-gray-500">Автоматически создавать доп. поля, если их нет в дочернем аккаунте</p>
-            </div>
-          </div>
-
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="auto_create_characteristics"
-                v-model="settings.auto_create_characteristics"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="auto_create_characteristics" class="font-medium text-gray-700">Характеристики</label>
-              <p class="text-gray-500">Автоматически создавать характеристики для модификаций</p>
-            </div>
-          </div>
-
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="auto_create_price_types"
-                v-model="settings.auto_create_price_types"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="auto_create_price_types" class="font-medium text-gray-700">Типы цен</label>
-              <p class="text-gray-500">Автоматически создавать типы цен, если их нет в дочернем аккаунте</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <AutoCreateSection v-model:settings="settings" />
 
       <!-- Кнопки -->
       <div class="flex justify-between items-center">
@@ -704,15 +230,18 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
-import ProductFilterBuilder from '../components/ProductFilterBuilder.vue'
-import SearchableSelect from '../components/SearchableSelect.vue'
 import CreateProjectModal from '../components/CreateProjectModal.vue'
 import CreateStoreModal from '../components/CreateStoreModal.vue'
 import CreateSalesChannelModal from '../components/CreateSalesChannelModal.vue'
 import CreateStateModal from '../components/CreateStateModal.vue'
+import ProductSyncSection from '../components/franchise-settings/ProductSyncSection.vue'
+import PriceMappingsSection from '../components/franchise-settings/PriceMappingsSection.vue'
+import ProductFiltersSection from '../components/franchise-settings/ProductFiltersSection.vue'
+import DocumentSyncSection from '../components/franchise-settings/DocumentSyncSection.vue'
+import AutoCreateSection from '../components/franchise-settings/AutoCreateSection.vue'
 
 const route = useRoute()
 const router = useRouter()
