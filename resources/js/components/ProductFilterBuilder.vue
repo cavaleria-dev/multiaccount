@@ -290,11 +290,16 @@ const customEntityAttributes = computed(() => {
 })
 
 const customEntityAttributeOptions = computed(() => {
-  return customEntityAttributes.value.map(attr => ({
-    id: attr.id,
-    name: attr.name,
-    customEntityId: extractCustomEntityId(attr.customEntityMeta?.href)
-  }))
+  return customEntityAttributes.value.map(attr => {
+    console.log('Processing attribute:', attr.name, 'customEntityMeta:', attr.customEntityMeta)
+    const customEntityId = extractCustomEntityId(attr.customEntityMeta?.href)
+    console.log('Extracted customEntityId:', customEntityId)
+    return {
+      id: attr.id,
+      name: attr.name,
+      customEntityId: customEntityId
+    }
+  })
 })
 
 // Initialize from modelValue
@@ -447,8 +452,13 @@ const removeFolderFromCondition = (groupIndex, condIndex, folderId) => {
 
 // Извлечь ID справочника из href
 const extractCustomEntityId = (href) => {
-  if (!href) return null
+  console.log('extractCustomEntityId called with href:', href, 'type:', typeof href)
+  if (!href) {
+    console.log('No href provided')
+    return null
+  }
   const match = href.match(/\/entity\/customentity\/([a-f0-9-]+)/)
+  console.log('Regex match result:', match)
   return match ? match[1] : null
 }
 
