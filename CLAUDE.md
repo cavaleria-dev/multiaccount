@@ -33,7 +33,7 @@ composer dev                   # Runs all services concurrently
 
 # Individual services (server only)
 php artisan serve              # Backend server (localhost:8000)
-php artisan queue:listen       # Process queue jobs
+php artisan queue:listen       # Process queue jobs (manual, for dev only)
 php artisan pail               # Real-time logs
 
 # Testing (server only)
@@ -44,6 +44,13 @@ php artisan test               # Same as above
 php artisan config:cache       # Cache config
 php artisan route:cache        # Cache routes
 php artisan view:cache         # Cache views
+
+# Queue management (production - via Supervisor)
+./setup-queue-worker.sh        # Setup queue worker with Supervisor (one-time)
+./monitor-queue.sh             # Monitor queue status and logs
+./restart-queue.sh             # Restart queue worker
+sudo supervisorctl status laravel-worker:*    # Check worker status
+sudo supervisorctl restart laravel-worker:*   # Restart worker
 
 # Scheduler (production)
 # Add to crontab: * * * * * cd /path && php artisan schedule:run >> /dev/null 2>&1
@@ -72,6 +79,305 @@ Required GitHub Secrets:
 - `SERVER_HOST`
 - `SERVER_USER`
 - `SSH_PRIVATE_KEY`
+
+## Queue System & Supervisor
+
+### Why Supervisor?
+
+**Supervisor** is a process control system for Unix-like operating systems. It's critical for production Laravel queue workers because:
+
+1. **Automatic Restart**: If queue worker crashes or is killed, Supervisor automatically restarts it
+2. **Boot Persistence**: Worker starts automatically when server reboots (no manual intervention)
+3. **Process Management**: Easily start/stop/restart workers without finding PIDs
+4. **Multiple Workers**: Run multiple worker processes for high-load scenarios
+5. **Centralized Logging**: All worker output goes to single log file
+6. **Graceful Shutdown**: Properly handles worker shutdown (waits for current job to finish)
+
+**Without Supervisor**: You'd need to manually run `php artisan queue:work` in a screen/tmux session, and it would stop after server reboot or SSH disconnect.
+
+**With Supervisor**: Set it up once, workers run forever with auto-restart on failure.
+
+### Queue Architecture Flow
+
+```
+User clicks "Sync All" Button (Frontend)
+    ↓
+POST /api/sync/{accountId}/products/all (Controller)
+    ↓
+Create tasks in sync_queue table (status: pending, priority: 10)
+    ↓
+Cron runs every minute: php artisan schedule:run
+    ↓
+Scheduler dispatches ProcessSyncQueueJob to queue
+    ↓
+Supervisor-managed queue:work picks up job from queue
+    ↓
+ProcessSyncQueueJob::handle() - processes 50 tasks from sync_queue
+    ↓
+For each task: Call ProductSyncService->syncProduct()
+    ↓
+MoySkladService makes API calls with RateLimitHandler (45 req/sec control)
+    ↓
+Update task status: completed/failed
+    ↓
+Log to storage/logs/sync.log (detailed REQUEST/RESPONSE)
+```
+
+### Queue Configuration
+
+**Current Setup** (`.env`):
+```env
+QUEUE_CONNECTION=database  # Uses sync_queue table in PostgreSQL
+```
+
+**Alternative Options**:
+- `sync` - Synchronous (no queue, processes immediately) - for development only
+- `database` - Uses database table - good for small/medium load
+- `redis` - Uses Redis - best for high load (faster, more scalable)
+
+**Why database queue for this app:**
+- Moderate load (~1000 products per sync)
+- Already have PostgreSQL running
+- Easy debugging (can see tasks in DB)
+- Rate limit control more important than raw speed
+
+### Initial Setup (One-Time)
+
+**Step 1: Install Supervisor**
+```bash
+# CentOS/RHEL
+sudo yum install supervisor -y
+sudo systemctl enable supervisord
+sudo systemctl start supervisord
+
+# Ubuntu/Debian
+sudo apt-get install supervisor -y
+sudo systemctl enable supervisor
+sudo systemctl start supervisor
+```
+
+**Step 2: Configure Worker**
+```bash
+cd /var/www/app.cavaleria.ru
+./setup-queue-worker.sh
+```
+
+This script:
+1. Detects OS (CentOS → `/etc/supervisord.d/*.ini`, Ubuntu → `/etc/supervisor/conf.d/*.conf`)
+2. Creates Supervisor config for laravel-worker
+3. Reloads Supervisor configuration
+4. Starts worker process
+5. Shows status and management commands
+
+**Generated config** (example):
+```ini
+[program:laravel-worker]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/app.cavaleria.ru/artisan queue:work --sleep=3 --tries=3 --max-time=3600 --timeout=300
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/var/www/app.cavaleria.ru/storage/logs/worker.log
+stopwaitsecs=3600
+```
+
+**Key parameters:**
+- `--sleep=3` - Sleep 3 seconds when no jobs available (reduces DB load)
+- `--tries=3` - Retry failed jobs up to 3 times
+- `--max-time=3600` - Worker runs for 1 hour then restarts (prevents memory leaks)
+- `--timeout=300` - Kill job if it runs longer than 5 minutes
+- `numprocs=1` - Run 1 worker process (increase for high load)
+
+### Multiple Workers (High Load Scenario)
+
+**When to use multiple workers:**
+- Syncing 10,000+ products
+- Multiple child accounts (3+) syncing simultaneously
+- Need to process >100 jobs/minute
+
+**Option 1: Multiple identical workers**
+```ini
+[program:laravel-worker]
+numprocs=4  # Run 4 identical workers
+process_name=%(program_name)s_%(process_num)02d
+command=php /path/artisan queue:work --sleep=3 --tries=3
+```
+
+**Option 2: Priority-based queues**
+```ini
+# High priority worker (products, orders)
+[program:laravel-worker-high]
+command=php /path/artisan queue:work --queue=high --sleep=1 --tries=3
+numprocs=2
+
+# Low priority worker (images, metadata)
+[program:laravel-worker-low]
+command=php /path/artisan queue:work --queue=low --sleep=5 --tries=3
+numprocs=1
+```
+
+Then when queueing jobs:
+```php
+// High priority (products, orders)
+ProcessSyncQueueJob::dispatch()->onQueue('high');
+
+// Low priority (images, folders)
+ProcessSyncQueueJob::dispatch()->onQueue('low');
+```
+
+**Option 3: Per-account workers**
+```ini
+# Main account workers (high load)
+[program:laravel-worker-main]
+command=php /path/artisan queue:work --queue=account-main-uuid --sleep=2
+numprocs=3
+
+# Child accounts (moderate load)
+[program:laravel-worker-child]
+command=php /path/artisan queue:work --queue=account-child-* --sleep=3
+numprocs=1
+```
+
+### Daily Management
+
+**Check worker status:**
+```bash
+sudo supervisorctl status laravel-worker:*
+# Output: laravel-worker:laravel-worker_00   RUNNING   pid 12345, uptime 2 days, 3:45:12
+```
+
+**Restart worker** (after code deploy):
+```bash
+sudo supervisorctl restart laravel-worker:*
+# Or use shortcut:
+./restart-queue.sh
+```
+
+**Stop worker** (for maintenance):
+```bash
+sudo supervisorctl stop laravel-worker:*
+```
+
+**Start worker**:
+```bash
+sudo supervisorctl start laravel-worker:*
+```
+
+**Monitor queue**:
+```bash
+./monitor-queue.sh
+# Shows: pending, processing, completed, failed counts + recent logs
+```
+
+**View worker logs**:
+```bash
+tail -f storage/logs/worker.log          # Worker output
+tail -f storage/logs/laravel.log         # Application logs
+tail -f storage/logs/sync.log            # Detailed sync logs (REQUEST/RESPONSE)
+```
+
+### Debugging Common Issues
+
+**Issue: Worker not processing jobs**
+```bash
+# 1. Check worker is running
+sudo supervisorctl status laravel-worker:*
+
+# 2. Check for errors in logs
+tail -30 storage/logs/worker.log
+
+# 3. Check tasks in queue
+php artisan tinker
+>>> \DB::table('sync_queue')->where('status', 'pending')->count();
+
+# 4. Try running worker manually (see what happens)
+php artisan queue:work --once
+
+# 5. Check cron is running scheduler
+grep CRON /var/log/syslog  # Ubuntu
+journalctl -u crond        # CentOS
+```
+
+**Issue: Jobs failing repeatedly**
+```bash
+# Check failed jobs
+php artisan tinker
+>>> \DB::table('sync_queue')->where('status', 'failed')->orderBy('updated_at', 'desc')->take(5)->get();
+
+# Check error messages
+tail -50 storage/logs/sync.log | grep ERROR
+
+# Requeue failed jobs
+php artisan queue:retry all
+```
+
+**Issue: Worker stuck/frozen**
+```bash
+# Hard restart
+sudo supervisorctl restart laravel-worker:*
+
+# If still stuck, kill and restart
+sudo supervisorctl stop laravel-worker:*
+sudo pkill -9 -f "queue:work"
+sudo supervisorctl start laravel-worker:*
+```
+
+**Issue: High memory usage**
+```bash
+# Reduce max-time to restart worker more often
+# Edit Supervisor config:
+command=php /path/artisan queue:work --max-time=1800  # 30 minutes instead of 1 hour
+
+# Then reload
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl restart laravel-worker:*
+```
+
+### Rate Limiting & МойСклад API
+
+**Why queue is critical for МойСклад:**
+- API limit: 45 requests/second burst, lower sustained rate
+- Exceeding limit → 429 error → temporary ban
+- Queue allows controlled request rate via `RateLimitHandler`
+
+**How rate limiting works:**
+1. `MoySkladService` uses `RateLimitHandler` for all API calls
+2. Handler tracks requests per second
+3. If approaching limit (45 req/sec), adds delay
+4. On 429 response, exponential backoff (1s → 2s → 4s → 8s)
+5. Queue workers process steadily without overwhelming API
+
+**Without queue (webhook immediate sync):**
+- Webhook triggers → Immediate API call
+- 10 webhooks in 1 second → 10 API calls → Potential rate limit
+
+**With queue (batch sync):**
+- Create 1000 tasks → Queue processes 50/minute
+- Controlled rate → Never exceeds API limits
+
+### Helper Scripts
+
+**setup-queue-worker.sh** - Initial setup
+- Auto-detects OS (CentOS/Ubuntu)
+- Creates Supervisor config
+- Starts worker
+- Shows management commands
+
+**monitor-queue.sh** - Monitor queue status
+- Shows pending/processing/completed/failed counts
+- Shows recent worker logs
+- Shows recent application logs
+
+**restart-queue.sh** - Quick restart
+- Restarts worker via Supervisor
+- Useful after code deployment
+
+All scripts are in project root. Run `./script-name.sh` on server.
 
 ## Creating Migrations
 
@@ -141,7 +447,7 @@ This app integrates with МойСклад (Russian inventory management system) 
 - Products, variants, bundles, services, custom entities
 - Product folders (groups) - рекурсивное создание иерархии
 - Attributes, characteristics, prices, barcodes, packages
-- Queued with priorities and delays (ProcessSyncQueueJob)
+- **Queued sync via `sync_queue` table** (ProcessSyncQueueJob)
 - **Deletion/archiving**: Archived in children (NOT deleted) when deleted in main
 - **New features:**
   - Price mappings (main ↔ child)
@@ -150,11 +456,43 @@ This app integrates with МойСклад (Russian inventory management system) 
   - Optional product folder creation
   - Visual filter constructor for selective sync
 
+**Queue Flow Details:**
+1. User clicks "Sync All" or webhook triggers
+2. Controller creates tasks in `sync_queue` (status: pending, priority: 1-10)
+3. Laravel Scheduler runs `ProcessSyncQueueJob` every minute
+4. Job fetches 50 pending tasks (ordered by priority DESC, scheduled_at ASC)
+5. For each task:
+   - Call appropriate service (ProductSyncService, ServiceSyncService, etc.)
+   - Update status to 'processing'
+   - Execute sync with МойСклад API (via RateLimitHandler)
+   - Update status to 'completed' or 'failed'
+   - Increment attempts counter on failure
+6. Failed tasks (attempts < 3) stay in queue for retry
+7. Failed tasks (attempts >= 3) marked as 'failed' permanently
+
+**Priority Levels:**
+- Priority 10: Manual "Sync All" (user-initiated)
+- Priority 5: Webhook updates (real-time changes)
+- Priority 1: Background tasks (images, metadata)
+
+**Why queue for products:**
+- Large catalogs (1000+ products) can't sync instantly
+- МойСклад rate limits (45 req/sec) require controlled processing
+- Allows retry on temporary failures (network, API timeouts)
+- User doesn't wait - sync happens in background
+- Can monitor progress via Dashboard statistics
+
 **Child Accounts → Main Account (Orders):**
 - customerorder → customerorder
 - retaildemand → customerorder
 - purchaseorder → customerorder (проведенные only)
-- Immediate sync without queue
+- **Immediate sync WITHOUT queue** (small volume, time-sensitive)
+
+**Why NO queue for orders:**
+- Low volume (few orders per day)
+- Time-sensitive (need to appear immediately)
+- Simple 1:1 mapping (no complex transformations)
+- Failure rate low (orders already validated by МойСклад)
 
 ### Service Layer
 
@@ -653,7 +991,10 @@ const response = await api.childAccounts.list()
 
 ### Queueing Sync Task
 
+**Basic queueing** (used in controllers/webhooks):
 ```php
+use App\Models\SyncQueue;
+
 SyncQueue::create([
     'account_id' => $accountId,
     'entity_type' => 'product',
@@ -661,9 +1002,121 @@ SyncQueue::create([
     'operation' => 'update',
     'priority' => 5,
     'scheduled_at' => now()->addSeconds(10), // Delay if needed
-    'status' => 'pending'
+    'status' => 'pending',
+    'attempts' => 0,
+    'payload' => [
+        'main_account_id' => $mainAccountId  // IMPORTANT: Required for processing
+    ]
 ]);
 ```
+
+**Batch queueing** (used in "Sync All" feature):
+```php
+// In SyncActionsController::syncAllProducts
+$tasks = [];
+foreach ($products as $product) {
+    $tasks[] = [
+        'account_id' => $accountId,
+        'entity_type' => 'product',
+        'entity_id' => $product['id'],
+        'operation' => 'create',
+        'priority' => 10,  // High priority for user-initiated sync
+        'scheduled_at' => now(),
+        'status' => 'pending',
+        'attempts' => 0,
+        'payload' => json_encode(['main_account_id' => $mainAccountId]),
+        'created_at' => now(),
+        'updated_at' => now()
+    ];
+}
+
+// Bulk insert for performance (1000 products in 1 query instead of 1000 queries)
+SyncQueue::insert($tasks);
+
+Log::info("Created {count($tasks)} sync tasks", [
+    'account_id' => $accountId,
+    'entity_type' => 'product'
+]);
+```
+
+**Checking queue status** (for dashboard/monitoring):
+```php
+// Get counts by status
+$stats = SyncQueue::where('account_id', $accountId)
+    ->selectRaw('status, count(*) as count')
+    ->groupBy('status')
+    ->pluck('count', 'status');
+
+$pending = $stats['pending'] ?? 0;
+$processing = $stats['processing'] ?? 0;
+$completed = $stats['completed'] ?? 0;
+$failed = $stats['failed'] ?? 0;
+
+// Get recent failed tasks with errors
+$failedTasks = SyncQueue::where('account_id', $accountId)
+    ->where('status', 'failed')
+    ->orderBy('updated_at', 'desc')
+    ->limit(10)
+    ->get(['entity_type', 'entity_id', 'error_message', 'attempts', 'updated_at']);
+```
+
+**Processing queue** (in ProcessSyncQueueJob):
+```php
+// Fetch tasks (priority DESC, scheduled_at ASC)
+$tasks = SyncQueue::where('status', 'pending')
+    ->where('scheduled_at', '<=', now())
+    ->where('attempts', '<', 3)  // Skip tasks that failed 3 times
+    ->orderByDesc('priority')
+    ->orderBy('scheduled_at')
+    ->limit(50)
+    ->get();
+
+foreach ($tasks as $task) {
+    try {
+        // Mark as processing
+        $task->update(['status' => 'processing']);
+
+        // Get payload (always check it exists!)
+        $payload = $task->payload ?? [];
+        if (empty($payload) || !isset($payload['main_account_id'])) {
+            throw new \Exception('Invalid payload: missing main_account_id');
+        }
+
+        // Call appropriate service
+        match($task->entity_type) {
+            'product' => $this->productSyncService->syncProduct($task, $payload),
+            'service' => $this->serviceSyncService->syncService($task, $payload),
+            'bundle' => $this->productSyncService->syncBundle($task, $payload),
+            default => throw new \Exception("Unknown entity type: {$task->entity_type}")
+        };
+
+        // Mark as completed
+        $task->update(['status' => 'completed']);
+
+    } catch (\Throwable $e) {
+        // Increment attempts, save error
+        $task->increment('attempts');
+        $task->update([
+            'status' => $task->attempts >= 3 ? 'failed' : 'pending',
+            'error_message' => substr($e->getMessage(), 0, 500)
+        ]);
+
+        Log::error('Sync task failed', [
+            'task_id' => $task->id,
+            'entity_type' => $task->entity_type,
+            'attempts' => $task->attempts,
+            'error' => $e->getMessage()
+        ]);
+    }
+}
+```
+
+**Important notes:**
+- Always include `payload['main_account_id']` when creating tasks
+- Use bulk insert for batch operations (much faster)
+- Priority: 10 (user-initiated) > 5 (webhooks) > 1 (background)
+- Failed tasks (attempts >= 3) stop retrying automatically
+- Use `scheduled_at` for delayed execution (e.g., rate limit cooldown)
 
 ### Using useMoyskladEntities Composable
 
@@ -742,6 +1195,8 @@ const { settings, accountName, priceTypes, attributes, folders } = batchData.dat
 
 ## Important Gotchas
 
+### API & Integration
+
 1. **JWT for МойСклад MUST use `JSON_UNESCAPED_SLASHES`** - will fail without it
 2. **Context must be cached** - Middleware expects it in cache with key `moysklad_context:{contextKey}`
 3. **contextKey must be in sessionStorage** - API interceptor reads from there
@@ -752,12 +1207,78 @@ const { settings, accountName, priceTypes, attributes, folders } = batchData.dat
 8. **CORS** - Only `online.moysklad.ru` and `dev.moysklad.ru` allowed
 9. **Price Types Endpoint** - Use `context/companysettings` (NOT `context/companysettings/pricetype`), returns all company settings including `priceTypes` array
 10. **MoySkladService Response Structure** - All methods return `['data' => ..., 'rateLimitInfo' => ...]`, always access via `$response['data']`
-11. **useMoyskladEntities Caching** - Always check if data is loaded before calling `load()`. Use `reload()` to force refresh. The composable prevents duplicate API calls automatically.
-12. **Component Emit Events** - Section components (ProductSyncSection, etc.) only emit events, they don't call APIs directly. Parent component (FranchiseSettings.vue) handles all API calls and state management.
-13. **Batch Loading First** - Use `getBatch()` for initial page load, then use individual endpoints only when user interacts (opens dropdown, clicks create, etc.)
-14. **Price Types Structure** - priceTypes endpoint returns `{main: [...], child: [...]}`, NOT a flat array. Always destructure correctly.
-15. **SimpleSelect Loading State** - Always pass `:loading` prop when data is being fetched asynchronously. This shows spinner and improves UX during API calls.
-16. **CustomEntity ID Extraction** - Use `extractCustomEntityId()` helper to extract UUID from `customEntityMeta.href`. Supports both full URL and relative paths. UUID format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (36 chars).
+
+### Queue System & Supervisor
+
+11. **Queue Payload MUST include main_account_id** - ProcessSyncQueueJob requires `payload['main_account_id']` to work. Tasks without it will fail with TypeError. Always include when creating tasks:
+    ```php
+    'payload' => ['main_account_id' => $mainAccountId]
+    ```
+
+12. **Restart worker after code deploy** - Supervisor keeps old PHP code in memory. After deployment, ALWAYS restart worker:
+    ```bash
+    sudo supervisorctl restart laravel-worker:*
+    # Or use: ./restart-queue.sh
+    ```
+
+13. **Catch Throwable, not Exception** - Queue jobs must catch `\Throwable` (not `\Exception`) to handle TypeError and other errors:
+    ```php
+    try {
+        // process task
+    } catch (\Throwable $e) {  // Not \Exception!
+        // handle error
+    }
+    ```
+
+14. **Scheduler + Queue are separate** - `schedule:run` (cron) dispatches jobs to queue. Queue worker (`queue:work`) processes them. If worker is not running, jobs pile up in `jobs` table and never execute. Always check both:
+    ```bash
+    # Check scheduler is running (cron)
+    crontab -l | grep schedule:run
+
+    # Check worker is running (Supervisor)
+    sudo supervisorctl status laravel-worker:*
+    ```
+
+15. **Worker won't see DB changes immediately** - Worker holds DB connection. If you manually update `sync_queue` in database, worker may not see it until next iteration (up to 3 seconds with `--sleep=3`). For immediate processing, restart worker.
+
+16. **Failed tasks (attempts >= 3) stop retrying** - Tasks that fail 3 times are marked as 'failed' and ignored. They won't retry automatically. Must manually requeue or fix and requeue:
+    ```php
+    // Requeue all failed tasks
+    SyncQueue::where('status', 'failed')->update([
+        'status' => 'pending',
+        'attempts' => 0,
+        'error_message' => null
+    ]);
+    ```
+
+17. **Supervisor config path differs by OS**:
+    - CentOS/RHEL: `/etc/supervisord.d/*.ini`
+    - Ubuntu/Debian: `/etc/supervisor/conf.d/*.conf`
+    - Use `setup-queue-worker.sh` - auto-detects OS
+
+18. **Queue logs vs Application logs** - Different log files:
+    - `storage/logs/worker.log` - Worker stdout/stderr (job dispatch, errors)
+    - `storage/logs/laravel.log` - Application logs (Log::info/error)
+    - `storage/logs/sync.log` - Detailed sync operations (REQUEST/RESPONSE)
+    - Check ALL three when debugging
+
+19. **Bulk insert requires json_encode for payload** - When using `SyncQueue::insert($tasks)`, payload must be JSON string:
+    ```php
+    'payload' => json_encode(['main_account_id' => $id])  // String
+    ```
+    When using `SyncQueue::create()`, payload can be array (auto-casted):
+    ```php
+    'payload' => ['main_account_id' => $id]  // Array (works with create)
+    ```
+
+### Frontend
+
+20. **useMoyskladEntities Caching** - Always check if data is loaded before calling `load()`. Use `reload()` to force refresh. The composable prevents duplicate API calls automatically.
+21. **Component Emit Events** - Section components (ProductSyncSection, etc.) only emit events, they don't call APIs directly. Parent component (FranchiseSettings.vue) handles all API calls and state management.
+22. **Batch Loading First** - Use `getBatch()` for initial page load, then use individual endpoints only when user interacts (opens dropdown, clicks create, etc.)
+23. **Price Types Structure** - priceTypes endpoint returns `{main: [...], child: [...]}`, NOT a flat array. Always destructure correctly.
+24. **SimpleSelect Loading State** - Always pass `:loading` prop when data is being fetched asynchronously. This shows spinner and improves UX during API calls.
+25. **CustomEntity ID Extraction** - Use `extractCustomEntityId()` helper to extract UUID from `customEntityMeta.href`. Supports both full URL and relative paths. UUID format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (36 chars).
 
 ## Configuration
 
