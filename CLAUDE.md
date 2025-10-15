@@ -8,48 +8,112 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Stack:** PHP 8.4, Laravel 11, PostgreSQL 18, Redis 7, Vue 3, Tailwind CSS 3
 
+## Development Environment
+
+**IMPORTANT:** Local development machine does NOT have PHP environment installed. All PHP commands (migrations, artisan) must be executed on the production server.
+
 ## Development Commands
 
 ```bash
-# Setup (first time only)
-composer install
-npm install
-cp .env.example .env
-php artisan key:generate
-php artisan migrate
+# Frontend development (local)
+npm install                    # Install dependencies
+npm run dev                    # Start Vite dev server with hot reload
+npm run build                  # Production build
 
-# Development (runs all services concurrently)
-composer dev
+# Backend commands (ONLY on server via SSH or deploy.sh)
+composer install               # Install PHP dependencies
+php artisan migrate            # Run migrations
+php artisan migrate:rollback   # Rollback last migration
+php artisan cache:clear        # Clear application cache
+php artisan config:clear       # Clear config cache
+
+# Development (server only)
+composer dev                   # Runs all services concurrently
 # This starts: artisan serve, queue:listen, pail (logs), npm run dev
 
-# Individual services
+# Individual services (server only)
 php artisan serve              # Backend server (localhost:8000)
-npm run dev                    # Frontend hot reload (Vite)
 php artisan queue:listen       # Process queue jobs
 php artisan pail               # Real-time logs
 
-# Database
-php artisan migrate            # Run migrations
-php artisan migrate:rollback   # Rollback last migration
-php artisan migrate:fresh      # Drop all tables and re-migrate (WARNING: deletes data!)
-
-# Cache management
-php artisan cache:clear        # Clear application cache
-php artisan config:clear       # Clear config cache
-php artisan config:cache       # Cache config (production)
-php artisan route:cache        # Cache routes (production)
-php artisan view:cache         # Cache views (production)
-
-# Frontend
-npm run build                  # Production build
-npm run preview                # Preview production build
-
-# Testing
+# Testing (server only)
 composer test                  # Run PHPUnit tests
 php artisan test               # Same as above
 
+# Production commands (server only)
+php artisan config:cache       # Cache config
+php artisan route:cache        # Cache routes
+php artisan view:cache         # Cache views
+
 # Scheduler (production)
 # Add to crontab: * * * * * cd /path && php artisan schedule:run >> /dev/null 2>&1
+```
+
+## Deployment
+
+**Primary method:** Use `deploy.sh` script for deployment.
+
+```bash
+# On server
+cd /var/www/app.cavaleria.ru && ./deploy.sh
+```
+
+The deploy.sh script handles:
+- Git pull from main branch
+- composer install (production mode)
+- npm install && npm run build
+- Database migrations
+- Cache clearing
+- Service restarts
+
+**Auto-deploy:** GitHub Actions automatically runs deploy.sh on push to `main` branch.
+
+Required GitHub Secrets:
+- `SERVER_HOST`
+- `SERVER_USER`
+- `SSH_PRIVATE_KEY`
+
+## Creating Migrations
+
+**IMPORTANT:** When creating new migrations, write them manually in `database/migrations/` directory.
+
+Migration naming convention: `YYYY_MM_DD_HHMMSS_description.php`
+
+Example:
+```php
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('table_name', function (Blueprint $table) {
+            if (!Schema::hasColumn('table_name', 'new_column')) {
+                $table->string('new_column')->nullable()->after('existing_column');
+            }
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('table_name', function (Blueprint $table) {
+            if (Schema::hasColumn('table_name', 'new_column')) {
+                $table->dropColumn('new_column');
+            }
+        });
+    }
+};
+```
+
+**Best practices:**
+- Always check if column/table exists with `Schema::hasColumn()` / `Schema::hasTable()`
+- Use `->after('column')` to specify position
+- Always implement `down()` method for rollback
+- Migrations run automatically during deployment via deploy.sh
 ```
 
 ## Architecture Overview
@@ -236,13 +300,14 @@ Webhooks handled in `WebhookController`:
 
 ### Backend Feature
 
-1. Create migration if needed: `php artisan make:migration create_table_name`
+1. Create migration if needed: Manually create file in `database/migrations/` (see "Creating Migrations" section)
 2. Create/update model in `app/Models/`
 3. Create service in `app/Services/` for business logic
 4. Create controller in `app/Http/Controllers/Api/`
 5. Add route in `routes/api.php`
 6. Add comprehensive logging
 7. Wrap in try-catch with error handling
+8. Test locally with frontend, deploy via deploy.sh to run migrations
 
 ### Frontend Feature
 
@@ -384,17 +449,6 @@ Always commit with descriptive messages including:
 
 Co-Authored-By: Claude <noreply@anthropic.com>
 ```
-
-## Deployment
-
-Auto-deploy via GitHub Actions on push to `main` branch.
-
-Required GitHub Secrets:
-- `SERVER_HOST`
-- `SERVER_USER`
-- `SSH_PRIVATE_KEY`
-
-Manual deploy: `cd /var/www/app.cavaleria.ru && ./deploy.sh`
 
 ## Resources
 
