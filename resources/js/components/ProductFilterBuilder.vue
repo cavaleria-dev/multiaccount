@@ -91,13 +91,13 @@
                     <span
                       v-for="folderId in condition.folder_ids"
                       :key="folderId"
-                      class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-700 bg-indigo-100 rounded-md"
+                      class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium bg-green-100 border border-gray-300 rounded-md"
                     >
                       {{ getFolderName(folderId) }}
                       <button
                         @click.stop="removeFolderFromCondition(groupIndex, condIndex, folderId)"
                         type="button"
-                        class="hover:text-indigo-900 transition-colors"
+                        class="hover:text-gray-700 transition-colors"
                       >
                         <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                           <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -178,7 +178,7 @@
           <button
             @click="addCondition(groupIndex)"
             type="button"
-            class="inline-flex items-center justify-center w-full px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+            class="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition-colors"
           >
             <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
