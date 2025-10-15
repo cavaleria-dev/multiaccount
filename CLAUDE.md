@@ -218,6 +218,27 @@ Settings pages use modular component structure for maintainability:
 - Maintains single source of truth for data and logic
 - Easy to add/remove/reorder sections
 
+**Reusable UI Components:**
+
+`SimpleSelect.vue` - Custom select dropdown with loading state support:
+- Props: `modelValue`, `label`, `placeholder`, `options`, `disabled`, `required`, `loading`
+- **Loading prop**: Shows animated spinner instead of dropdown arrow when `loading=true`
+- Features: Clear button, dropdown animation, click-outside handling
+- Loading state: Disables clear button, shows indigo spinner (4x4px)
+- Usage example:
+  ```vue
+  <SimpleSelect
+    v-model="selectedId"
+    :options="items"
+    :loading="isLoadingItems"
+    placeholder="Выберите значение"
+  />
+  ```
+
+`SearchableSelect.vue` - Advanced select with search functionality
+`ProductFilterBuilder.vue` - Visual filter constructor for product filtering
+`ProductFolderPicker.vue` - Hierarchical folder tree picker
+
 ### Database Structure
 
 **Critical Tables:**
@@ -735,6 +756,8 @@ const { settings, accountName, priceTypes, attributes, folders } = batchData.dat
 12. **Component Emit Events** - Section components (ProductSyncSection, etc.) only emit events, they don't call APIs directly. Parent component (FranchiseSettings.vue) handles all API calls and state management.
 13. **Batch Loading First** - Use `getBatch()` for initial page load, then use individual endpoints only when user interacts (opens dropdown, clicks create, etc.)
 14. **Price Types Structure** - priceTypes endpoint returns `{main: [...], child: [...]}`, NOT a flat array. Always destructure correctly.
+15. **SimpleSelect Loading State** - Always pass `:loading` prop when data is being fetched asynchronously. This shows spinner and improves UX during API calls.
+16. **CustomEntity ID Extraction** - Use `extractCustomEntityId()` helper to extract UUID from `customEntityMeta.href`. Supports both full URL and relative paths. UUID format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (36 chars).
 
 ## Configuration
 
