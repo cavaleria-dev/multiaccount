@@ -453,13 +453,31 @@ const removeFolderFromCondition = (groupIndex, condIndex, folderId) => {
 // Извлечь ID справочника из href
 const extractCustomEntityId = (href) => {
   console.log('extractCustomEntityId called with href:', href, 'type:', typeof href)
-  if (!href) {
-    console.log('No href provided')
+
+  // Проверка на пустое значение или неправильный тип
+  if (!href || typeof href !== 'string') {
+    console.log('No href provided or wrong type')
     return null
   }
-  const match = href.match(/\/entity\/customentity\/([a-f0-9-]+)/)
-  console.log('Regex match result:', match)
-  return match ? match[1] : null
+
+  // Попытка 1: Извлечь UUID из URL формата /entity/customentity/{uuid}
+  // Поддерживает как полный URL, так и относительный путь
+  const match = href.match(/entity\/customentity\/([a-f0-9-]{36})/i)
+  if (match) {
+    console.log('Extracted customEntityId via main regex:', match[1])
+    return match[1]
+  }
+
+  // Попытка 2: Fallback - найти последний UUID в строке (36 символов)
+  // UUID формат: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  const uuidMatch = href.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?:$|[?#])/i)
+  if (uuidMatch) {
+    console.log('Extracted customEntityId via fallback UUID regex:', uuidMatch[1])
+    return uuidMatch[1]
+  }
+
+  console.warn('Could not extract customEntityId from href:', href)
+  return null
 }
 
 // Загрузить элементы справочника
@@ -468,21 +486,47 @@ const loadCustomEntityElements = async (customEntityId) => {
   console.log('accountId:', props.accountId)
   console.log('Already cached?:', customEntityElements.value[customEntityId])
 
-  if (!customEntityId || customEntityElements.value[customEntityId]) {
-    console.log('Skipping load - already cached or no ID')
-    return // Уже загружены
+  // Валидация
+  if (!customEntityId) {
+    console.warn('Cannot load elements: customEntityId is empty')
+    return
+  }
+
+  if (!props.accountId) {
+    console.warn('Cannot load elements: accountId is empty')
+    return
+  }
+
+  // Уже загружены - пропускаем
+  if (customEntityElements.value[customEntityId]) {
+    console.log('Skipping load - already cached')
+    return
   }
 
   try {
     loadingCustomEntityElements.value[customEntityId] = true
-    console.log('Calling API...')
+    console.log('Calling API getCustomEntityElements...', {
+      accountId: props.accountId,
+      customEntityId: customEntityId
+    })
+
     const response = await api.syncSettings.getCustomEntityElements(props.accountId, customEntityId)
     console.log('API response:', response.data)
-    customEntityElements.value[customEntityId] = response.data.data || []
-    console.log('Saved to cache:', customEntityElements.value[customEntityId])
+
+    const elements = response.data.data || []
+    customEntityElements.value[customEntityId] = elements
+    console.log(`Loaded ${elements.length} elements for customEntityId:`, customEntityId)
+
   } catch (error) {
     console.error('Failed to load custom entity elements:', error)
-    console.error('Error details:', error.response?.data)
+    console.error('Error details:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      accountId: props.accountId,
+      customEntityId: customEntityId
+    })
+    // Установить пустой массив чтобы не повторять запрос
     customEntityElements.value[customEntityId] = []
   } finally {
     loadingCustomEntityElements.value[customEntityId] = false
