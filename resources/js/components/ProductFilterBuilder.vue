@@ -32,10 +32,9 @@
 
     <!-- Filter groups -->
     <div v-else class="space-y-4">
+      <template v-for="(group, groupIndex) in filterGroups" :key="`group-${groupIndex}`">
       <div
-        v-for="(group, groupIndex) in filterGroups"
-        :key="`group-${groupIndex}`"
-        class="border-2 border-indigo-200 rounded-lg p-4 bg-gradient-to-br from-indigo-50 to-purple-50 shadow-sm"
+        class="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-white"
       >
         <!-- Group header -->
         <div class="flex items-center justify-between mb-3">
@@ -55,10 +54,9 @@
 
         <!-- Conditions -->
         <div class="space-y-3">
+          <template v-for="(condition, condIndex) in group.conditions" :key="`condition-${groupIndex}-${condIndex}`">
           <div
-            v-for="(condition, condIndex) in group.conditions"
-            :key="`condition-${groupIndex}-${condIndex}`"
-            class="bg-white rounded-md p-3 border-2 border-gray-300 shadow-sm"
+            class="bg-gray-50 rounded-md p-3 border border-gray-200"
           >
             <div class="flex items-start gap-3">
               <!-- Condition type selector -->
@@ -75,18 +73,39 @@
               <div class="flex-grow">
                 <!-- Folder condition -->
                 <div v-if="condition.type === 'folder'">
+                  <!-- Button to open picker -->
                   <button
                     @click="openFolderPicker(groupIndex, condIndex)"
                     type="button"
-                    class="w-full text-left px-3 py-2 border border-gray-300 rounded-md text-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                    class="w-full text-left px-3 py-2 border border-dashed border-gray-300 rounded-md text-sm hover:border-indigo-400 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
                   >
                     <span v-if="!condition.folder_ids || condition.folder_ids.length === 0" class="text-gray-400">
                       Выберите группы товаров...
                     </span>
-                    <span v-else class="text-gray-700">
+                    <span v-else class="text-gray-600">
                       Выбрано групп: <span class="font-medium text-indigo-600">{{ condition.folder_ids.length }}</span>
                     </span>
                   </button>
+
+                  <!-- Selected folders as tags -->
+                  <div v-if="condition.folder_ids && condition.folder_ids.length > 0" class="flex flex-wrap gap-1.5 mt-2">
+                    <span
+                      v-for="folderId in condition.folder_ids"
+                      :key="folderId"
+                      class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-indigo-700 bg-indigo-100 rounded-md"
+                    >
+                      {{ getFolderName(folderId) }}
+                      <button
+                        @click.stop="removeFolderFromCondition(groupIndex, condIndex, folderId)"
+                        type="button"
+                        class="hover:text-indigo-900 transition-colors"
+                      >
+                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                      </button>
+                    </span>
+                  </div>
                 </div>
 
                 <!-- Attribute flag condition -->
@@ -121,14 +140,15 @@
                 </svg>
               </button>
             </div>
-
-            <!-- AND indicator (not for last condition) -->
-            <div v-if="condIndex < group.conditions.length - 1" class="text-center mt-2">
-              <span class="inline-block px-3 py-1 text-xs font-bold text-gray-700 bg-gray-200 rounded-full">
-                И
-              </span>
-            </div>
           </div>
+
+          <!-- AND indicator (not for last condition) -->
+          <div v-if="condIndex < group.conditions.length - 1" class="flex justify-center -my-1.5">
+            <span class="px-3 py-1 text-xs font-medium text-white bg-gray-500 rounded-md">
+              И
+            </span>
+          </div>
+          </template>
 
           <!-- Add condition button -->
           <button
@@ -139,14 +159,15 @@
             + Добавить условие
           </button>
         </div>
-
-        <!-- OR indicator (not for last group) -->
-        <div v-if="groupIndex < filterGroups.length - 1" class="text-center mt-4 -mb-2">
-          <span class="inline-block px-4 py-2 text-sm font-bold text-purple-800 bg-gradient-to-r from-purple-200 to-pink-200 rounded-full shadow-md border-2 border-purple-300">
-            ИЛИ
-          </span>
-        </div>
       </div>
+
+      <!-- OR indicator (not for last group) -->
+      <div v-if="groupIndex < filterGroups.length - 1" class="flex justify-center -my-2">
+        <span class="px-4 py-1.5 text-xs font-medium text-white bg-purple-600 rounded-md">
+          ИЛИ
+        </span>
+      </div>
+      </template>
     </div>
 
     <!-- Folder picker modal -->
@@ -318,6 +339,34 @@ const updateConditionAttribute = (groupIndex, condIndex, val) => {
 const updateConditionValue = (groupIndex, condIndex, val) => {
   filterGroups.value[groupIndex].conditions[condIndex].value = val
   emitUpdate()
+}
+
+// Получить имя папки по ID
+const getFolderName = (folderId) => {
+  const findFolder = (folders) => {
+    for (const folder of folders) {
+      if (folder.id === folderId) {
+        return folder.name
+      }
+      if (folder.children) {
+        const found = findFolder(folder.children)
+        if (found) return found
+      }
+    }
+    return null
+  }
+
+  return findFolder(props.folders) || folderId
+}
+
+// Удалить папку из условия
+const removeFolderFromCondition = (groupIndex, condIndex, folderId) => {
+  const condition = filterGroups.value[groupIndex].conditions[condIndex]
+  const index = condition.folder_ids.indexOf(folderId)
+  if (index > -1) {
+    condition.folder_ids.splice(index, 1)
+    emitUpdate()
+  }
 }
 </script>
 
