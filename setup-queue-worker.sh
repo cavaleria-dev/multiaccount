@@ -31,8 +31,23 @@ WORKER_USER=$(whoami)
 echo "Worker will run as user: $WORKER_USER"
 echo ""
 
-# Создать supervisor конфиг
-SUPERVISOR_CONF="/etc/supervisor/conf.d/laravel-worker.conf"
+# Определить директорию для конфигураций supervisor в зависимости от ОС
+if [ -d "/etc/supervisord.d" ]; then
+    # CentOS/RHEL использует /etc/supervisord.d
+    SUPERVISOR_CONF_DIR="/etc/supervisord.d"
+    SUPERVISOR_CONF="$SUPERVISOR_CONF_DIR/laravel-worker.ini"
+elif [ -d "/etc/supervisor/conf.d" ]; then
+    # Ubuntu/Debian использует /etc/supervisor/conf.d
+    SUPERVISOR_CONF_DIR="/etc/supervisor/conf.d"
+    SUPERVISOR_CONF="$SUPERVISOR_CONF_DIR/laravel-worker.conf"
+else
+    echo "⚠️  Не найдена директория конфигураций supervisor!"
+    echo ""
+    echo "Попытка создать /etc/supervisor/conf.d..."
+    sudo mkdir -p /etc/supervisor/conf.d
+    SUPERVISOR_CONF_DIR="/etc/supervisor/conf.d"
+    SUPERVISOR_CONF="$SUPERVISOR_CONF_DIR/laravel-worker.conf"
+fi
 
 echo "Создание конфигурации supervisor..."
 echo "Файл: $SUPERVISOR_CONF"
