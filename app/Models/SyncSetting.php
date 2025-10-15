@@ -42,6 +42,7 @@ class SyncSetting extends Model
         'sync_variants',
         'sync_bundles',
         'sync_services',
+        'sync_images',
         'create_product_folders',
         'price_mappings',
         'attribute_sync_list',
@@ -69,6 +70,13 @@ class SyncSetting extends Model
         // Scalability settings
         'sync_priority',
         'sync_delay_seconds',
+        // Target objects settings
+        'target_store_id',
+        'target_project_id',
+        'purchase_order_state_id',
+        'purchase_order_sales_channel_id',
+        'supplier_counterparty_id',
+        'target_objects_meta',
     ];
 
     /**
@@ -92,6 +100,7 @@ class SyncSetting extends Model
         'sync_variants' => 'boolean',
         'sync_bundles' => 'boolean',
         'sync_services' => 'boolean',
+        'sync_images' => 'boolean',
         'create_product_folders' => 'boolean',
         'price_mappings' => 'array',
         'attribute_sync_list' => 'array',
@@ -104,6 +113,7 @@ class SyncSetting extends Model
         'sync_real_counterparties' => 'boolean',
         'sync_priority' => 'integer',
         'sync_delay_seconds' => 'integer',
+        'target_objects_meta' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
