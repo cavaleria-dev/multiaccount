@@ -9,36 +9,43 @@
           v-model="localSettings.sync_products"
           label="Товары"
           size="small"
+          color="green"
         />
         <Toggle
           v-model="localSettings.sync_variants"
           label="Модификации"
           size="small"
+          color="green"
         />
         <Toggle
           v-model="localSettings.sync_bundles"
           label="Комплекты"
           size="small"
+          color="green"
         />
         <Toggle
           v-model="localSettings.sync_services"
           label="Услуги"
           size="small"
+          color="green"
         />
         <Toggle
           v-model="localSettings.sync_images"
           label="Изображения"
           size="small"
+          color="green"
         />
         <Toggle
           v-model="localSettings.sync_images_all"
           label="Все изображения"
           size="small"
+          color="green"
         />
         <Toggle
           v-model="localSettings.sync_prices"
           label="Цены"
           size="small"
+          color="green"
         />
       </div>
     </div>
@@ -64,6 +71,7 @@
           label="Создавать группы товаров"
           description="Создавать соответствующие группы товаров в дочернем аккаунте (структура каталога)"
           size="small"
+          color="green"
         />
 
         <!-- Sync all products button -->

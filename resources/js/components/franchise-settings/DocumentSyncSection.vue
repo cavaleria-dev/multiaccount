@@ -10,7 +10,7 @@
           label="Заказы покупателей"
           description="Синхронизировать заказы покупателей из дочернего в главный"
           size="small"
-          color="purple"
+          color="green"
         />
 
         <div v-if="settings.sync_customer_orders" class="ml-7 space-y-2">
@@ -51,7 +51,7 @@
           label="Розничные продажи"
           description="Синхронизировать розничные продажи из дочернего в главный"
           size="small"
-          color="purple"
+          color="green"
         />
 
         <div v-if="settings.sync_retail_demands" class="ml-7 space-y-2">
@@ -92,7 +92,7 @@
           label="Заказы поставщику"
           description="Синхронизировать заказы поставщику из дочернего в главный"
           size="small"
-          color="purple"
+          color="green"
         />
 
         <div v-if="settings.sync_purchase_orders" class="ml-7 space-y-2">
