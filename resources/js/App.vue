@@ -1,5 +1,5 @@
 <template>
-  <div id="app" class="h-screen overflow-y-auto bg-gray-50">
+  <div id="app" class="h-screen overflow-y-auto" style="background-color: rgb(231, 231, 231);">
     <!-- Навигация -->
     <nav class="bg-white border-b border-gray-200 sticky top-0 z-10">
       <div class="px-4 sm:px-6">
