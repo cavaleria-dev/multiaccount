@@ -1223,4 +1223,134 @@ class SyncSettingsController extends Controller
             return response()->json(['error' => 'Failed to create state: ' . $e->getMessage()], 500);
         }
     }
+
+    /**
+     * Batch load all initial data for settings page
+     * Returns settings, priceTypes, attributes, and folders in one request
+     */
+    public function getBatchData(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Проверить что это дочерний аккаунт текущего главного
+        $link = DB::table('child_accounts')
+            ->where('parent_account_id', $mainAccountId)
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account not found'], 404);
+        }
+
+        try {
+            $result = [];
+
+            // 1. Load settings
+            $settings = SyncSetting::where('account_id', $accountId)->first();
+            if (!$settings) {
+                $settings = SyncSetting::create([
+                    'account_id' => $accountId,
+                    'sync_enabled' => false,
+                ]);
+            }
+            $result['settings'] = $settings;
+
+            // 2. Load account name
+            $childAccount = Account::where('account_id', $accountId)->first();
+            $result['accountName'] = $childAccount ? $childAccount->account_name : 'Без названия';
+
+            // 3. Load price types (parallel requests possible, but sequential is safer)
+            $mainAccount = Account::where('account_id', $mainAccountId)->first();
+            if ($mainAccount && $childAccount) {
+                $moysklad = app(MoySkladService::class);
+
+                try {
+                    $mainPriceTypes = $moysklad->setAccessToken($mainAccount->access_token)->get('context/companysettings');
+                    $childPriceTypes = $moysklad->setAccessToken($childAccount->access_token)->get('context/companysettings');
+
+                    $mainPrices = array_map(fn($pt) => [
+                        'id' => $pt['id'],
+                        'name' => $pt['name']
+                    ], $mainPriceTypes['data']['priceTypes'] ?? []);
+
+                    $childPrices = array_map(fn($pt) => [
+                        'id' => $pt['id'],
+                        'name' => $pt['name']
+                    ], $childPriceTypes['data']['priceTypes'] ?? []);
+
+                    // Add buyPrice
+                    $buyPriceItem = ['id' => 'buyPrice', 'name' => 'Закупочная цена'];
+                    array_unshift($mainPrices, $buyPriceItem);
+                    array_unshift($childPrices, $buyPriceItem);
+
+                    $result['priceTypes'] = [
+                        'main' => $mainPrices,
+                        'child' => $childPrices
+                    ];
+                } catch (\Exception $e) {
+                    Log::warning('Failed to load price types in batch', ['error' => $e->getMessage()]);
+                    $result['priceTypes'] = ['main' => [], 'child' => []];
+                }
+
+                // 4. Load attributes
+                try {
+                    $attributesResponse = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/product/metadata/attributes');
+                    $attributes = [];
+                    foreach ($attributesResponse['data']['rows'] ?? [] as $attr) {
+                        if (isset($attr['id'])) {
+                            $attributes[] = [
+                                'id' => $attr['id'],
+                                'name' => $attr['name'] ?? 'Без имени',
+                                'type' => $attr['type'] ?? 'unknown'
+                            ];
+                        }
+                    }
+                    $result['attributes'] = $attributes;
+                } catch (\Exception $e) {
+                    Log::warning('Failed to load attributes in batch', ['error' => $e->getMessage()]);
+                    $result['attributes'] = [];
+                }
+
+                // 5. Load folders
+                try {
+                    $folders = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/productfolder', ['limit' => 1000]);
+                    $folderTree = $this->buildFolderTree($folders['data']['rows'] ?? []);
+                    $result['folders'] = $folderTree;
+                } catch (\Exception $e) {
+                    Log::warning('Failed to load folders in batch', ['error' => $e->getMessage()]);
+                    $result['folders'] = [];
+                }
+            } else {
+                $result['priceTypes'] = ['main' => [], 'child' => []];
+                $result['attributes'] = [];
+                $result['folders'] = [];
+            }
+
+            Log::info('Batch data loaded successfully', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'price_types_main_count' => count($result['priceTypes']['main'] ?? []),
+                'price_types_child_count' => count($result['priceTypes']['child'] ?? []),
+                'attributes_count' => count($result['attributes'] ?? []),
+                'folders_count' => count($result['folders'] ?? [])
+            ]);
+
+            return response()->json(['data' => $result]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to load batch data', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json(['error' => 'Failed to load batch data: ' . $e->getMessage()], 500);
+        }
+    }
 }

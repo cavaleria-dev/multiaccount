@@ -63,6 +63,9 @@ export default {
     get(accountId) {
       return api.get(`/sync-settings/${accountId}`)
     },
+    getBatch(accountId) {
+      return api.get(`/sync-settings/${accountId}/batch`)
+    },
     update(accountId, data) {
       return api.put(`/sync-settings/${accountId}`, data)
     },
