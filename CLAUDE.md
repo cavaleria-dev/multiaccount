@@ -601,6 +601,65 @@ Settings pages use modular component structure for maintainability:
 - `price_type_mappings` - Price type mapping
 - `custom_entity_mappings` - Custom entity metadata mapping
 - `custom_entity_element_mappings` - Custom entity elements mapping
+- `standard_entity_mappings` - Standard МойСклад references mapping (uom, currency, country, vat) by code/isoCode
+
+### Standard Entity Mapping
+
+**Problem:** МойСклад standard references (uom/currency/country/vat) have **different UUIDs in each account**, but same **code/isoCode** values.
+
+**Example:**
+```
+Main account:  uom "шт" (pieces) = UUID: 19f1edc0-fc42-4001-94cb-c9ec9c62ec10, code: "796"
+Child account: uom "шт" (pieces) = UUID: 8f2a3d50-bc21-5002-85dc-d0fd0d73fd21, code: "796"
+                                    ↑ DIFFERENT UUID!           ↑ SAME code!
+```
+
+**Solution:** `standard_entity_mappings` table maps by code/isoCode instead of UUID.
+
+**Table structure:**
+```sql
+standard_entity_mappings:
+- parent_account_id (UUID) - Main account
+- child_account_id (UUID) - Child account
+- entity_type (string) - 'uom', 'currency', 'country', 'vat'
+- parent_entity_id (string) - UUID in main account
+- child_entity_id (string) - UUID in child account
+- code (string) - Matching code (e.g., "796" for uom, "RUB" for currency)
+- name (string) - Human-readable name for debugging
+- metadata (json) - Additional data (rate for vat, symbol for currency)
+- UNIQUE(parent_account_id, child_account_id, entity_type, code)
+```
+
+**Mapping strategies by entity type:**
+
+1. **uom (единицы измерения)** - by `code`:
+   - Standard: "796" (шт), "166" (г), "163" (кг), "112" (л), etc.
+   - Custom: User-created units also have codes
+   - If not found in child → create custom uom
+
+2. **currency (валюты)** - by `isoCode`:
+   - "RUB" (Российский рубль)
+   - "USD" (US Dollar)
+   - "EUR" (Euro)
+   - Always exist in all accounts (can't create custom)
+
+3. **country (страны)** - by `code`:
+   - "643" (Россия)
+   - "840" (США)
+   - "276" (Германия)
+   - Always exist in all accounts (can't create custom)
+
+4. **vat (ставки НДС)** - by `rate`:
+   - 20 (20%)
+   - 10 (10%)
+   - 0 (0%)
+   - null (Без НДС)
+   - Stored as integer in metadata
+
+**Why this is critical:**
+- Without mapping → API error: "Entity with UUID xxx not found"
+- Can't copy UUID from main → child (different UUIDs!)
+- Must find corresponding entity by code/isoCode
 
 ### JWT Generation for МойСклад Vendor API
 
