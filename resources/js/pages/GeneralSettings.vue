@@ -45,66 +45,38 @@
       <!-- Настройки по умолчанию -->
       <div class="bg-white shadow rounded-lg p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">Настройки по умолчанию для новых франшиз</h3>
-        <div class="space-y-4">
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="default_sync_enabled"
-                v-model="settings.default_sync_enabled"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="default_sync_enabled" class="font-medium text-gray-700">Автоматически включать синхронизацию</label>
-              <p class="text-gray-500">При добавлении новой франшизы синхронизация будет включена сразу</p>
-            </div>
-          </div>
+        <div class="space-y-3">
+          <Toggle
+            v-model="settings.default_sync_enabled"
+            label="Автоматически включать синхронизацию"
+            description="При добавлении новой франшизы синхронизация будет включена сразу"
+            size="small"
+            color="green"
+          />
 
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="default_sync_products"
-                v-model="settings.default_sync_products"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="default_sync_products" class="font-medium text-gray-700">Синхронизировать товары</label>
-              <p class="text-gray-500">По умолчанию включать синхронизацию товаров</p>
-            </div>
-          </div>
+          <Toggle
+            v-model="settings.default_sync_products"
+            label="Синхронизировать товары"
+            description="По умолчанию включать синхронизацию товаров"
+            size="small"
+            color="green"
+          />
 
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="default_sync_orders"
-                v-model="settings.default_sync_orders"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="default_sync_orders" class="font-medium text-gray-700">Синхронизировать заказы</label>
-              <p class="text-gray-500">По умолчанию включать синхронизацию заказов покупателей</p>
-            </div>
-          </div>
+          <Toggle
+            v-model="settings.default_sync_orders"
+            label="Синхронизировать заказы"
+            description="По умолчанию включать синхронизацию заказов покупателей"
+            size="small"
+            color="green"
+          />
 
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="default_sync_images"
-                v-model="settings.default_sync_images"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="default_sync_images" class="font-medium text-gray-700">Синхронизировать изображения</label>
-              <p class="text-gray-500">По умолчанию включать синхронизацию изображений товаров</p>
-            </div>
-          </div>
+          <Toggle
+            v-model="settings.default_sync_images"
+            label="Синхронизировать изображения"
+            description="По умолчанию включать синхронизацию изображений товаров"
+            size="small"
+            color="green"
+          />
         </div>
       </div>
 
@@ -156,36 +128,22 @@
       <!-- Уведомления -->
       <div class="bg-white shadow rounded-lg p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">Уведомления</h3>
-        <div class="space-y-4">
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="notify_errors"
-                v-model="settings.notify_errors"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="notify_errors" class="font-medium text-gray-700">Уведомлять об ошибках</label>
-              <p class="text-gray-500">Отправлять уведомления при ошибках синхронизации</p>
-            </div>
-          </div>
+        <div class="space-y-3">
+          <Toggle
+            v-model="settings.notify_errors"
+            label="Уведомлять об ошибках"
+            description="Отправлять уведомления при ошибках синхронизации"
+            size="small"
+            color="green"
+          />
 
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="notify_success"
-                v-model="settings.notify_success"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="notify_success" class="font-medium text-gray-700">Уведомлять об успешной синхронизации</label>
-              <p class="text-gray-500">Отправлять уведомления при успешной синхронизации</p>
-            </div>
-          </div>
+          <Toggle
+            v-model="settings.notify_success"
+            label="Уведомлять об успешной синхронизации"
+            description="Отправлять уведомления при успешной синхронизации"
+            size="small"
+            color="green"
+          />
         </div>
       </div>
 
@@ -218,6 +176,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import Toggle from '../components/Toggle.vue'
 
 const saving = ref(false)
 const saveSuccess = ref(false)

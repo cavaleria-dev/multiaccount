@@ -73,25 +73,13 @@
 
                   <!-- Type field -->
                   <div>
-                    <label for="channel-type" class="block text-sm font-medium text-gray-700 mb-1">
-                      Тип <span class="text-red-500">*</span>
-                    </label>
-                    <select
-                      id="channel-type"
+                    <SimpleSelect
                       v-model="formData.type"
+                      label="Тип"
+                      placeholder="Выберите тип"
+                      :options="channelTypeOptions"
                       required
-                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      :class="{ 'border-red-500': errors.type }"
-                    >
-                      <option value="">Выберите тип</option>
-                      <option value="MESSENGER">Мессенджер</option>
-                      <option value="SOCIAL_NETWORK">Соцсеть</option>
-                      <option value="MARKETPLACE">Маркетплейс</option>
-                      <option value="ECOMMERCE">Интернет-магазин</option>
-                      <option value="CLASSIFIED_ADS">Доска объявлений</option>
-                      <option value="DIRECT_SALES">Прямые продажи</option>
-                      <option value="OTHER">Другое</option>
-                    </select>
+                    />
                     <p v-if="errors.type" class="mt-1 text-sm text-red-600">
                       {{ errors.type }}
                     </p>
@@ -156,6 +144,18 @@
 
 <script setup>
 import { ref, watch } from 'vue'
+import SimpleSelect from './SimpleSelect.vue'
+
+// Channel type options
+const channelTypeOptions = [
+  { id: 'MESSENGER', name: 'Мессенджер' },
+  { id: 'SOCIAL_NETWORK', name: 'Соцсеть' },
+  { id: 'MARKETPLACE', name: 'Маркетплейс' },
+  { id: 'ECOMMERCE', name: 'Интернет-магазин' },
+  { id: 'CLASSIFIED_ADS', name: 'Доска объявлений' },
+  { id: 'DIRECT_SALES', name: 'Прямые продажи' },
+  { id: 'OTHER', name: 'Другое' }
+]
 
 const props = defineProps({
   show: {

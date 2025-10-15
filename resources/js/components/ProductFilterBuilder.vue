@@ -63,14 +63,12 @@
             <div class="flex items-start gap-3">
               <!-- Condition type selector -->
               <div class="flex-shrink-0 w-40">
-                <select
-                  v-model="condition.type"
-                  @change="onConditionTypeChange(groupIndex, condIndex)"
-                  class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-                >
-                  <option value="folder">Группа товаров</option>
-                  <option value="attribute_flag">Признак (флаг)</option>
-                </select>
+                <SimpleSelect
+                  :model-value="condition.type"
+                  @update:model-value="(val) => { condition.type = val; onConditionTypeChange(groupIndex, condIndex) }"
+                  placeholder="Тип условия"
+                  :options="conditionTypeOptions"
+                />
               </div>
 
               <!-- Condition value -->
@@ -93,26 +91,20 @@
 
                 <!-- Attribute flag condition -->
                 <div v-else-if="condition.type === 'attribute_flag'" class="flex gap-2">
-                  <select
-                    v-model="condition.attribute_id"
-                    class="flex-grow block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-                  >
-                    <option value="">Выберите атрибут...</option>
-                    <option
-                      v-for="attr in flagAttributes"
-                      :key="attr.id"
-                      :value="attr.id"
-                    >
-                      {{ attr.name }}
-                    </option>
-                  </select>
-                  <select
-                    v-model="condition.value"
-                    class="w-32 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-                  >
-                    <option :value="true">Да</option>
-                    <option :value="false">Нет</option>
-                  </select>
+                  <div class="flex-grow">
+                    <SimpleSelect
+                      v-model="condition.attribute_id"
+                      placeholder="Выберите атрибут"
+                      :options="flagAttributeOptions"
+                    />
+                  </div>
+                  <div class="w-32">
+                    <SimpleSelect
+                      v-model="condition.value"
+                      placeholder="Значение"
+                      :options="booleanValueOptions"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -169,6 +161,19 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
 import ProductFolderPicker from './ProductFolderPicker.vue'
+import SimpleSelect from './SimpleSelect.vue'
+
+// Condition type options
+const conditionTypeOptions = [
+  { id: 'folder', name: 'Группа товаров' },
+  { id: 'attribute_flag', name: 'Признак (флаг)' }
+]
+
+// Boolean value options
+const booleanValueOptions = [
+  { id: true, name: 'Да' },
+  { id: false, name: 'Нет' }
+]
 
 const props = defineProps({
   modelValue: {
@@ -204,6 +209,13 @@ const folderPicker = ref(null)
 // Computed
 const flagAttributes = computed(() => {
   return props.attributes.filter(attr => attr.type === 'boolean')
+})
+
+const flagAttributeOptions = computed(() => {
+  return flagAttributes.value.map(attr => ({
+    id: attr.id,
+    name: attr.name
+  }))
 })
 
 // Initialize from modelValue

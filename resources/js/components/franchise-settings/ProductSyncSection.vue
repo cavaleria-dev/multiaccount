@@ -49,16 +49,12 @@
       <div class="space-y-4">
         <!-- Product match field -->
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">Поле для сопоставления товаров</label>
-          <select
+          <SimpleSelect
             v-model="localSettings.product_match_field"
-            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-          >
-            <option value="code">Код (code)</option>
-            <option value="article">Артикул (article)</option>
-            <option value="externalCode">Внешний код (externalCode)</option>
-            <option value="barcode">Штрихкод (первый barcode)</option>
-          </select>
+            label="Поле для сопоставления товаров"
+            placeholder="Выберите поле"
+            :options="matchFieldOptions"
+          />
           <p class="mt-1 text-xs text-gray-500">По какому полю искать существующие товары в дочернем аккаунте</p>
         </div>
 
@@ -96,6 +92,15 @@
 <script setup>
 import { computed } from 'vue'
 import Toggle from '../Toggle.vue'
+import SimpleSelect from '../SimpleSelect.vue'
+
+// Product match field options
+const matchFieldOptions = [
+  { id: 'code', name: 'Код (code)' },
+  { id: 'article', name: 'Артикул (article)' },
+  { id: 'externalCode', name: 'Внешний код (externalCode)' },
+  { id: 'barcode', name: 'Штрихкод (первый barcode)' }
+]
 
 const props = defineProps({
   settings: {

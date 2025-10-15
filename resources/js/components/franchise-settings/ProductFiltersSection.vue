@@ -1,19 +1,14 @@
 <template>
   <div class="bg-white shadow rounded-lg p-6">
-    <div class="flex items-start mb-4">
-      <div class="flex items-center h-5">
-        <input
-          id="product_filters_enabled"
-          type="checkbox"
-          :checked="productFiltersEnabled"
-          @change="updateProductFiltersEnabled($event.target.checked)"
-          class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-        />
-      </div>
-      <div class="ml-3">
-        <label for="product_filters_enabled" class="text-sm font-medium text-gray-700">Включить фильтрацию товаров</label>
-        <p class="text-sm text-gray-500">Использовать фильтры для выборочной синхронизации товаров</p>
-      </div>
+    <div class="mb-4">
+      <Toggle
+        :model-value="productFiltersEnabled"
+        @update:model-value="updateProductFiltersEnabled"
+        label="Включить фильтрацию товаров"
+        description="Использовать фильтры для выборочной синхронизации товаров"
+        size="small"
+        color="purple"
+      />
     </div>
 
     <div v-if="productFiltersEnabled">
@@ -32,6 +27,7 @@
 <script setup>
 import { computed } from 'vue'
 import ProductFilterBuilder from '../ProductFilterBuilder.vue'
+import Toggle from '../Toggle.vue'
 
 const props = defineProps({
   settings: {

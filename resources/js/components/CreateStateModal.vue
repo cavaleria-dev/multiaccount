@@ -73,20 +73,13 @@
 
                   <!-- State type field -->
                   <div>
-                    <label for="state-type" class="block text-sm font-medium text-gray-700 mb-1">
-                      Тип статуса <span class="text-red-500">*</span>
-                    </label>
-                    <select
-                      id="state-type"
+                    <SimpleSelect
                       v-model="formData.stateType"
+                      label="Тип статуса"
+                      placeholder="Выберите тип"
+                      :options="stateTypeOptions"
                       required
-                      class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      :class="{ 'border-red-500': errors.stateType }"
-                    >
-                      <option value="Regular">Обычный</option>
-                      <option value="Successful">Финальный положительный</option>
-                      <option value="Unsuccessful">Финальный отрицательный</option>
-                    </select>
+                    />
                     <p class="mt-1 text-xs text-gray-500">
                       Обычный - промежуточный статус, финальные - завершающие
                     </p>
@@ -148,6 +141,14 @@
 <script setup>
 import { ref, watch } from 'vue'
 import ColorPicker from './ColorPicker.vue'
+import SimpleSelect from './SimpleSelect.vue'
+
+// State type options
+const stateTypeOptions = [
+  { id: 'Regular', name: 'Обычный' },
+  { id: 'Successful', name: 'Финальный положительный' },
+  { id: 'Unsuccessful', name: 'Финальный отрицательный' }
+]
 
 const props = defineProps({
   show: {
