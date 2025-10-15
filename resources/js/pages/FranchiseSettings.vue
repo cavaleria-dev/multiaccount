@@ -357,7 +357,7 @@ const settings = ref({
   target_project_id: null,
   responsible_employee_id: null,
   product_filters_enabled: false,
-  product_filters: null,
+  product_filters: { groups: [] },
   product_match_field: 'article',
   create_product_folders: true,
   price_mappings: null,
