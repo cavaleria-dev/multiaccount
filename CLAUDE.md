@@ -1403,6 +1403,60 @@ if (!$childUomId) {
 }
 ```
 
+**Currency synchronization in prices:**
+
+`ProductSyncService::syncPrices()` automatically synchronizes currencies in all price fields using `StandardEntitySyncService::syncCurrency()`. This handles:
+
+1. **buyPrice → buyPrice** (with and without price mappings):
+```php
+// Extract currency from buyPrice
+if (isset($buyPrice['currency']['meta']['href'])) {
+    $parentCurrencyId = $this->extractEntityId($buyPrice['currency']['meta']['href']);
+    $childCurrencyId = $this->standardEntitySync->syncCurrency(
+        $mainAccountId,
+        $childAccountId,
+        $parentCurrencyId
+    );
+
+    if ($childCurrencyId) {
+        $buyPrice['currency'] = [
+            'meta' => [
+                'href' => config('moysklad.api_url') . "/entity/currency/{$childCurrencyId}",
+                'type' => 'currency',
+                'mediaType' => 'application/json'
+            ]
+        ];
+    } else {
+        // Remove currency if sync failed → МойСклад uses default
+        unset($buyPrice['currency']);
+        Log::warning('Currency sync failed, using default currency');
+    }
+}
+```
+
+2. **buyPrice → salePrice** (price type mapping):
+   - Syncs currency from main account's buyPrice
+   - Builds proper currency meta for child's salePrice
+
+3. **salePrice → buyPrice** (reverse mapping):
+   - Priority: priceInfo currency → mainBuyPrice currency
+   - Syncs currency from whichever is available
+
+4. **salePrice → salePrice** (with explicit mapping):
+   - Syncs currency from main account's salePrice
+   - Applied to both mapped and old logic (getOrCreatePriceType) paths
+
+**Key behavior:**
+- **If currency sync fails** (returns `null`): Price field sent WITHOUT currency reference → МойСклад automatically uses account's default currency
+- **Hardcoded currency removed**: Previously had hardcoded `/entity/currency/643` (RUB) → now dynamic based on main account
+- **All price paths covered**: buyPrice, salePrices with mappings, salePrices without mappings (old logic)
+- **Graceful fallback**: Warning logged, but sync continues without currency → prevents API errors
+
+**When currency sync is triggered:**
+- Product/variant/bundle sync via `ProductSyncService`
+- Service sync via `ServiceSyncService`
+- Any entity with price fields that use currency references
+
 ## Important Gotchas
 
 ### API & Integration
