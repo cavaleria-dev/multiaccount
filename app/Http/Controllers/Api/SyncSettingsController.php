@@ -79,6 +79,7 @@ class SyncSettingsController extends Controller
             'sync_products' => 'sometimes|boolean',
             'sync_variants' => 'sometimes|boolean',
             'sync_bundles' => 'sometimes|boolean',
+            'sync_services' => 'sometimes|boolean',
             'sync_images' => 'sometimes|boolean',
             'sync_images_all' => 'sometimes|boolean',
             'sync_prices' => 'sometimes|boolean',
@@ -101,6 +102,11 @@ class SyncSettingsController extends Controller
             'product_filters' => 'nullable|array',
             'product_filters_enabled' => 'sometimes|boolean',
             'target_objects_meta' => 'nullable|array',
+            'product_match_field' => 'sometimes|in:code,article,externalCode,barcode',
+            'create_product_folders' => 'sometimes|boolean',
+            'auto_create_attributes' => 'sometimes|boolean',
+            'auto_create_characteristics' => 'sometimes|boolean',
+            'auto_create_price_types' => 'sometimes|boolean',
         ]);
 
         $settings = SyncSetting::updateOrCreate(
@@ -110,6 +116,7 @@ class SyncSettingsController extends Controller
                 'sync_products',
                 'sync_variants',
                 'sync_bundles',
+                'sync_services',
                 'sync_images',
                 'sync_images_all',
                 'sync_prices',
@@ -132,6 +139,11 @@ class SyncSettingsController extends Controller
                 'product_filters',
                 'product_filters_enabled',
                 'target_objects_meta',
+                'product_match_field',
+                'create_product_folders',
+                'auto_create_attributes',
+                'auto_create_characteristics',
+                'auto_create_price_types',
             ])
         );
 
