@@ -5,7 +5,7 @@
       <div>
         <h4 class="text-sm font-medium text-gray-900">Фильтры товаров</h4>
         <p class="text-xs text-gray-500 mt-1">
-          Условия внутри группы объединяются по ИЛИ, группы между собой по И
+          Условия внутри группы объединяются по И, группы между собой по ИЛИ
         </p>
       </div>
       <button
@@ -35,7 +35,7 @@
       <div
         v-for="(group, groupIndex) in filterGroups"
         :key="`group-${groupIndex}`"
-        class="border border-gray-200 rounded-lg p-4 bg-gray-50"
+        class="border-2 border-indigo-200 rounded-lg p-4 bg-gradient-to-br from-indigo-50 to-purple-50 shadow-sm"
       >
         <!-- Group header -->
         <div class="flex items-center justify-between mb-3">
@@ -58,7 +58,7 @@
           <div
             v-for="(condition, condIndex) in group.conditions"
             :key="`condition-${groupIndex}-${condIndex}`"
-            class="bg-white rounded-md p-3 border border-gray-200"
+            class="bg-white rounded-md p-3 border-2 border-gray-300 shadow-sm"
           >
             <div class="flex items-start gap-3">
               <!-- Condition type selector -->
@@ -122,10 +122,10 @@
               </button>
             </div>
 
-            <!-- OR indicator (not for last condition) -->
+            <!-- AND indicator (not for last condition) -->
             <div v-if="condIndex < group.conditions.length - 1" class="text-center mt-2">
-              <span class="inline-block px-2 py-1 text-xs font-medium text-purple-700 bg-purple-100 rounded">
-                ИЛИ
+              <span class="inline-block px-3 py-1 text-xs font-bold text-gray-700 bg-gray-200 rounded-full">
+                И
               </span>
             </div>
           </div>
@@ -140,10 +140,10 @@
           </button>
         </div>
 
-        <!-- AND indicator (not for last group) -->
+        <!-- OR indicator (not for last group) -->
         <div v-if="groupIndex < filterGroups.length - 1" class="text-center mt-4 -mb-2">
-          <span class="inline-block px-3 py-1 text-xs font-medium text-indigo-700 bg-indigo-100 rounded">
-            И
+          <span class="inline-block px-4 py-2 text-sm font-bold text-purple-800 bg-gradient-to-r from-purple-200 to-pink-200 rounded-full shadow-md border-2 border-purple-300">
+            ИЛИ
           </span>
         </div>
       </div>
