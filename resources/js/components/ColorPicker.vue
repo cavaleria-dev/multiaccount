@@ -5,35 +5,39 @@
       <span v-if="required" class="text-red-500">*</span>
     </label>
 
-    <div class="flex items-center space-x-3">
-      <!-- Color input -->
-      <div class="relative">
-        <input
-          type="color"
-          :value="hexColor"
-          @input="handleColorInput"
-          class="w-16 h-10 rounded-lg cursor-pointer border-2 border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-        />
+    <div class="space-y-2">
+      <!-- Color input and preview -->
+      <div class="flex items-center space-x-3">
+        <!-- Color input -->
+        <div class="relative">
+          <input
+            type="color"
+            :value="hexColor"
+            @input="handleColorInput"
+            class="w-12 h-10 rounded-lg cursor-pointer border-2 border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+          />
+        </div>
+
+        <!-- Color preview with hex code -->
+        <div class="flex items-center space-x-2">
+          <div
+            class="w-10 h-10 rounded-lg border-2 border-gray-300 shadow-sm"
+            :style="{ backgroundColor: hexColor }"
+          ></div>
+          <span class="text-sm font-mono text-gray-600">{{ hexColor.toUpperCase() }}</span>
+        </div>
       </div>
 
-      <!-- Color preview with border -->
-      <div class="flex items-center space-x-2">
-        <div
-          class="w-10 h-10 rounded-lg border-2 border-gray-300 shadow-sm"
-          :style="{ backgroundColor: hexColor }"
-        ></div>
-        <span class="text-sm font-mono text-gray-600">{{ hexColor.toUpperCase() }}</span>
-      </div>
-
-      <!-- Preset colors -->
-      <div class="flex items-center space-x-2">
+      <!-- Preset colors (separate row) -->
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs text-gray-500 mr-1">Быстрый выбор:</span>
         <button
           v-for="preset in presetColors"
           :key="preset.hex"
           type="button"
           @click="selectPreset(preset.hex)"
-          class="w-8 h-8 rounded-lg border-2 transition-all hover:scale-110"
-          :class="hexColor.toLowerCase() === preset.hex.toLowerCase() ? 'border-indigo-500 ring-2 ring-indigo-300' : 'border-gray-300'"
+          class="w-6 h-6 rounded border transition-all hover:scale-110 hover:shadow-md"
+          :class="hexColor.toLowerCase() === preset.hex.toLowerCase() ? 'border-2 border-indigo-500 ring-2 ring-indigo-200' : 'border border-gray-300'"
           :style="{ backgroundColor: preset.hex }"
           :title="preset.name"
         ></button>
