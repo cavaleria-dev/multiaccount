@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\SyncQueue;
 use App\Services\ProductSyncService;
+use App\Services\ServiceSyncService;
 use App\Services\CustomerOrderSyncService;
 use App\Services\RetailDemandSyncService;
 use App\Services\PurchaseOrderSyncService;
@@ -32,6 +33,7 @@ class ProcessSyncQueueJob implements ShouldQueue
      */
     public function handle(
         ProductSyncService $productSyncService,
+        ServiceSyncService $serviceSyncService,
         CustomerOrderSyncService $customerOrderSyncService,
         RetailDemandSyncService $retailDemandSyncService,
         PurchaseOrderSyncService $purchaseOrderSyncService,
@@ -71,6 +73,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                 $this->processTask(
                     $task,
                     $productSyncService,
+                    $serviceSyncService,
                     $customerOrderSyncService,
                     $retailDemandSyncService,
                     $purchaseOrderSyncService,
@@ -86,7 +89,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                 ]);
 
                 // Записать статистику
-                if (in_array($task->entity_type, ['product', 'variant', 'bundle'])) {
+                if (in_array($task->entity_type, ['product', 'variant', 'bundle', 'service'])) {
                     $payload = $task->payload;
                     if (isset($payload['main_account_id'])) {
                         $statisticsService->recordSync(
@@ -140,7 +143,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                     ]);
 
                     // Записать статистику о неудаче
-                    if (in_array($task->entity_type, ['product', 'variant', 'bundle'])) {
+                    if (in_array($task->entity_type, ['product', 'variant', 'bundle', 'service'])) {
                         $payload = $task->payload;
                         if (isset($payload['main_account_id'])) {
                             $statisticsService->recordSync(
@@ -185,6 +188,7 @@ class ProcessSyncQueueJob implements ShouldQueue
     protected function processTask(
         SyncQueue $task,
         ProductSyncService $productSyncService,
+        ServiceSyncService $serviceSyncService,
         CustomerOrderSyncService $customerOrderSyncService,
         RetailDemandSyncService $retailDemandSyncService,
         PurchaseOrderSyncService $purchaseOrderSyncService,
@@ -196,6 +200,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             'product' => $this->processProductSync($task, $payload, $productSyncService),
             'variant' => $this->processVariantSync($task, $payload, $productSyncService),
             'bundle' => $this->processBundleSync($task, $payload, $productSyncService),
+            'service' => $this->processServiceSync($task, $payload, $serviceSyncService),
             'customerorder' => $this->processCustomerOrderSync($task, $payload, $customerOrderSyncService),
             'retaildemand' => $this->processRetailDemandSync($task, $payload, $retailDemandSyncService),
             'purchaseorder' => $this->processPurchaseOrderSync($task, $payload, $purchaseOrderSyncService),
@@ -279,6 +284,33 @@ class ProcessSyncQueueJob implements ShouldQueue
         }
 
         $productSyncService->syncBundle(
+            $payload['main_account_id'],
+            $task->account_id,
+            $task->entity_id
+        );
+    }
+
+    /**
+     * Обработать синхронизацию услуги
+     */
+    protected function processServiceSync(SyncQueue $task, array $payload, ServiceSyncService $serviceSyncService): void
+    {
+        if ($task->operation === 'delete') {
+            // При удалении или архивации услуги в главном - архивируем во всех дочерних
+            $archivedCount = $serviceSyncService->archiveService(
+                $payload['main_account_id'],
+                $task->entity_id
+            );
+
+            Log::info('Service archived in child accounts', [
+                'task_id' => $task->id,
+                'service_id' => $task->entity_id,
+                'archived_count' => $archivedCount
+            ]);
+            return;
+        }
+
+        $serviceSyncService->syncService(
             $payload['main_account_id'],
             $task->account_id,
             $task->entity_id
