@@ -161,11 +161,26 @@ class ProductSyncService
         }
 
         // Создать товар
+        Log::info('Creating product in child account - REQUEST', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'main_product_id' => $product['id'],
+            'product_data' => json_encode($productData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        ]);
+
         $newProductResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
             ->post('entity/product', $productData);
 
         $newProduct = $newProductResult['data'];
+
+        Log::info('Creating product in child account - RESPONSE', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'main_product_id' => $product['id'],
+            'child_product_id' => $newProduct['id'] ?? null,
+            'response_data' => json_encode($newProduct, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        ]);
 
         // Сохранить маппинг
         EntityMapping::create([
@@ -256,9 +271,25 @@ class ProductSyncService
         }
 
         // Обновить товар
+        Log::info('Updating product in child account - REQUEST', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'main_product_id' => $product['id'],
+            'child_product_id' => $mapping->child_entity_id,
+            'product_data' => json_encode($productData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        ]);
+
         $updatedProductResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
             ->put("entity/product/{$mapping->child_entity_id}", $productData);
+
+        Log::info('Updating product in child account - RESPONSE', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'main_product_id' => $product['id'],
+            'child_product_id' => $mapping->child_entity_id,
+            'response_data' => json_encode($updatedProductResult['data'], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+        ]);
 
         Log::info('Product updated in child account', [
             'main_account_id' => $mainAccountId,
