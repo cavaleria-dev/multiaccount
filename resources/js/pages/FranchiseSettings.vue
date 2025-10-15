@@ -144,7 +144,10 @@
               :loading="loadingCustomerOrderStates"
               :error="customerOrderStatesError"
               :initial-name="targetObjectsMeta?.customer_order_state_id?.name"
+              :can-create="true"
+              :show-color="true"
               @open="loadCustomerOrderStates"
+              @create="showCreateCustomerOrderStateModal = true"
               @clear="clearCustomerOrderState"
             />
             <SearchableSelect
@@ -186,7 +189,10 @@
               :loading="loadingCustomerOrderStates"
               :error="customerOrderStatesError"
               :initial-name="targetObjectsMeta?.retail_demand_state_id?.name"
+              :can-create="true"
+              :show-color="true"
               @open="loadCustomerOrderStates"
+              @create="showCreateRetailDemandStateModal = true"
               @clear="clearRetailDemandState"
             />
             <SearchableSelect
@@ -228,7 +234,10 @@
               :loading="loadingPurchaseOrderStates"
               :error="purchaseOrderStatesError"
               :initial-name="targetObjectsMeta?.purchase_order_state_id?.name"
+              :can-create="true"
+              :show-color="true"
               @open="loadPurchaseOrderStates"
+              @create="showCreatePurchaseOrderStateModal = true"
               @clear="clearPurchaseOrderState"
             />
             <SearchableSelect
@@ -668,6 +677,30 @@
       @created="handleSalesChannelCreated"
       ref="createSalesChannelModalRef"
     />
+
+    <CreateStateModal
+      :show="showCreateCustomerOrderStateModal"
+      entity-type="customerorder"
+      @close="showCreateCustomerOrderStateModal = false"
+      @created="handleCustomerOrderStateCreated"
+      ref="createCustomerOrderStateModalRef"
+    />
+
+    <CreateStateModal
+      :show="showCreateRetailDemandStateModal"
+      entity-type="customerorder"
+      @close="showCreateRetailDemandStateModal = false"
+      @created="handleRetailDemandStateCreated"
+      ref="createRetailDemandStateModalRef"
+    />
+
+    <CreateStateModal
+      :show="showCreatePurchaseOrderStateModal"
+      entity-type="customerorder"
+      @close="showCreatePurchaseOrderStateModal = false"
+      @created="handlePurchaseOrderStateCreated"
+      ref="createPurchaseOrderStateModalRef"
+    />
   </div>
 </template>
 
@@ -680,6 +713,7 @@ import SearchableSelect from '../components/SearchableSelect.vue'
 import CreateProjectModal from '../components/CreateProjectModal.vue'
 import CreateStoreModal from '../components/CreateStoreModal.vue'
 import CreateSalesChannelModal from '../components/CreateSalesChannelModal.vue'
+import CreateStateModal from '../components/CreateStateModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -737,11 +771,17 @@ const purchaseOrderStatesError = ref(null)
 const showCreateProjectModal = ref(false)
 const showCreateStoreModal = ref(false)
 const showCreateSalesChannelModal = ref(false)
+const showCreateCustomerOrderStateModal = ref(false)
+const showCreateRetailDemandStateModal = ref(false)
+const showCreatePurchaseOrderStateModal = ref(false)
 
 // Modal refs
 const createProjectModalRef = ref(null)
 const createStoreModalRef = ref(null)
 const createSalesChannelModalRef = ref(null)
+const createCustomerOrderStateModalRef = ref(null)
+const createRetailDemandStateModalRef = ref(null)
+const createPurchaseOrderStateModalRef = ref(null)
 
 // Target objects metadata (for displaying names)
 const targetObjectsMeta = ref({})
@@ -1052,16 +1092,24 @@ const loadCustomerOrderStates = async () => {
 }
 
 const loadPurchaseOrderStates = async () => {
-  if (purchaseOrderStates.value.length > 0) return // Already loaded
+  // ВАЖНО: purchaseorder в child → customerorder в main
+  // Поэтому загружаем customerorder states вместо purchaseorder
+  if (customerOrderStates.value.length > 0) {
+    // Если customerOrderStates уже загружены, используем их
+    purchaseOrderStates.value = customerOrderStates.value
+    return
+  }
 
   try {
     loadingPurchaseOrderStates.value = true
     purchaseOrderStatesError.value = null
-    const response = await api.syncSettings.getStates(accountId.value, 'purchaseorder')
+    const response = await api.syncSettings.getStates(accountId.value, 'customerorder')
     purchaseOrderStates.value = response.data.data || []
+    // Синхронизируем с customerOrderStates для консистентности
+    customerOrderStates.value = purchaseOrderStates.value
   } catch (err) {
     console.error('Failed to load purchase order states:', err)
-    purchaseOrderStatesError.value = 'Не удалось загрузить статусы заказов поставщику'
+    purchaseOrderStatesError.value = 'Не удалось загрузить статусы заказов'
   } finally {
     loadingPurchaseOrderStates.value = false
   }
@@ -1260,6 +1308,90 @@ const handleSalesChannelCreated = async (data) => {
     createSalesChannelModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать канал продаж')
   } finally {
     createSalesChannelModalRef.value?.setLoading(false)
+  }
+}
+
+const handleCustomerOrderStateCreated = async (data) => {
+  try {
+    createCustomerOrderStateModalRef.value?.setLoading(true)
+
+    const response = await api.syncSettings.createState(accountId.value, 'customerorder', data)
+    const created = response.data.data
+
+    // Add to customer order states list
+    customerOrderStates.value.push(created)
+
+    // Select the newly created state
+    settings.value.customer_order_state_id = created.id
+    updateTargetObjectMeta('customer_order_state_id', created.id, created.name)
+
+    // Close modal
+    showCreateCustomerOrderStateModal.value = false
+
+  } catch (err) {
+    console.error('Failed to create customer order state:', err)
+    createCustomerOrderStateModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать статус')
+  } finally {
+    createCustomerOrderStateModalRef.value?.setLoading(false)
+  }
+}
+
+const handleRetailDemandStateCreated = async (data) => {
+  try {
+    createRetailDemandStateModalRef.value?.setLoading(true)
+
+    const response = await api.syncSettings.createState(accountId.value, 'customerorder', data)
+    const created = response.data.data
+
+    // Add to customer order states list (retail demand uses same states)
+    if (!customerOrderStates.value.find(s => s.id === created.id)) {
+      customerOrderStates.value.push(created)
+    }
+
+    // Select the newly created state
+    settings.value.retail_demand_state_id = created.id
+    updateTargetObjectMeta('retail_demand_state_id', created.id, created.name)
+
+    // Close modal
+    showCreateRetailDemandStateModal.value = false
+
+  } catch (err) {
+    console.error('Failed to create retail demand state:', err)
+    createRetailDemandStateModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать статус')
+  } finally {
+    createRetailDemandStateModalRef.value?.setLoading(false)
+  }
+}
+
+const handlePurchaseOrderStateCreated = async (data) => {
+  try {
+    createPurchaseOrderStateModalRef.value?.setLoading(true)
+
+    // ВАЖНО: purchaseorder в child → customerorder в main
+    // Поэтому создаем customerorder state
+    const response = await api.syncSettings.createState(accountId.value, 'customerorder', data)
+    const created = response.data.data
+
+    // Add to both states lists (they share the same states)
+    if (!customerOrderStates.value.find(s => s.id === created.id)) {
+      customerOrderStates.value.push(created)
+    }
+    if (!purchaseOrderStates.value.find(s => s.id === created.id)) {
+      purchaseOrderStates.value.push(created)
+    }
+
+    // Select the newly created state
+    settings.value.purchase_order_state_id = created.id
+    updateTargetObjectMeta('purchase_order_state_id', created.id, created.name)
+
+    // Close modal
+    showCreatePurchaseOrderStateModal.value = false
+
+  } catch (err) {
+    console.error('Failed to create purchase order state:', err)
+    createPurchaseOrderStateModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать статус')
+  } finally {
+    createPurchaseOrderStateModalRef.value?.setLoading(false)
   }
 }
 

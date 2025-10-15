@@ -1167,7 +1167,9 @@ class SyncSettingsController extends Controller
 
         // Валидация
         $request->validate([
-            'name' => 'required|string|min:1|max:255'
+            'name' => 'required|string|min:1|max:255',
+            'color' => 'required|integer|min:0|max:4294967295', // ARGB формат: 0 до 2^32-1
+            'stateType' => 'nullable|in:Regular,Successful,Unsuccessful'
         ]);
 
         try {
@@ -1179,42 +1181,34 @@ class SyncSettingsController extends Controller
 
             $moysklad = app(MoySkladService::class);
 
-            // Получить текущие статусы
-            $metadata = $moysklad
-                ->setAccessToken($mainAccount->access_token)
-                ->get("entity/{$entityType}/metadata");
-
-            $states = $metadata['data']['states'] ?? [];
-
-            // Добавить новый статус
-            $states[] = [
+            $data = [
                 'name' => $request->input('name'),
-                'stateType' => 'Regular',
-                'color' => 15106425 // Синий цвет по умолчанию
+                'color' => $request->input('color'),
+                'stateType' => $request->input('stateType', 'Regular')
             ];
 
-            // Обновить metadata
+            // Создать статус через POST к entity/{entityType}/metadata/states
             $result = $moysklad
                 ->setAccessToken($mainAccount->access_token)
-                ->put("entity/{$entityType}/metadata", [
-                    'states' => $states
-                ]);
-
-            $createdState = end($result['data']['states']);
+                ->post("entity/{$entityType}/metadata/states", $data);
 
             Log::info('State created in main account', [
                 'main_account_id' => $link->parent_account_id,
                 'child_account_id' => $accountId,
                 'entity_type' => $entityType,
-                'state_id' => $createdState['id'],
-                'state_name' => $createdState['name']
+                'state_id' => $result['data']['id'],
+                'state_name' => $result['data']['name'],
+                'state_color' => $result['data']['color'],
+                'state_type' => $result['data']['stateType']
             ]);
 
             return response()->json([
                 'message' => 'State created successfully',
                 'data' => [
-                    'id' => $createdState['id'],
-                    'name' => $createdState['name']
+                    'id' => $result['data']['id'],
+                    'name' => $result['data']['name'],
+                    'color' => $result['data']['color'],
+                    'stateType' => $result['data']['stateType']
                 ]
             ]);
 

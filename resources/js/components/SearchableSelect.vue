@@ -13,9 +13,14 @@
         :class="{ 'ring-2 ring-indigo-500 border-indigo-500': isOpen }"
       >
         <div class="flex items-center justify-between">
-          <span v-if="selectedOption" class="text-gray-900">
-            {{ selectedOption.name }}
-          </span>
+          <div v-if="selectedOption" class="flex items-center space-x-2">
+            <div
+              v-if="showColor && selectedOption.color"
+              class="w-4 h-4 rounded-full border border-gray-300 flex-shrink-0"
+              :style="{ backgroundColor: intToHex(selectedOption.color) }"
+            ></div>
+            <span class="text-gray-900">{{ selectedOption.name }}</span>
+          </div>
           <span v-else class="text-gray-400">
             {{ placeholder }}
           </span>
@@ -120,10 +125,17 @@
               class="w-full px-4 py-2 text-left hover:bg-indigo-50 transition-colors flex items-center justify-between"
               :class="{ 'bg-indigo-100': modelValue === option.id }"
             >
-              <span class="text-gray-900">{{ option.name }}</span>
+              <div class="flex items-center space-x-2 flex-1 min-w-0">
+                <div
+                  v-if="showColor && option.color"
+                  class="w-4 h-4 rounded-full border border-gray-300 flex-shrink-0"
+                  :style="{ backgroundColor: intToHex(option.color) }"
+                ></div>
+                <span class="text-gray-900 truncate">{{ option.name }}</span>
+              </div>
               <svg
                 v-if="modelValue === option.id"
-                class="w-5 h-5 text-indigo-600"
+                class="w-5 h-5 text-indigo-600 flex-shrink-0 ml-2"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -182,10 +194,28 @@ const props = defineProps({
   initialName: {
     type: String,
     default: null
+  },
+  // Show color indicator for options with color property
+  showColor: {
+    type: Boolean,
+    default: false
   }
 })
 
 const emit = defineEmits(['update:modelValue', 'open', 'create', 'clear'])
+
+// Convert ARGB integer to hex color for display
+const intToHex = (colorInt) => {
+  if (!colorInt && colorInt !== 0) {
+    return '#cccccc'
+  }
+
+  const r = (colorInt >> 16) & 0xFF
+  const g = (colorInt >> 8) & 0xFF
+  const b = colorInt & 0xFF
+
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+}
 
 const isOpen = ref(false)
 const searchQuery = ref('')
