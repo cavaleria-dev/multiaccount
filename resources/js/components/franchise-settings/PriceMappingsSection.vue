@@ -133,22 +133,21 @@
         <p class="text-sm text-gray-500 mt-2">Дополнительных полей не найдено</p>
       </div>
 
-      <div v-else class="max-h-80 overflow-y-auto border border-gray-200 rounded-md p-2 space-y-1">
-        <label
+      <div v-else class="max-h-80 overflow-y-auto border border-gray-200 rounded-md p-3 space-y-2">
+        <div
           v-for="attr in attributes"
           :key="attr.id"
-          class="flex items-center py-1 px-2 hover:bg-gray-50 rounded cursor-pointer"
+          class="py-1"
         >
-          <input
-            type="checkbox"
-            :value="attr.id"
-            :checked="selectedAttributes.includes(attr.id)"
-            @change="toggleAttribute(attr.id)"
-            class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded mr-2"
+          <Toggle
+            :model-value="selectedAttributes.includes(attr.id)"
+            @update:model-value="toggleAttribute(attr.id)"
+            :label="attr.name"
+            :description="`Тип: ${attr.type}`"
+            size="small"
+            color="indigo"
           />
-          <span class="text-sm text-gray-900">{{ attr.name }}</span>
-          <span class="ml-2 text-xs text-gray-500">({{ attr.type }})</span>
-        </label>
+        </div>
       </div>
 
       <p v-if="selectedAttributes.length > 0" class="mt-2 text-sm text-gray-600">
@@ -161,6 +160,7 @@
 <script setup>
 import { computed } from 'vue'
 import SearchableSelect from '../SearchableSelect.vue'
+import Toggle from '../Toggle.vue'
 
 const props = defineProps({
   priceTypes: {
