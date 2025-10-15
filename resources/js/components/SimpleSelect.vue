@@ -26,7 +26,7 @@
           <div class="flex items-center space-x-2">
             <!-- Clear button -->
             <button
-              v-if="selectedOption && !disabled"
+              v-if="selectedOption && !disabled && !loading"
               @click.stop="clearSelection"
               class="text-gray-400 hover:text-gray-600 transition-colors"
               type="button"
@@ -36,8 +36,16 @@
               </svg>
             </button>
 
+            <!-- Loading spinner -->
+            <div
+              v-if="loading"
+              class="animate-spin rounded-full h-4 w-4 border-2 border-indigo-600 border-t-transparent"
+              title="Загрузка..."
+            ></div>
+
             <!-- Dropdown arrow -->
             <svg
+              v-else
               class="w-5 h-5 text-gray-400 transition-transform duration-200"
               :class="{ 'transform rotate-180': isOpen }"
               fill="none"
@@ -115,6 +123,10 @@ const props = defineProps({
     default: false
   },
   required: {
+    type: Boolean,
+    default: false
+  },
+  loading: {
     type: Boolean,
     default: false
   }

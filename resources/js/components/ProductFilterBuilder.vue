@@ -145,6 +145,7 @@
                       placeholder="Выберите значение"
                       :options="getCustomEntityElementOptions(condition.attribute_id)"
                       :disabled="loadingCustomEntityElements[customEntityAttributeOptions.find(a => a.id === condition.attribute_id)?.customEntityId]"
+                      :loading="loadingCustomEntityElements[customEntityAttributeOptions.find(a => a.id === condition.attribute_id)?.customEntityId]"
                     />
                     <div v-else class="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-400 bg-gray-50">
                       Сначала выберите справочник
