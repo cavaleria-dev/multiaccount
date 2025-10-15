@@ -147,12 +147,13 @@ class SyncActionsController extends Controller
 
         do {
             // Загрузить страницу
-            $response = $moysklad->request($token, 'GET', "/entity/{$entityType}", [
-                'limit' => $limit,
-                'offset' => $offset
-            ]);
+            $response = $moysklad->setAccessToken($token)
+                ->get("/entity/{$entityType}", [
+                    'limit' => $limit,
+                    'offset' => $offset
+                ]);
 
-            $entities = $response['rows'] ?? [];
+            $entities = $response['data']['rows'] ?? [];
             $pageCount = count($entities);
             $totalProcessed += $pageCount;
 
