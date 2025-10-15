@@ -26,44 +26,30 @@
         >
           <div class="flex-1 min-w-0">
             <label class="block text-xs font-semibold text-gray-800 mb-1">Главный</label>
-            <select
-              :value="mapping.main_price_type_id"
-              @input="updateMainPriceType(index, $event.target.value)"
-              class="block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-            >
-              <option value="">Выберите...</option>
-              <option
-                v-for="pt in priceTypes.main"
-                :key="pt.id"
-                :value="pt.id"
-                :class="{ 'font-bold': pt.id === 'buyPrice' }"
-              >
-                {{ pt.id === 'buyPrice' ? '💰 ' : '' }}{{ pt.name }}
-              </option>
-            </select>
+            <SearchableSelect
+              :model-value="mapping.main_price_type_id"
+              @update:model-value="updateMainPriceType(index, $event)"
+              placeholder="Выберите тип цены"
+              :options="mainPriceTypesWithEmoji"
+              class="text-sm"
+            />
           </div>
           <div class="flex-1 min-w-0">
             <label class="block text-xs font-semibold text-gray-800 mb-1">Дочерний</label>
             <div class="flex gap-1">
-              <select
-                :value="mapping.child_price_type_id"
-                @input="updateChildPriceType(index, $event.target.value)"
-                class="block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              >
-                <option value="">Выберите...</option>
-                <option
-                  v-for="pt in priceTypes.child"
-                  :key="pt.id"
-                  :value="pt.id"
-                  :class="{ 'font-bold': pt.id === 'buyPrice' }"
-                >
-                  {{ pt.id === 'buyPrice' ? '💰 ' : '' }}{{ pt.name }}
-                </option>
-              </select>
+              <div class="flex-1 min-w-0">
+                <SearchableSelect
+                  :model-value="mapping.child_price_type_id"
+                  @update:model-value="updateChildPriceType(index, $event)"
+                  placeholder="Выберите тип цены"
+                  :options="childPriceTypesWithEmoji"
+                  class="text-sm"
+                />
+              </div>
               <button
                 type="button"
                 @click="$emit('show-create-price-type', index)"
-                class="flex-shrink-0 p-1 text-indigo-600 hover:bg-indigo-50 rounded"
+                class="flex-shrink-0 p-2 text-indigo-600 hover:bg-indigo-50 rounded mt-0.5"
                 title="Создать новый тип цены"
               >
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -174,6 +160,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import SearchableSelect from '../SearchableSelect.vue'
 
 const props = defineProps({
   priceTypes: {
@@ -228,6 +215,21 @@ const emit = defineEmits([
   'hide-create-price-type',
   'create-price-type'
 ])
+
+// Add emoji prefix to buyPrice items for better visibility
+const mainPriceTypesWithEmoji = computed(() => {
+  return props.priceTypes.main.map(pt => ({
+    ...pt,
+    name: pt.id === 'buyPrice' ? `💰 ${pt.name}` : pt.name
+  }))
+})
+
+const childPriceTypesWithEmoji = computed(() => {
+  return props.priceTypes.child.map(pt => ({
+    ...pt,
+    name: pt.id === 'buyPrice' ? `💰 ${pt.name}` : pt.name
+  }))
+})
 
 const updateMainPriceType = (index, value) => {
   const newMappings = [...props.modelValue]

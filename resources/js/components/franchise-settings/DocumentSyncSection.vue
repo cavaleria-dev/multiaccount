@@ -4,21 +4,14 @@
     <div class="bg-white shadow rounded-lg p-5">
       <h3 class="text-base font-medium text-gray-900 mb-3">Синхронизация документов</h3>
       <div class="space-y-3">
-        <div class="flex items-start">
-          <div class="flex items-center h-5">
-            <input
-              id="sync_customer_orders"
-              type="checkbox"
-              :checked="settings.sync_customer_orders"
-              @change="updateSetting('sync_customer_orders', $event.target.checked)"
-              class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-            />
-          </div>
-          <div class="ml-2 text-sm">
-            <label for="sync_customer_orders" class="font-medium text-gray-700">Заказы покупателей</label>
-            <p class="text-gray-500 text-xs">Синхронизировать заказы покупателей из дочернего в главный</p>
-          </div>
-        </div>
+        <Toggle
+          :model-value="settings.sync_customer_orders"
+          @update:model-value="updateSetting('sync_customer_orders', $event)"
+          label="Заказы покупателей"
+          description="Синхронизировать заказы покупателей из дочернего в главный"
+          size="small"
+          color="purple"
+        />
 
         <div v-if="settings.sync_customer_orders" class="ml-7 space-y-2">
           <SearchableSelect
@@ -52,21 +45,14 @@
           />
         </div>
 
-        <div class="flex items-start">
-          <div class="flex items-center h-5">
-            <input
-              id="sync_retail_demands"
-              type="checkbox"
-              :checked="settings.sync_retail_demands"
-              @change="updateSetting('sync_retail_demands', $event.target.checked)"
-              class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-            />
-          </div>
-          <div class="ml-2 text-sm">
-            <label for="sync_retail_demands" class="font-medium text-gray-700">Розничные продажи</label>
-            <p class="text-gray-500 text-xs">Синхронизировать розничные продажи из дочернего в главный</p>
-          </div>
-        </div>
+        <Toggle
+          :model-value="settings.sync_retail_demands"
+          @update:model-value="updateSetting('sync_retail_demands', $event)"
+          label="Розничные продажи"
+          description="Синхронизировать розничные продажи из дочернего в главный"
+          size="small"
+          color="purple"
+        />
 
         <div v-if="settings.sync_retail_demands" class="ml-7 space-y-2">
           <SearchableSelect
@@ -100,21 +86,14 @@
           />
         </div>
 
-        <div class="flex items-start">
-          <div class="flex items-center h-5">
-            <input
-              id="sync_purchase_orders"
-              type="checkbox"
-              :checked="settings.sync_purchase_orders"
-              @change="updateSetting('sync_purchase_orders', $event.target.checked)"
-              class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-            />
-          </div>
-          <div class="ml-2 text-sm">
-            <label for="sync_purchase_orders" class="font-medium text-gray-700">Заказы поставщику</label>
-            <p class="text-gray-500 text-xs">Синхронизировать заказы поставщику из дочернего в главный</p>
-          </div>
-        </div>
+        <Toggle
+          :model-value="settings.sync_purchase_orders"
+          @update:model-value="updateSetting('sync_purchase_orders', $event)"
+          label="Заказы поставщику"
+          description="Синхронизировать заказы поставщику из дочернего в главный"
+          size="small"
+          color="purple"
+        />
 
         <div v-if="settings.sync_purchase_orders" class="ml-7 space-y-2">
           <SearchableSelect
@@ -225,6 +204,7 @@
 
 <script setup>
 import SearchableSelect from '../SearchableSelect.vue'
+import Toggle from '../Toggle.vue'
 
 const props = defineProps({
   settings: {

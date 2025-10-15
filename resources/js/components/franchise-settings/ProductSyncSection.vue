@@ -4,44 +4,42 @@
     <!-- Синхронизация товаров -->
     <div class="bg-white shadow rounded-lg p-5">
       <h3 class="text-base font-medium text-gray-900 mb-3">Синхронизация товаров</h3>
-      <div class="space-y-3">
-        <div class="flex items-start">
-          <div class="flex items-center h-5">
-            <input
-              id="sync_products"
-              v-model="localSettings.sync_products"
-              type="checkbox"
-              class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-            />
-          </div>
-          <div class="ml-2 text-sm">
-            <label for="sync_products" class="font-medium text-gray-700">Товары</label>
-          </div>
-        </div>
-        <div class="flex items-center">
-          <input id="sync_variants" v-model="localSettings.sync_variants" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-          <label for="sync_variants" class="ml-2 text-sm font-medium text-gray-700">Модификации</label>
-        </div>
-        <div class="flex items-center">
-          <input id="sync_bundles" v-model="localSettings.sync_bundles" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-          <label for="sync_bundles" class="ml-2 text-sm font-medium text-gray-700">Комплекты</label>
-        </div>
-        <div class="flex items-center">
-          <input id="sync_services" v-model="localSettings.sync_services" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-          <label for="sync_services" class="ml-2 text-sm font-medium text-gray-700">Услуги</label>
-        </div>
-        <div class="flex items-center">
-          <input id="sync_images" v-model="localSettings.sync_images" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-          <label for="sync_images" class="ml-2 text-sm font-medium text-gray-700">Изображения</label>
-        </div>
-        <div class="flex items-center">
-          <input id="sync_images_all" v-model="localSettings.sync_images_all" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-          <label for="sync_images_all" class="ml-2 text-sm font-medium text-gray-700">Все изображения</label>
-        </div>
-        <div class="flex items-center">
-          <input id="sync_prices" v-model="localSettings.sync_prices" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-          <label for="sync_prices" class="ml-2 text-sm font-medium text-gray-700">Цены</label>
-        </div>
+      <div class="space-y-2">
+        <Toggle
+          v-model="localSettings.sync_products"
+          label="Товары"
+          size="small"
+        />
+        <Toggle
+          v-model="localSettings.sync_variants"
+          label="Модификации"
+          size="small"
+        />
+        <Toggle
+          v-model="localSettings.sync_bundles"
+          label="Комплекты"
+          size="small"
+        />
+        <Toggle
+          v-model="localSettings.sync_services"
+          label="Услуги"
+          size="small"
+        />
+        <Toggle
+          v-model="localSettings.sync_images"
+          label="Изображения"
+          size="small"
+        />
+        <Toggle
+          v-model="localSettings.sync_images_all"
+          label="Все изображения"
+          size="small"
+        />
+        <Toggle
+          v-model="localSettings.sync_prices"
+          label="Цены"
+          size="small"
+        />
       </div>
     </div>
 
@@ -65,20 +63,12 @@
         </div>
 
         <!-- Create product folders -->
-        <div class="flex items-start">
-          <div class="flex items-center h-5">
-            <input
-              id="create_product_folders"
-              v-model="localSettings.create_product_folders"
-              type="checkbox"
-              class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-            />
-          </div>
-          <div class="ml-3 text-sm">
-            <label for="create_product_folders" class="font-medium text-gray-700">Создавать группы товаров</label>
-            <p class="text-gray-500">Создавать соответствующие группы товаров в дочернем аккаунте (структура каталога)</p>
-          </div>
-        </div>
+        <Toggle
+          v-model="localSettings.create_product_folders"
+          label="Создавать группы товаров"
+          description="Создавать соответствующие группы товаров в дочернем аккаунте (структура каталога)"
+          size="small"
+        />
 
         <!-- Sync all products button -->
         <div class="border-t border-gray-200 pt-3">
@@ -105,6 +95,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import Toggle from '../Toggle.vue'
 
 const props = defineProps({
   settings: {

@@ -43,17 +43,26 @@
     <!-- Форма настроек -->
     <form v-if="!loading && !error" @submit.prevent="saveSettings" class="space-y-4">
       <!-- Главный выключатель синхронизации -->
-      <div class="bg-gradient-to-r from-indigo-500 to-purple-600 shadow-lg rounded-lg p-4">
+      <div
+        class="shadow-lg rounded-lg p-4 transition-all duration-300"
+        :class="settings.sync_enabled ? 'bg-gradient-to-r from-indigo-600 to-purple-700' : 'bg-gradient-to-r from-gray-400 to-gray-500'"
+      >
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-3">
-            <div class="bg-white rounded-lg p-2">
-              <svg class="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div class="bg-white/90 rounded-lg p-2 shadow">
+              <svg
+                class="h-6 w-6 transition-colors duration-300"
+                :class="settings.sync_enabled ? 'text-indigo-600' : 'text-gray-500'"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </div>
             <div>
               <h3 class="text-base font-semibold text-white">Синхронизация</h3>
-              <p class="text-xs text-indigo-100">Глобальное управление всеми настройками</p>
+              <p class="text-xs text-white/80">Глобальное управление всеми настройками</p>
             </div>
           </div>
           <label class="relative inline-flex items-center cursor-pointer">
@@ -62,7 +71,7 @@
               type="checkbox"
               class="sr-only peer"
             />
-            <div class="w-14 h-7 bg-white/20 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-white/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-white"></div>
+            <div class="w-14 h-7 bg-white/30 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-white/40 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:rounded-full after:h-6 after:w-6 after:transition-all after:shadow-md peer-checked:bg-white/90"></div>
             <span class="ml-3 text-sm font-medium text-white">{{ settings.sync_enabled ? 'Вкл' : 'Выкл' }}</span>
           </label>
         </div>
