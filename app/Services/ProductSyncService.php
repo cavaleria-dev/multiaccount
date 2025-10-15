@@ -8,6 +8,7 @@ use App\Models\EntityMapping;
 use App\Models\AttributeMapping;
 use App\Models\CharacteristicMapping;
 use App\Models\PriceTypeMapping;
+use App\Models\StandardEntityMapping;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -18,15 +19,18 @@ class ProductSyncService
     protected MoySkladService $moySkladService;
     protected CustomEntitySyncService $customEntitySyncService;
     protected ProductFilterService $productFilterService;
+    protected StandardEntitySyncService $standardEntitySync;
 
     public function __construct(
         MoySkladService $moySkladService,
         CustomEntitySyncService $customEntitySyncService,
-        ProductFilterService $productFilterService
+        ProductFilterService $productFilterService,
+        StandardEntitySyncService $standardEntitySync
     ) {
         $this->moySkladService = $moySkladService;
         $this->customEntitySyncService = $customEntitySyncService;
         $this->productFilterService = $productFilterService;
+        $this->standardEntitySync = $standardEntitySync;
     }
 
     /**
@@ -48,11 +52,11 @@ class ProductSyncService
                 return null;
             }
 
-            // Получить товар из главного аккаунта
+            // Получить товар из главного аккаунта (с expand для standard entities)
             $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
             $productResult = $this->moySkladService
                 ->setAccessToken($mainAccount->access_token)
-                ->get("entity/product/{$productId}", ['expand' => 'attributes,productFolder']);
+                ->get("entity/product/{$productId}", ['expand' => 'attributes,productFolder,uom,country']);
 
             $product = $productResult['data'];
 
@@ -158,6 +162,54 @@ class ProductSyncService
         $productData['salePrices'] = $prices['salePrices'];
         if (isset($prices['buyPrice'])) {
             $productData['buyPrice'] = $prices['buyPrice'];
+        }
+
+        // Синхронизировать стандартные справочники (uom, country)
+        // UOM (единица измерения)
+        if (isset($product['uom'])) {
+            $parentUomId = $this->extractEntityId($product['uom']['meta']['href'] ?? '');
+            if ($parentUomId) {
+                $childUomId = $this->standardEntitySync->syncUom(
+                    $mainAccountId,
+                    $childAccountId,
+                    $parentUomId
+                );
+                if ($childUomId) {
+                    $productData['uom'] = [
+                        'meta' => [
+                            'href' => config('moysklad.api_url') . "/entity/uom/{$childUomId}",
+                            'type' => 'uom',
+                            'mediaType' => 'application/json'
+                        ]
+                    ];
+                }
+            }
+        }
+
+        // Country (страна)
+        if (isset($product['country'])) {
+            $parentCountryId = $this->extractEntityId($product['country']['meta']['href'] ?? '');
+            if ($parentCountryId) {
+                $childCountryId = $this->standardEntitySync->syncCountry(
+                    $mainAccountId,
+                    $childAccountId,
+                    $parentCountryId
+                );
+                if ($childCountryId) {
+                    $productData['country'] = [
+                        'meta' => [
+                            'href' => config('moysklad.api_url') . "/entity/country/{$childCountryId}",
+                            'type' => 'country',
+                            'mediaType' => 'application/json'
+                        ]
+                    ];
+                }
+            }
+        }
+
+        // VAT (ставка НДС) - просто сохранить маппинг для отслеживания
+        if (isset($product['vat'])) {
+            $this->standardEntitySync->syncVat($mainAccountId, $childAccountId, $product['vat']);
         }
 
         // Создать товар
@@ -268,6 +320,54 @@ class ProductSyncService
         $productData['salePrices'] = $prices['salePrices'];
         if (isset($prices['buyPrice'])) {
             $productData['buyPrice'] = $prices['buyPrice'];
+        }
+
+        // Синхронизировать стандартные справочники (uom, country)
+        // UOM (единица измерения)
+        if (isset($product['uom'])) {
+            $parentUomId = $this->extractEntityId($product['uom']['meta']['href'] ?? '');
+            if ($parentUomId) {
+                $childUomId = $this->standardEntitySync->syncUom(
+                    $mainAccountId,
+                    $childAccountId,
+                    $parentUomId
+                );
+                if ($childUomId) {
+                    $productData['uom'] = [
+                        'meta' => [
+                            'href' => config('moysklad.api_url') . "/entity/uom/{$childUomId}",
+                            'type' => 'uom',
+                            'mediaType' => 'application/json'
+                        ]
+                    ];
+                }
+            }
+        }
+
+        // Country (страна)
+        if (isset($product['country'])) {
+            $parentCountryId = $this->extractEntityId($product['country']['meta']['href'] ?? '');
+            if ($parentCountryId) {
+                $childCountryId = $this->standardEntitySync->syncCountry(
+                    $mainAccountId,
+                    $childAccountId,
+                    $parentCountryId
+                );
+                if ($childCountryId) {
+                    $productData['country'] = [
+                        'meta' => [
+                            'href' => config('moysklad.api_url') . "/entity/country/{$childCountryId}",
+                            'type' => 'country',
+                            'mediaType' => 'application/json'
+                        ]
+                    ];
+                }
+            }
+        }
+
+        // VAT (ставка НДС) - просто сохранить маппинг для отслеживания
+        if (isset($product['vat'])) {
+            $this->standardEntitySync->syncVat($mainAccountId, $childAccountId, $product['vat']);
         }
 
         // Обновить товар
