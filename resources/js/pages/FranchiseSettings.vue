@@ -233,6 +233,8 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
+import { useMoyskladEntities } from '../composables/useMoyskladEntities'
+import { useTargetObjectsMetadata } from '../composables/useTargetObjectsMetadata'
 import CreateProjectModal from '../components/CreateProjectModal.vue'
 import CreateStoreModal from '../components/CreateStoreModal.vue'
 import CreateSalesChannelModal from '../components/CreateSalesChannelModal.vue'
@@ -247,6 +249,42 @@ const route = useRoute()
 const router = useRouter()
 
 const accountId = ref(route.params.accountId)
+
+// Entity loaders using composables
+const organizationsLoader = useMoyskladEntities(accountId.value, 'organizations')
+const storesLoader = useMoyskladEntities(accountId.value, 'stores')
+const projectsLoader = useMoyskladEntities(accountId.value, 'projects')
+const employeesLoader = useMoyskladEntities(accountId.value, 'employees')
+const salesChannelsLoader = useMoyskladEntities(accountId.value, 'salesChannels')
+const customerOrderStatesLoader = useMoyskladEntities(accountId.value, 'customerOrderStates')
+const purchaseOrderStatesLoader = useMoyskladEntities(accountId.value, 'purchaseOrderStates')
+
+// Access loader data (backwards compatibility)
+const organizations = organizationsLoader.items
+const stores = storesLoader.items
+const projects = projectsLoader.items
+const employees = employeesLoader.items
+const salesChannels = salesChannelsLoader.items
+const customerOrderStates = customerOrderStatesLoader.items
+const purchaseOrderStates = purchaseOrderStatesLoader.items
+
+const loadingOrganizations = organizationsLoader.loading
+const loadingStores = storesLoader.loading
+const loadingProjects = projectsLoader.loading
+const loadingEmployees = employeesLoader.loading
+const loadingSalesChannels = salesChannelsLoader.loading
+const loadingCustomerOrderStates = customerOrderStatesLoader.loading
+const loadingPurchaseOrderStates = purchaseOrderStatesLoader.loading
+
+const organizationsError = organizationsLoader.error
+const storesError = storesLoader.error
+const projectsError = projectsLoader.error
+const employeesError = employeesLoader.error
+const salesChannelsError = salesChannelsLoader.error
+const customerOrderStatesError = customerOrderStatesLoader.error
+const purchaseOrderStatesError = purchaseOrderStatesLoader.error
+
+// Page state
 const accountName = ref('')
 const loading = ref(false)
 const saving = ref(false)
@@ -270,31 +308,6 @@ const newPriceTypeName = ref('')
 const creatingPriceType = ref(false)
 const createPriceTypeError = ref(null)
 
-// Target objects state
-const organizations = ref([])
-const stores = ref([])
-const projects = ref([])
-const employees = ref([])
-const salesChannels = ref([])
-const customerOrderStates = ref([])
-const purchaseOrderStates = ref([])
-
-const loadingOrganizations = ref(false)
-const loadingStores = ref(false)
-const loadingProjects = ref(false)
-const loadingEmployees = ref(false)
-const loadingSalesChannels = ref(false)
-const loadingCustomerOrderStates = ref(false)
-const loadingPurchaseOrderStates = ref(false)
-
-const organizationsError = ref(null)
-const storesError = ref(null)
-const projectsError = ref(null)
-const employeesError = ref(null)
-const salesChannelsError = ref(null)
-const customerOrderStatesError = ref(null)
-const purchaseOrderStatesError = ref(null)
-
 // Modal state
 const showCreateProjectModal = ref(false)
 const showCreateStoreModal = ref(false)
@@ -310,9 +323,6 @@ const createSalesChannelModalRef = ref(null)
 const createCustomerOrderStateModalRef = ref(null)
 const createRetailDemandStateModalRef = ref(null)
 const createPurchaseOrderStateModalRef = ref(null)
-
-// Target objects metadata (for displaying names)
-const targetObjectsMeta = ref({})
 
 const settings = ref({
   sync_enabled: true,
@@ -353,6 +363,19 @@ const priceMappings = ref([])
 
 // Attribute sync list for UI
 const selectedAttributes = ref([])
+
+// Target objects metadata manager (replaces 9 watchers + helper function)
+const metadataManager = useTargetObjectsMetadata(settings, {
+  organizations,
+  stores,
+  projects,
+  employees,
+  customerOrderStates,
+  salesChannels,
+  purchaseOrderStates
+})
+
+const targetObjectsMeta = metadataManager.metadata
 
 // Load extended data
 const loadPriceTypes = async () => {
@@ -431,9 +454,9 @@ const loadSettings = async () => {
         : []
     }
 
-    // Load target_objects_meta
+    // Load target_objects_meta using metadata manager
     if (loadedSettings.target_objects_meta) {
-      targetObjectsMeta.value = loadedSettings.target_objects_meta || {}
+      metadataManager.initializeMetadata(loadedSettings.target_objects_meta)
     }
 
     // Load extended data
@@ -522,102 +545,13 @@ const createNewPriceType = async (index) => {
   }
 }
 
-// Load target objects functions (lazy loading)
-const loadOrganizations = async () => {
-  if (organizations.value.length > 0) return // Already loaded
-
-  try {
-    loadingOrganizations.value = true
-    organizationsError.value = null
-    const response = await api.syncSettings.getOrganizations(accountId.value)
-    organizations.value = response.data.data || []
-  } catch (err) {
-    console.error('Failed to load organizations:', err)
-    organizationsError.value = 'Не удалось загрузить организации'
-  } finally {
-    loadingOrganizations.value = false
-  }
-}
-
-const loadStores = async () => {
-  if (stores.value.length > 0) return // Already loaded
-
-  try {
-    loadingStores.value = true
-    storesError.value = null
-    const response = await api.syncSettings.getStores(accountId.value)
-    stores.value = response.data.data || []
-  } catch (err) {
-    console.error('Failed to load stores:', err)
-    storesError.value = 'Не удалось загрузить склады'
-  } finally {
-    loadingStores.value = false
-  }
-}
-
-const loadProjects = async () => {
-  if (projects.value.length > 0) return // Already loaded
-
-  try {
-    loadingProjects.value = true
-    projectsError.value = null
-    const response = await api.syncSettings.getProjects(accountId.value)
-    projects.value = response.data.data || []
-  } catch (err) {
-    console.error('Failed to load projects:', err)
-    projectsError.value = 'Не удалось загрузить проекты'
-  } finally {
-    loadingProjects.value = false
-  }
-}
-
-const loadEmployees = async () => {
-  if (employees.value.length > 0) return // Already loaded
-
-  try {
-    loadingEmployees.value = true
-    employeesError.value = null
-    const response = await api.syncSettings.getEmployees(accountId.value)
-    employees.value = response.data.data || []
-  } catch (err) {
-    console.error('Failed to load employees:', err)
-    employeesError.value = 'Не удалось загрузить сотрудников'
-  } finally {
-    loadingEmployees.value = false
-  }
-}
-
-const loadSalesChannels = async () => {
-  if (salesChannels.value.length > 0) return // Already loaded
-
-  try {
-    loadingSalesChannels.value = true
-    salesChannelsError.value = null
-    const response = await api.syncSettings.getSalesChannels(accountId.value)
-    salesChannels.value = response.data.data || []
-  } catch (err) {
-    console.error('Failed to load sales channels:', err)
-    salesChannelsError.value = 'Не удалось загрузить каналы продаж'
-  } finally {
-    loadingSalesChannels.value = false
-  }
-}
-
-const loadCustomerOrderStates = async () => {
-  if (customerOrderStates.value.length > 0) return // Already loaded
-
-  try {
-    loadingCustomerOrderStates.value = true
-    customerOrderStatesError.value = null
-    const response = await api.syncSettings.getStates(accountId.value, 'customerorder')
-    customerOrderStates.value = response.data.data || []
-  } catch (err) {
-    console.error('Failed to load customer order states:', err)
-    customerOrderStatesError.value = 'Не удалось загрузить статусы заказов'
-  } finally {
-    loadingCustomerOrderStates.value = false
-  }
-}
+// Load target objects functions (using composables)
+const loadOrganizations = () => organizationsLoader.load()
+const loadStores = () => storesLoader.load()
+const loadProjects = () => projectsLoader.load()
+const loadEmployees = () => employeesLoader.load()
+const loadSalesChannels = () => salesChannelsLoader.load()
+const loadCustomerOrderStates = () => customerOrderStatesLoader.load()
 
 const loadPurchaseOrderStates = async () => {
   // ВАЖНО: purchaseorder в child → customerorder в main
@@ -628,143 +562,26 @@ const loadPurchaseOrderStates = async () => {
     return
   }
 
-  try {
-    loadingPurchaseOrderStates.value = true
-    purchaseOrderStatesError.value = null
-    const response = await api.syncSettings.getStates(accountId.value, 'customerorder')
-    purchaseOrderStates.value = response.data.data || []
-    // Синхронизируем с customerOrderStates для консистентности
+  // Используем composable для загрузки
+  await purchaseOrderStatesLoader.load()
+  // Синхронизируем с customerOrderStates для консистентности
+  if (purchaseOrderStates.value.length > 0) {
     customerOrderStates.value = purchaseOrderStates.value
-  } catch (err) {
-    console.error('Failed to load purchase order states:', err)
-    purchaseOrderStatesError.value = 'Не удалось загрузить статусы заказов'
-  } finally {
-    loadingPurchaseOrderStates.value = false
   }
 }
 
-// Clear handlers (update metadata when clearing)
-const clearTargetStore = () => {
-  updateTargetObjectMeta('target_store_id', null, null)
-}
+// Clear handlers (using metadata manager)
+const clearTargetStore = () => metadataManager.clearMetadata('target_store_id')
+const clearTargetProject = () => metadataManager.clearMetadata('target_project_id')
+const clearResponsibleEmployee = () => metadataManager.clearMetadata('responsible_employee_id')
+const clearCustomerOrderState = () => metadataManager.clearMetadata('customer_order_state_id')
+const clearCustomerOrderSalesChannel = () => metadataManager.clearMetadata('customer_order_sales_channel_id')
+const clearRetailDemandState = () => metadataManager.clearMetadata('retail_demand_state_id')
+const clearRetailDemandSalesChannel = () => metadataManager.clearMetadata('retail_demand_sales_channel_id')
+const clearPurchaseOrderState = () => metadataManager.clearMetadata('purchase_order_state_id')
+const clearPurchaseOrderSalesChannel = () => metadataManager.clearMetadata('purchase_order_sales_channel_id')
 
-const clearTargetProject = () => {
-  updateTargetObjectMeta('target_project_id', null, null)
-}
-
-const clearResponsibleEmployee = () => {
-  updateTargetObjectMeta('responsible_employee_id', null, null)
-}
-
-const clearCustomerOrderState = () => {
-  updateTargetObjectMeta('customer_order_state_id', null, null)
-}
-
-const clearCustomerOrderSalesChannel = () => {
-  updateTargetObjectMeta('customer_order_sales_channel_id', null, null)
-}
-
-const clearRetailDemandState = () => {
-  updateTargetObjectMeta('retail_demand_state_id', null, null)
-}
-
-const clearRetailDemandSalesChannel = () => {
-  updateTargetObjectMeta('retail_demand_sales_channel_id', null, null)
-}
-
-const clearPurchaseOrderState = () => {
-  updateTargetObjectMeta('purchase_order_state_id', null, null)
-}
-
-const clearPurchaseOrderSalesChannel = () => {
-  updateTargetObjectMeta('purchase_order_sales_channel_id', null, null)
-}
-
-// Update target object metadata helper
-const updateTargetObjectMeta = (fieldName, id, name) => {
-  if (!targetObjectsMeta.value) {
-    targetObjectsMeta.value = {}
-  }
-
-  if (id && name) {
-    targetObjectsMeta.value[fieldName] = { id, name }
-  } else {
-    delete targetObjectsMeta.value[fieldName]
-  }
-}
-
-// Watch for changes in target object IDs and update metadata
-watch(() => settings.value.target_organization_id, (newValue) => {
-  if (newValue) {
-    const org = organizations.value.find(o => o.id === newValue)
-    if (org) updateTargetObjectMeta('target_organization_id', org.id, org.name)
-  }
-})
-
-watch(() => settings.value.target_store_id, (newValue) => {
-  if (newValue) {
-    const store = stores.value.find(s => s.id === newValue)
-    if (store) updateTargetObjectMeta('target_store_id', store.id, store.name)
-  }
-})
-
-watch(() => settings.value.target_project_id, (newValue) => {
-  if (newValue) {
-    const project = projects.value.find(p => p.id === newValue)
-    if (project) updateTargetObjectMeta('target_project_id', project.id, project.name)
-  }
-})
-
-watch(() => settings.value.responsible_employee_id, (newValue) => {
-  if (newValue) {
-    const employee = employees.value.find(e => e.id === newValue)
-    if (employee) updateTargetObjectMeta('responsible_employee_id', employee.id, employee.name)
-  }
-})
-
-watch(() => settings.value.customer_order_state_id, (newValue) => {
-  if (newValue) {
-    const state = customerOrderStates.value.find(s => s.id === newValue)
-    if (state) updateTargetObjectMeta('customer_order_state_id', state.id, state.name)
-  }
-})
-
-watch(() => settings.value.customer_order_sales_channel_id, (newValue) => {
-  if (newValue) {
-    const channel = salesChannels.value.find(c => c.id === newValue)
-    if (channel) updateTargetObjectMeta('customer_order_sales_channel_id', channel.id, channel.name)
-  }
-})
-
-watch(() => settings.value.retail_demand_state_id, (newValue) => {
-  if (newValue) {
-    const state = customerOrderStates.value.find(s => s.id === newValue)
-    if (state) updateTargetObjectMeta('retail_demand_state_id', state.id, state.name)
-  }
-})
-
-watch(() => settings.value.retail_demand_sales_channel_id, (newValue) => {
-  if (newValue) {
-    const channel = salesChannels.value.find(c => c.id === newValue)
-    if (channel) updateTargetObjectMeta('retail_demand_sales_channel_id', channel.id, channel.name)
-  }
-})
-
-watch(() => settings.value.purchase_order_state_id, (newValue) => {
-  if (newValue) {
-    const state = purchaseOrderStates.value.find(s => s.id === newValue)
-    if (state) updateTargetObjectMeta('purchase_order_state_id', state.id, state.name)
-  }
-})
-
-watch(() => settings.value.purchase_order_sales_channel_id, (newValue) => {
-  if (newValue) {
-    const channel = salesChannels.value.find(c => c.id === newValue)
-    if (channel) updateTargetObjectMeta('purchase_order_sales_channel_id', channel.id, channel.name)
-  }
-})
-
-// Modal creation handlers
+// Modal creation handlers (using composables)
 const handleProjectCreated = async (data) => {
   try {
     createProjectModalRef.value?.setLoading(true)
@@ -772,14 +589,13 @@ const handleProjectCreated = async (data) => {
     const response = await api.syncSettings.createProject(accountId.value, data)
     const created = response.data.data
 
-    // Add to projects list
-    projects.value.push(created)
+    // Add to projects list using composable
+    projectsLoader.addItem(created)
 
     // Select the newly created project
     settings.value.target_project_id = created.id
-    updateTargetObjectMeta('target_project_id', created.id, created.name)
+    metadataManager.updateMetadata('target_project_id', created.id, created.name)
 
-    // Close modal
     showCreateProjectModal.value = false
 
   } catch (err) {
@@ -797,14 +613,13 @@ const handleStoreCreated = async (data) => {
     const response = await api.syncSettings.createStore(accountId.value, data)
     const created = response.data.data
 
-    // Add to stores list
-    stores.value.push(created)
+    // Add to stores list using composable
+    storesLoader.addItem(created)
 
     // Select the newly created store
     settings.value.target_store_id = created.id
-    updateTargetObjectMeta('target_store_id', created.id, created.name)
+    metadataManager.updateMetadata('target_store_id', created.id, created.name)
 
-    // Close modal
     showCreateStoreModal.value = false
 
   } catch (err) {
@@ -822,13 +637,9 @@ const handleSalesChannelCreated = async (data) => {
     const response = await api.syncSettings.createSalesChannel(accountId.value, data)
     const created = response.data.data
 
-    // Add to sales channels list
-    salesChannels.value.push(created)
+    // Add to sales channels list using composable
+    salesChannelsLoader.addItem(created)
 
-    // Don't auto-select here since it could be for any of the 3 sales channel fields
-    // User can select manually after creation
-
-    // Close modal
     showCreateSalesChannelModal.value = false
 
   } catch (err) {
@@ -846,14 +657,13 @@ const handleCustomerOrderStateCreated = async (data) => {
     const response = await api.syncSettings.createState(accountId.value, 'customerorder', data)
     const created = response.data.data
 
-    // Add to customer order states list
-    customerOrderStates.value.push(created)
+    // Add to customer order states list using composable
+    customerOrderStatesLoader.addItem(created)
 
     // Select the newly created state
     settings.value.customer_order_state_id = created.id
-    updateTargetObjectMeta('customer_order_state_id', created.id, created.name)
+    metadataManager.updateMetadata('customer_order_state_id', created.id, created.name)
 
-    // Close modal
     showCreateCustomerOrderStateModal.value = false
 
   } catch (err) {
@@ -871,16 +681,13 @@ const handleRetailDemandStateCreated = async (data) => {
     const response = await api.syncSettings.createState(accountId.value, 'customerorder', data)
     const created = response.data.data
 
-    // Add to customer order states list (retail demand uses same states)
-    if (!customerOrderStates.value.find(s => s.id === created.id)) {
-      customerOrderStates.value.push(created)
-    }
+    // Add to customer order states list using composable (retail demand uses same states)
+    customerOrderStatesLoader.addItem(created)
 
     // Select the newly created state
     settings.value.retail_demand_state_id = created.id
-    updateTargetObjectMeta('retail_demand_state_id', created.id, created.name)
+    metadataManager.updateMetadata('retail_demand_state_id', created.id, created.name)
 
-    // Close modal
     showCreateRetailDemandStateModal.value = false
 
   } catch (err) {
@@ -900,19 +707,14 @@ const handlePurchaseOrderStateCreated = async (data) => {
     const response = await api.syncSettings.createState(accountId.value, 'customerorder', data)
     const created = response.data.data
 
-    // Add to both states lists (they share the same states)
-    if (!customerOrderStates.value.find(s => s.id === created.id)) {
-      customerOrderStates.value.push(created)
-    }
-    if (!purchaseOrderStates.value.find(s => s.id === created.id)) {
-      purchaseOrderStates.value.push(created)
-    }
+    // Add to both states lists using composables (they share the same states)
+    customerOrderStatesLoader.addItem(created)
+    purchaseOrderStatesLoader.addItem(created)
 
     // Select the newly created state
     settings.value.purchase_order_state_id = created.id
-    updateTargetObjectMeta('purchase_order_state_id', created.id, created.name)
+    metadataManager.updateMetadata('purchase_order_state_id', created.id, created.name)
 
-    // Close modal
     showCreatePurchaseOrderStateModal.value = false
 
   } catch (err) {
