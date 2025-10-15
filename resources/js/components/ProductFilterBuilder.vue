@@ -65,7 +65,7 @@
               <div class="flex-shrink-0 w-40">
                 <SimpleSelect
                   :model-value="condition.type"
-                  @update:model-value="(val) => { condition.type = val; onConditionTypeChange(groupIndex, condIndex) }"
+                  @update:model-value="(val) => updateConditionType(groupIndex, condIndex, val)"
                   placeholder="Тип условия"
                   :options="conditionTypeOptions"
                 />
@@ -93,14 +93,16 @@
                 <div v-else-if="condition.type === 'attribute_flag'" class="flex gap-2">
                   <div class="flex-grow">
                     <SimpleSelect
-                      v-model="condition.attribute_id"
+                      :model-value="condition.attribute_id"
+                      @update:model-value="(val) => updateConditionAttribute(groupIndex, condIndex, val)"
                       placeholder="Выберите атрибут"
                       :options="flagAttributeOptions"
                     />
                   </div>
                   <div class="w-32">
                     <SimpleSelect
-                      v-model="condition.value"
+                      :model-value="condition.value"
+                      @update:model-value="(val) => updateConditionValue(groupIndex, condIndex, val)"
                       placeholder="Значение"
                       :options="booleanValueOptions"
                     />
@@ -227,12 +229,10 @@ watch(() => props.modelValue, (newVal) => {
   }
 }, { immediate: true, deep: true })
 
-// Emit changes
-watch(filterGroups, (newVal) => {
-  emit('update:modelValue', { groups: newVal })
-}, { deep: true })
-
 // Methods
+const emitUpdate = () => {
+  emit('update:modelValue', { groups: filterGroups.value })
+}
 const addGroup = () => {
   if (filterGroups.value.length < 10) {
     filterGroups.value.push({
@@ -243,11 +243,13 @@ const addGroup = () => {
         }
       ]
     })
+    emitUpdate()
   }
 }
 
 const removeGroup = (groupIndex) => {
   filterGroups.value.splice(groupIndex, 1)
+  emitUpdate()
 }
 
 const addCondition = (groupIndex) => {
@@ -255,6 +257,7 @@ const addCondition = (groupIndex) => {
     type: 'folder',
     folder_ids: []
   })
+  emitUpdate()
 }
 
 const removeCondition = (groupIndex, condIndex) => {
@@ -264,6 +267,8 @@ const removeCondition = (groupIndex, condIndex) => {
   // Remove group if no conditions left
   if (group.conditions.length === 0) {
     removeGroup(groupIndex)
+  } else {
+    emitUpdate()
   }
 }
 
@@ -280,6 +285,8 @@ const onConditionTypeChange = (groupIndex, condIndex) => {
     condition.value = true
     delete condition.folder_ids
   }
+
+  emitUpdate()
 }
 
 const openFolderPicker = (groupIndex, condIndex) => {
@@ -294,7 +301,23 @@ const onFolderPickerConfirm = (selectedIds) => {
     const { groupIndex, condIndex } = currentEditingCondition.value
     filterGroups.value[groupIndex].conditions[condIndex].folder_ids = [...selectedIds]
     currentEditingCondition.value = null
+    emitUpdate()
   }
+}
+
+const updateConditionType = (groupIndex, condIndex, val) => {
+  filterGroups.value[groupIndex].conditions[condIndex].type = val
+  onConditionTypeChange(groupIndex, condIndex)
+}
+
+const updateConditionAttribute = (groupIndex, condIndex, val) => {
+  filterGroups.value[groupIndex].conditions[condIndex].attribute_id = val
+  emitUpdate()
+}
+
+const updateConditionValue = (groupIndex, condIndex, val) => {
+  filterGroups.value[groupIndex].conditions[condIndex].value = val
+  emitUpdate()
 }
 </script>
 

@@ -445,7 +445,12 @@ const loadSettings = async () => {
     // Заполнить form
     Object.keys(settings.value).forEach(key => {
       if (loadedSettings[key] !== undefined) {
-        settings.value[key] = loadedSettings[key]
+        // Special handling for product_filters - ensure it's always an object with groups array
+        if (key === 'product_filters') {
+          settings.value[key] = loadedSettings[key] || { groups: [] }
+        } else {
+          settings.value[key] = loadedSettings[key]
+        }
       }
     })
 
