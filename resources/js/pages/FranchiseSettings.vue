@@ -136,24 +136,30 @@
           </div>
 
           <div v-if="settings.sync_customer_orders" class="ml-7 space-y-3">
-            <div>
-              <label class="block text-sm font-medium text-gray-700">ID статуса заказа</label>
-              <input
-                type="text"
-                v-model="settings.customer_order_state_id"
-                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                placeholder="UUID статуса"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700">ID канала продаж</label>
-              <input
-                type="text"
-                v-model="settings.customer_order_sales_channel_id"
-                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                placeholder="UUID канала продаж"
-              />
-            </div>
+            <SearchableSelect
+              v-model="settings.customer_order_state_id"
+              label="Статус заказа"
+              placeholder="Выберите статус"
+              :options="customerOrderStates"
+              :loading="loadingCustomerOrderStates"
+              :error="customerOrderStatesError"
+              :initial-name="targetObjectsMeta?.customer_order_state_id?.name"
+              @open="loadCustomerOrderStates"
+              @clear="clearCustomerOrderState"
+            />
+            <SearchableSelect
+              v-model="settings.customer_order_sales_channel_id"
+              label="Канал продаж"
+              placeholder="Выберите канал продаж"
+              :options="salesChannels"
+              :loading="loadingSalesChannels"
+              :error="salesChannelsError"
+              :initial-name="targetObjectsMeta?.customer_order_sales_channel_id?.name"
+              :can-create="true"
+              @open="loadSalesChannels"
+              @create="showCreateSalesChannelModal = true"
+              @clear="clearCustomerOrderSalesChannel"
+            />
           </div>
 
           <div class="flex items-start">
@@ -172,24 +178,30 @@
           </div>
 
           <div v-if="settings.sync_retail_demands" class="ml-7 space-y-3">
-            <div>
-              <label class="block text-sm font-medium text-gray-700">ID статуса продажи</label>
-              <input
-                type="text"
-                v-model="settings.retail_demand_state_id"
-                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                placeholder="UUID статуса"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700">ID канала продаж</label>
-              <input
-                type="text"
-                v-model="settings.retail_demand_sales_channel_id"
-                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                placeholder="UUID канала продаж"
-              />
-            </div>
+            <SearchableSelect
+              v-model="settings.retail_demand_state_id"
+              label="Статус розничной продажи"
+              placeholder="Выберите статус"
+              :options="customerOrderStates"
+              :loading="loadingCustomerOrderStates"
+              :error="customerOrderStatesError"
+              :initial-name="targetObjectsMeta?.retail_demand_state_id?.name"
+              @open="loadCustomerOrderStates"
+              @clear="clearRetailDemandState"
+            />
+            <SearchableSelect
+              v-model="settings.retail_demand_sales_channel_id"
+              label="Канал продаж"
+              placeholder="Выберите канал продаж"
+              :options="salesChannels"
+              :loading="loadingSalesChannels"
+              :error="salesChannelsError"
+              :initial-name="targetObjectsMeta?.retail_demand_sales_channel_id?.name"
+              :can-create="true"
+              @open="loadSalesChannels"
+              @create="showCreateSalesChannelModal = true"
+              @clear="clearRetailDemandSalesChannel"
+            />
           </div>
 
           <div class="flex items-start">
@@ -208,33 +220,34 @@
           </div>
 
           <div v-if="settings.sync_purchase_orders" class="ml-7 space-y-3">
-            <div>
-              <label class="block text-sm font-medium text-gray-700">ID статуса заказа поставщику</label>
-              <input
-                type="text"
-                v-model="settings.purchase_order_state_id"
-                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                placeholder="UUID статуса"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700">ID канала продаж для заказов поставщику</label>
-              <input
-                type="text"
-                v-model="settings.purchase_order_sales_channel_id"
-                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                placeholder="UUID канала продаж"
-              />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700">ID контрагента-поставщика (главный офис)</label>
-              <input
-                type="text"
-                v-model="settings.supplier_counterparty_id"
-                class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                placeholder="UUID контрагента"
-              />
-              <p class="mt-1 text-xs text-gray-500">ID контрагента главного офиса в дочернем аккаунте</p>
+            <SearchableSelect
+              v-model="settings.purchase_order_state_id"
+              label="Статус заказа поставщику"
+              placeholder="Выберите статус"
+              :options="purchaseOrderStates"
+              :loading="loadingPurchaseOrderStates"
+              :error="purchaseOrderStatesError"
+              :initial-name="targetObjectsMeta?.purchase_order_state_id?.name"
+              @open="loadPurchaseOrderStates"
+              @clear="clearPurchaseOrderState"
+            />
+            <SearchableSelect
+              v-model="settings.purchase_order_sales_channel_id"
+              label="Канал продаж для заказов поставщику"
+              placeholder="Выберите канал продаж"
+              :options="salesChannels"
+              :loading="loadingSalesChannels"
+              :error="salesChannelsError"
+              :initial-name="targetObjectsMeta?.purchase_order_sales_channel_id?.name"
+              :can-create="true"
+              @open="loadSalesChannels"
+              @create="showCreateSalesChannelModal = true"
+              @clear="clearPurchaseOrderSalesChannel"
+            />
+            <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+              <p class="text-xs text-yellow-800">
+                <strong>⚠️ Примечание:</strong> ID контрагента-поставщика (supplier_counterparty_id) в данный момент не поддерживает выбор через интерфейс и должен быть настроен в базе данных.
+              </p>
             </div>
           </div>
         </div>
@@ -244,49 +257,61 @@
       <div class="bg-white shadow rounded-lg p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">Целевые объекты в главном аккаунте</h3>
         <div class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700">ID организации</label>
-            <input
-              type="text"
-              v-model="settings.target_organization_id"
-              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              placeholder="UUID организации"
-            />
-            <p class="mt-1 text-xs text-gray-500">Организация для создаваемых документов</p>
-          </div>
+          <SearchableSelect
+            v-model="settings.target_organization_id"
+            label="Организация"
+            placeholder="Выберите организацию"
+            :options="organizations"
+            :loading="loadingOrganizations"
+            :error="organizationsError"
+            :initial-name="targetObjectsMeta?.target_organization_id?.name"
+            required
+            @open="loadOrganizations"
+          />
+          <p class="mt-1 text-xs text-gray-500">Организация для создаваемых документов</p>
 
-          <div>
-            <label class="block text-sm font-medium text-gray-700">ID склада</label>
-            <input
-              type="text"
-              v-model="settings.target_store_id"
-              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              placeholder="UUID склада"
-            />
-            <p class="mt-1 text-xs text-gray-500">Склад для создаваемых документов (опционально)</p>
-          </div>
+          <SearchableSelect
+            v-model="settings.target_store_id"
+            label="Склад"
+            placeholder="Выберите склад"
+            :options="stores"
+            :loading="loadingStores"
+            :error="storesError"
+            :initial-name="targetObjectsMeta?.target_store_id?.name"
+            :can-create="true"
+            @open="loadStores"
+            @create="showCreateStoreModal = true"
+            @clear="clearTargetStore"
+          />
+          <p class="mt-1 text-xs text-gray-500">Склад для создаваемых документов (опционально)</p>
 
-          <div>
-            <label class="block text-sm font-medium text-gray-700">ID проекта</label>
-            <input
-              type="text"
-              v-model="settings.target_project_id"
-              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              placeholder="UUID проекта"
-            />
-            <p class="mt-1 text-xs text-gray-500">Проект для создаваемых документов (опционально)</p>
-          </div>
+          <SearchableSelect
+            v-model="settings.target_project_id"
+            label="Проект"
+            placeholder="Выберите проект"
+            :options="projects"
+            :loading="loadingProjects"
+            :error="projectsError"
+            :initial-name="targetObjectsMeta?.target_project_id?.name"
+            :can-create="true"
+            @open="loadProjects"
+            @create="showCreateProjectModal = true"
+            @clear="clearTargetProject"
+          />
+          <p class="mt-1 text-xs text-gray-500">Проект для создаваемых документов (опционально)</p>
 
-          <div>
-            <label class="block text-sm font-medium text-gray-700">ID ответственного сотрудника</label>
-            <input
-              type="text"
-              v-model="settings.responsible_employee_id"
-              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              placeholder="UUID сотрудника"
-            />
-            <p class="mt-1 text-xs text-gray-500">Ответственный за создаваемые документы</p>
-          </div>
+          <SearchableSelect
+            v-model="settings.responsible_employee_id"
+            label="Ответственный сотрудник"
+            placeholder="Выберите сотрудника"
+            :options="employees"
+            :loading="loadingEmployees"
+            :error="employeesError"
+            :initial-name="targetObjectsMeta?.responsible_employee_id?.name"
+            @open="loadEmployees"
+            @clear="clearResponsibleEmployee"
+          />
+          <p class="mt-1 text-xs text-gray-500">Ответственный за создаваемые документы</p>
         </div>
       </div>
 
@@ -621,6 +646,28 @@
     <div v-if="saveSuccess" class="fixed bottom-4 right-4 bg-green-50 border border-green-200 rounded-lg p-4 shadow-lg">
       <p class="text-sm text-green-800">✓ Настройки успешно сохранены</p>
     </div>
+
+    <!-- Modals -->
+    <CreateProjectModal
+      :show="showCreateProjectModal"
+      @close="showCreateProjectModal = false"
+      @created="handleProjectCreated"
+      ref="createProjectModalRef"
+    />
+
+    <CreateStoreModal
+      :show="showCreateStoreModal"
+      @close="showCreateStoreModal = false"
+      @created="handleStoreCreated"
+      ref="createStoreModalRef"
+    />
+
+    <CreateSalesChannelModal
+      :show="showCreateSalesChannelModal"
+      @close="showCreateSalesChannelModal = false"
+      @created="handleSalesChannelCreated"
+      ref="createSalesChannelModalRef"
+    />
   </div>
 </template>
 
@@ -629,6 +676,10 @@ import { ref, onMounted, computed, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import ProductFilterBuilder from '../components/ProductFilterBuilder.vue'
+import SearchableSelect from '../components/SearchableSelect.vue'
+import CreateProjectModal from '../components/CreateProjectModal.vue'
+import CreateStoreModal from '../components/CreateStoreModal.vue'
+import CreateSalesChannelModal from '../components/CreateSalesChannelModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -656,6 +707,44 @@ const creatingPriceTypeForIndex = ref(null)
 const newPriceTypeName = ref('')
 const creatingPriceType = ref(false)
 const createPriceTypeError = ref(null)
+
+// Target objects state
+const organizations = ref([])
+const stores = ref([])
+const projects = ref([])
+const employees = ref([])
+const salesChannels = ref([])
+const customerOrderStates = ref([])
+const purchaseOrderStates = ref([])
+
+const loadingOrganizations = ref(false)
+const loadingStores = ref(false)
+const loadingProjects = ref(false)
+const loadingEmployees = ref(false)
+const loadingSalesChannels = ref(false)
+const loadingCustomerOrderStates = ref(false)
+const loadingPurchaseOrderStates = ref(false)
+
+const organizationsError = ref(null)
+const storesError = ref(null)
+const projectsError = ref(null)
+const employeesError = ref(null)
+const salesChannelsError = ref(null)
+const customerOrderStatesError = ref(null)
+const purchaseOrderStatesError = ref(null)
+
+// Modal state
+const showCreateProjectModal = ref(false)
+const showCreateStoreModal = ref(false)
+const showCreateSalesChannelModal = ref(false)
+
+// Modal refs
+const createProjectModalRef = ref(null)
+const createStoreModalRef = ref(null)
+const createSalesChannelModalRef = ref(null)
+
+// Target objects metadata (for displaying names)
+const targetObjectsMeta = ref({})
 
 const settings = ref({
   sync_enabled: true,
@@ -774,6 +863,11 @@ const loadSettings = async () => {
         : []
     }
 
+    // Load target_objects_meta
+    if (loadedSettings.target_objects_meta) {
+      targetObjectsMeta.value = loadedSettings.target_objects_meta || {}
+    }
+
     // Load extended data
     await Promise.all([
       loadPriceTypes(),
@@ -860,6 +954,315 @@ const createNewPriceType = async (index) => {
   }
 }
 
+// Load target objects functions (lazy loading)
+const loadOrganizations = async () => {
+  if (organizations.value.length > 0) return // Already loaded
+
+  try {
+    loadingOrganizations.value = true
+    organizationsError.value = null
+    const response = await api.syncSettings.getOrganizations(accountId.value)
+    organizations.value = response.data.data || []
+  } catch (err) {
+    console.error('Failed to load organizations:', err)
+    organizationsError.value = 'Не удалось загрузить организации'
+  } finally {
+    loadingOrganizations.value = false
+  }
+}
+
+const loadStores = async () => {
+  if (stores.value.length > 0) return // Already loaded
+
+  try {
+    loadingStores.value = true
+    storesError.value = null
+    const response = await api.syncSettings.getStores(accountId.value)
+    stores.value = response.data.data || []
+  } catch (err) {
+    console.error('Failed to load stores:', err)
+    storesError.value = 'Не удалось загрузить склады'
+  } finally {
+    loadingStores.value = false
+  }
+}
+
+const loadProjects = async () => {
+  if (projects.value.length > 0) return // Already loaded
+
+  try {
+    loadingProjects.value = true
+    projectsError.value = null
+    const response = await api.syncSettings.getProjects(accountId.value)
+    projects.value = response.data.data || []
+  } catch (err) {
+    console.error('Failed to load projects:', err)
+    projectsError.value = 'Не удалось загрузить проекты'
+  } finally {
+    loadingProjects.value = false
+  }
+}
+
+const loadEmployees = async () => {
+  if (employees.value.length > 0) return // Already loaded
+
+  try {
+    loadingEmployees.value = true
+    employeesError.value = null
+    const response = await api.syncSettings.getEmployees(accountId.value)
+    employees.value = response.data.data || []
+  } catch (err) {
+    console.error('Failed to load employees:', err)
+    employeesError.value = 'Не удалось загрузить сотрудников'
+  } finally {
+    loadingEmployees.value = false
+  }
+}
+
+const loadSalesChannels = async () => {
+  if (salesChannels.value.length > 0) return // Already loaded
+
+  try {
+    loadingSalesChannels.value = true
+    salesChannelsError.value = null
+    const response = await api.syncSettings.getSalesChannels(accountId.value)
+    salesChannels.value = response.data.data || []
+  } catch (err) {
+    console.error('Failed to load sales channels:', err)
+    salesChannelsError.value = 'Не удалось загрузить каналы продаж'
+  } finally {
+    loadingSalesChannels.value = false
+  }
+}
+
+const loadCustomerOrderStates = async () => {
+  if (customerOrderStates.value.length > 0) return // Already loaded
+
+  try {
+    loadingCustomerOrderStates.value = true
+    customerOrderStatesError.value = null
+    const response = await api.syncSettings.getStates(accountId.value, 'customerorder')
+    customerOrderStates.value = response.data.data || []
+  } catch (err) {
+    console.error('Failed to load customer order states:', err)
+    customerOrderStatesError.value = 'Не удалось загрузить статусы заказов'
+  } finally {
+    loadingCustomerOrderStates.value = false
+  }
+}
+
+const loadPurchaseOrderStates = async () => {
+  if (purchaseOrderStates.value.length > 0) return // Already loaded
+
+  try {
+    loadingPurchaseOrderStates.value = true
+    purchaseOrderStatesError.value = null
+    const response = await api.syncSettings.getStates(accountId.value, 'purchaseorder')
+    purchaseOrderStates.value = response.data.data || []
+  } catch (err) {
+    console.error('Failed to load purchase order states:', err)
+    purchaseOrderStatesError.value = 'Не удалось загрузить статусы заказов поставщику'
+  } finally {
+    loadingPurchaseOrderStates.value = false
+  }
+}
+
+// Clear handlers (update metadata when clearing)
+const clearTargetStore = () => {
+  updateTargetObjectMeta('target_store_id', null, null)
+}
+
+const clearTargetProject = () => {
+  updateTargetObjectMeta('target_project_id', null, null)
+}
+
+const clearResponsibleEmployee = () => {
+  updateTargetObjectMeta('responsible_employee_id', null, null)
+}
+
+const clearCustomerOrderState = () => {
+  updateTargetObjectMeta('customer_order_state_id', null, null)
+}
+
+const clearCustomerOrderSalesChannel = () => {
+  updateTargetObjectMeta('customer_order_sales_channel_id', null, null)
+}
+
+const clearRetailDemandState = () => {
+  updateTargetObjectMeta('retail_demand_state_id', null, null)
+}
+
+const clearRetailDemandSalesChannel = () => {
+  updateTargetObjectMeta('retail_demand_sales_channel_id', null, null)
+}
+
+const clearPurchaseOrderState = () => {
+  updateTargetObjectMeta('purchase_order_state_id', null, null)
+}
+
+const clearPurchaseOrderSalesChannel = () => {
+  updateTargetObjectMeta('purchase_order_sales_channel_id', null, null)
+}
+
+// Update target object metadata helper
+const updateTargetObjectMeta = (fieldName, id, name) => {
+  if (!targetObjectsMeta.value) {
+    targetObjectsMeta.value = {}
+  }
+
+  if (id && name) {
+    targetObjectsMeta.value[fieldName] = { id, name }
+  } else {
+    delete targetObjectsMeta.value[fieldName]
+  }
+}
+
+// Watch for changes in target object IDs and update metadata
+watch(() => settings.value.target_organization_id, (newValue) => {
+  if (newValue) {
+    const org = organizations.value.find(o => o.id === newValue)
+    if (org) updateTargetObjectMeta('target_organization_id', org.id, org.name)
+  }
+})
+
+watch(() => settings.value.target_store_id, (newValue) => {
+  if (newValue) {
+    const store = stores.value.find(s => s.id === newValue)
+    if (store) updateTargetObjectMeta('target_store_id', store.id, store.name)
+  }
+})
+
+watch(() => settings.value.target_project_id, (newValue) => {
+  if (newValue) {
+    const project = projects.value.find(p => p.id === newValue)
+    if (project) updateTargetObjectMeta('target_project_id', project.id, project.name)
+  }
+})
+
+watch(() => settings.value.responsible_employee_id, (newValue) => {
+  if (newValue) {
+    const employee = employees.value.find(e => e.id === newValue)
+    if (employee) updateTargetObjectMeta('responsible_employee_id', employee.id, employee.name)
+  }
+})
+
+watch(() => settings.value.customer_order_state_id, (newValue) => {
+  if (newValue) {
+    const state = customerOrderStates.value.find(s => s.id === newValue)
+    if (state) updateTargetObjectMeta('customer_order_state_id', state.id, state.name)
+  }
+})
+
+watch(() => settings.value.customer_order_sales_channel_id, (newValue) => {
+  if (newValue) {
+    const channel = salesChannels.value.find(c => c.id === newValue)
+    if (channel) updateTargetObjectMeta('customer_order_sales_channel_id', channel.id, channel.name)
+  }
+})
+
+watch(() => settings.value.retail_demand_state_id, (newValue) => {
+  if (newValue) {
+    const state = customerOrderStates.value.find(s => s.id === newValue)
+    if (state) updateTargetObjectMeta('retail_demand_state_id', state.id, state.name)
+  }
+})
+
+watch(() => settings.value.retail_demand_sales_channel_id, (newValue) => {
+  if (newValue) {
+    const channel = salesChannels.value.find(c => c.id === newValue)
+    if (channel) updateTargetObjectMeta('retail_demand_sales_channel_id', channel.id, channel.name)
+  }
+})
+
+watch(() => settings.value.purchase_order_state_id, (newValue) => {
+  if (newValue) {
+    const state = purchaseOrderStates.value.find(s => s.id === newValue)
+    if (state) updateTargetObjectMeta('purchase_order_state_id', state.id, state.name)
+  }
+})
+
+watch(() => settings.value.purchase_order_sales_channel_id, (newValue) => {
+  if (newValue) {
+    const channel = salesChannels.value.find(c => c.id === newValue)
+    if (channel) updateTargetObjectMeta('purchase_order_sales_channel_id', channel.id, channel.name)
+  }
+})
+
+// Modal creation handlers
+const handleProjectCreated = async (data) => {
+  try {
+    createProjectModalRef.value?.setLoading(true)
+
+    const response = await api.syncSettings.createProject(accountId.value, data)
+    const created = response.data.data
+
+    // Add to projects list
+    projects.value.push(created)
+
+    // Select the newly created project
+    settings.value.target_project_id = created.id
+    updateTargetObjectMeta('target_project_id', created.id, created.name)
+
+    // Close modal
+    showCreateProjectModal.value = false
+
+  } catch (err) {
+    console.error('Failed to create project:', err)
+    createProjectModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать проект')
+  } finally {
+    createProjectModalRef.value?.setLoading(false)
+  }
+}
+
+const handleStoreCreated = async (data) => {
+  try {
+    createStoreModalRef.value?.setLoading(true)
+
+    const response = await api.syncSettings.createStore(accountId.value, data)
+    const created = response.data.data
+
+    // Add to stores list
+    stores.value.push(created)
+
+    // Select the newly created store
+    settings.value.target_store_id = created.id
+    updateTargetObjectMeta('target_store_id', created.id, created.name)
+
+    // Close modal
+    showCreateStoreModal.value = false
+
+  } catch (err) {
+    console.error('Failed to create store:', err)
+    createStoreModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать склад')
+  } finally {
+    createStoreModalRef.value?.setLoading(false)
+  }
+}
+
+const handleSalesChannelCreated = async (data) => {
+  try {
+    createSalesChannelModalRef.value?.setLoading(true)
+
+    const response = await api.syncSettings.createSalesChannel(accountId.value, data)
+    const created = response.data.data
+
+    // Add to sales channels list
+    salesChannels.value.push(created)
+
+    // Don't auto-select here since it could be for any of the 3 sales channel fields
+    // User can select manually after creation
+
+    // Close modal
+    showCreateSalesChannelModal.value = false
+
+  } catch (err) {
+    console.error('Failed to create sales channel:', err)
+    createSalesChannelModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать канал продаж')
+  } finally {
+    createSalesChannelModalRef.value?.setLoading(false)
+  }
+}
+
 // Sync all products action
 const syncAllProducts = async () => {
   if (!confirm('Запустить синхронизацию всех товаров? Это может занять продолжительное время.')) {
@@ -896,6 +1299,7 @@ const saveSettings = async () => {
     // Convert arrays back to JSON for storage
     settings.value.price_mappings = priceMappings.value.length > 0 ? priceMappings.value : null
     settings.value.attribute_sync_list = selectedAttributes.value.length > 0 ? selectedAttributes.value : null
+    settings.value.target_objects_meta = Object.keys(targetObjectsMeta.value).length > 0 ? targetObjectsMeta.value : null
 
     await api.syncSettings.update(accountId.value, settings.value)
 

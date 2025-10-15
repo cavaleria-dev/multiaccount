@@ -77,6 +77,38 @@ export default {
     },
     getFolders(accountId) {
       return api.get(`/sync-settings/${accountId}/folders`)
+    },
+    // Справочники для целевых объектов
+    getOrganizations(accountId) {
+      return api.get(`/sync-settings/${accountId}/organizations`)
+    },
+    getStores(accountId) {
+      return api.get(`/sync-settings/${accountId}/stores`)
+    },
+    getProjects(accountId) {
+      return api.get(`/sync-settings/${accountId}/projects`)
+    },
+    getEmployees(accountId) {
+      return api.get(`/sync-settings/${accountId}/employees`)
+    },
+    getSalesChannels(accountId) {
+      return api.get(`/sync-settings/${accountId}/sales-channels`)
+    },
+    getStates(accountId, entityType) {
+      return api.get(`/sync-settings/${accountId}/states/${entityType}`)
+    },
+    // Создание целевых объектов
+    createProject(accountId, data) {
+      return api.post(`/sync-settings/${accountId}/projects`, data)
+    },
+    createStore(accountId, data) {
+      return api.post(`/sync-settings/${accountId}/stores`, data)
+    },
+    createSalesChannel(accountId, data) {
+      return api.post(`/sync-settings/${accountId}/sales-channels`, data)
+    },
+    createState(accountId, entityType, data) {
+      return api.post(`/sync-settings/${accountId}/states/${entityType}`, data)
     }
   },
 

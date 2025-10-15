@@ -48,6 +48,20 @@ Route::middleware(['moysklad.context'])->group(function () {
     Route::get('sync-settings/{accountId}/attributes', [SyncSettingsController::class, 'getAttributes']);
     Route::get('sync-settings/{accountId}/folders', [SyncSettingsController::class, 'getFolders']);
 
+    // Справочники для целевых объектов (GET)
+    Route::get('sync-settings/{accountId}/organizations', [SyncSettingsController::class, 'getOrganizations']);
+    Route::get('sync-settings/{accountId}/stores', [SyncSettingsController::class, 'getStores']);
+    Route::get('sync-settings/{accountId}/projects', [SyncSettingsController::class, 'getProjects']);
+    Route::get('sync-settings/{accountId}/employees', [SyncSettingsController::class, 'getEmployees']);
+    Route::get('sync-settings/{accountId}/sales-channels', [SyncSettingsController::class, 'getSalesChannels']);
+    Route::get('sync-settings/{accountId}/states/{entityType}', [SyncSettingsController::class, 'getStates']);
+
+    // Создание целевых объектов (POST)
+    Route::post('sync-settings/{accountId}/projects', [SyncSettingsController::class, 'createProject']);
+    Route::post('sync-settings/{accountId}/stores', [SyncSettingsController::class, 'createStore']);
+    Route::post('sync-settings/{accountId}/sales-channels', [SyncSettingsController::class, 'createSalesChannel']);
+    Route::post('sync-settings/{accountId}/states/{entityType}', [SyncSettingsController::class, 'createState']);
+
     // Действия синхронизации
     Route::post('sync/{accountId}/products/all', [SyncActionsController::class, 'syncAllProducts']);
 

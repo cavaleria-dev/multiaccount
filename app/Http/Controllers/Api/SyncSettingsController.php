@@ -917,4 +917,316 @@ class SyncSettingsController extends Controller
             return response()->json(['error' => 'Failed to load states: ' . $e->getMessage()], 500);
         }
     }
+
+    /**
+     * Создать новый проект в главном аккаунте
+     */
+    public function createProject(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Получить главный аккаунт через parent_account_id
+        $link = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account link not found'], 404);
+        }
+
+        // Валидация
+        $request->validate([
+            'name' => 'required|string|min:1|max:255',
+            'description' => 'nullable|string|max:4096'
+        ]);
+
+        try {
+            $mainAccount = Account::where('account_id', $link->parent_account_id)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            $data = ['name' => $request->input('name')];
+
+            if ($request->has('description')) {
+                $data['description'] = $request->input('description');
+            }
+
+            $result = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->post('entity/project', $data);
+
+            Log::info('Project created in main account', [
+                'main_account_id' => $link->parent_account_id,
+                'child_account_id' => $accountId,
+                'project_id' => $result['data']['id'],
+                'project_name' => $result['data']['name']
+            ]);
+
+            return response()->json([
+                'message' => 'Project created successfully',
+                'data' => [
+                    'id' => $result['data']['id'],
+                    'name' => $result['data']['name']
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create project', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Failed to create project: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Создать новый склад в главном аккаунте
+     */
+    public function createStore(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Получить главный аккаунт через parent_account_id
+        $link = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account link not found'], 404);
+        }
+
+        // Валидация
+        $request->validate([
+            'name' => 'required|string|min:1|max:255',
+            'address' => 'nullable|string|max:4096'
+        ]);
+
+        try {
+            $mainAccount = Account::where('account_id', $link->parent_account_id)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            $data = ['name' => $request->input('name')];
+
+            if ($request->has('address')) {
+                $data['address'] = $request->input('address');
+            }
+
+            $result = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->post('entity/store', $data);
+
+            Log::info('Store created in main account', [
+                'main_account_id' => $link->parent_account_id,
+                'child_account_id' => $accountId,
+                'store_id' => $result['data']['id'],
+                'store_name' => $result['data']['name']
+            ]);
+
+            return response()->json([
+                'message' => 'Store created successfully',
+                'data' => [
+                    'id' => $result['data']['id'],
+                    'name' => $result['data']['name']
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create store', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Failed to create store: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Создать новый канал продаж в главном аккаунте
+     */
+    public function createSalesChannel(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Получить главный аккаунт через parent_account_id
+        $link = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account link not found'], 404);
+        }
+
+        // Валидация
+        $request->validate([
+            'name' => 'required|string|min:1|max:255',
+            'type' => 'required|in:MESSENGER,SOCIAL_NETWORK,MARKETPLACE,ECOMMERCE,CLASSIFIED_ADS,DIRECT_SALES,RETAIL_SALES,OTHER',
+            'description' => 'nullable|string|max:4096'
+        ]);
+
+        try {
+            $mainAccount = Account::where('account_id', $link->parent_account_id)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            $data = [
+                'name' => $request->input('name'),
+                'type' => $request->input('type', 'OTHER'),
+            ];
+
+            if ($request->has('description')) {
+                $data['description'] = $request->input('description');
+            }
+
+            $result = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->post('entity/saleschannel', $data);
+
+            Log::info('Sales channel created in main account', [
+                'main_account_id' => $link->parent_account_id,
+                'child_account_id' => $accountId,
+                'channel_id' => $result['data']['id'],
+                'channel_name' => $result['data']['name']
+            ]);
+
+            return response()->json([
+                'message' => 'Sales channel created successfully',
+                'data' => [
+                    'id' => $result['data']['id'],
+                    'name' => $result['data']['name']
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create sales channel', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Failed to create sales channel: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Создать новый статус документа в главном аккаунте
+     */
+    public function createState(Request $request, $accountId, $entityType)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Валидация entityType
+        $allowedTypes = ['customerorder', 'purchaseorder'];
+        if (!in_array($entityType, $allowedTypes)) {
+            return response()->json(['error' => 'Invalid entity type. Allowed: ' . implode(', ', $allowedTypes)], 400);
+        }
+
+        // Получить главный аккаунт через parent_account_id
+        $link = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account link not found'], 404);
+        }
+
+        // Валидация
+        $request->validate([
+            'name' => 'required|string|min:1|max:255'
+        ]);
+
+        try {
+            $mainAccount = Account::where('account_id', $link->parent_account_id)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            // Получить текущие статусы
+            $metadata = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->get("entity/{$entityType}/metadata");
+
+            $states = $metadata['data']['states'] ?? [];
+
+            // Добавить новый статус
+            $states[] = [
+                'name' => $request->input('name'),
+                'stateType' => 'Regular',
+                'color' => 15106425 // Синий цвет по умолчанию
+            ];
+
+            // Обновить metadata
+            $result = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->put("entity/{$entityType}/metadata", [
+                    'states' => $states
+                ]);
+
+            $createdState = end($result['data']['states']);
+
+            Log::info('State created in main account', [
+                'main_account_id' => $link->parent_account_id,
+                'child_account_id' => $accountId,
+                'entity_type' => $entityType,
+                'state_id' => $createdState['id'],
+                'state_name' => $createdState['name']
+            ]);
+
+            return response()->json([
+                'message' => 'State created successfully',
+                'data' => [
+                    'id' => $createdState['id'],
+                    'name' => $createdState['name']
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to create state', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'entity_type' => $entityType,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Failed to create state: ' . $e->getMessage()], 500);
+        }
+    }
 }
