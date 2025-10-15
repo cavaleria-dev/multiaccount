@@ -500,12 +500,13 @@ This app integrates with МойСклад (Russian inventory management system) 
 - `MoySkladService` - Low-level API client, rate limit handling
 - `VendorApiService` - JWT generation, context retrieval
 - `ProductSyncService` - Products, variants, bundles sync + product folders
-- `ServiceSyncService` - Services sync (NEW)
+- `ServiceSyncService` - Services sync
 - `CustomerOrderSyncService` - Customer orders sync
 - `RetailDemandSyncService` - Retail sales sync
 - `PurchaseOrderSyncService` - Purchase orders sync (проведенные only)
 - `CounterpartySyncService` - Counterparty management
 - `CustomEntitySyncService` - Custom entity sync
+- `StandardEntitySyncService` - Standard references sync (uom, currency, country, vat) **NEW**
 - `BatchSyncService` - Batch sync with queues
 - `WebhookService` - Webhook management
 - `ProductFilterService` - Apply visual filters to products
@@ -1250,6 +1251,156 @@ const batchData = await api.syncSettings.getBatch(accountId)
 const { settings, accountName, priceTypes, attributes, folders } = batchData.data.data
 
 // 3-4x faster, especially on slow connections
+```
+
+### Using StandardEntitySyncService
+
+**Purpose:** Synchronize standard МойСклад references (uom/currency/country/vat) between accounts by code/isoCode.
+
+**When to use:**
+- Before creating/updating products (need uom, currency, country, vat)
+- When copying entities that reference standard refs
+- Initial franchise setup
+
+**Example in ProductSyncService:**
+
+```php
+use App\Services\StandardEntitySyncService;
+
+class ProductSyncService
+{
+    protected StandardEntitySyncService $standardEntitySync;
+
+    public function __construct(
+        MoySkladService $moySkladService,
+        StandardEntitySyncService $standardEntitySync
+    ) {
+        $this->moySkladService = $moySkladService;
+        $this->standardEntitySync = $standardEntitySync;
+    }
+
+    public function createProduct(array $parentProduct, string $parentAccountId, string $childAccountId): ?array
+    {
+        // Load product with standard references expanded
+        $product = $this->moySkladService->getEntity(
+            $parentAccountId,
+            'product',
+            $parentProduct['id'],
+            ['expand' => 'uom,country']
+        )['data'];
+
+        // Sync UOM (единица измерения)
+        $childUomId = null;
+        if (isset($product['uom'])) {
+            $parentUomId = $this->extractId($product['uom']['meta']['href']);
+            $childUomId = $this->standardEntitySync->syncUom(
+                $parentAccountId,
+                $childAccountId,
+                $parentUomId
+            );
+        }
+
+        // Sync Country (страна)
+        $childCountryId = null;
+        if (isset($product['country'])) {
+            $parentCountryId = $this->extractId($product['country']['meta']['href']);
+            $childCountryId = $this->standardEntitySync->syncCountry(
+                $parentAccountId,
+                $childAccountId,
+                $parentCountryId
+            );
+        }
+
+        // Sync Currency (валюта) - from price type or default
+        $childCurrencyId = null;
+        if (isset($product['salePrices'][0]['currency'])) {
+            $parentCurrencyId = $this->extractId($product['salePrices'][0]['currency']['meta']['href']);
+            $childCurrencyId = $this->standardEntitySync->syncCurrency(
+                $parentAccountId,
+                $childAccountId,
+                $parentCurrencyId
+            );
+        }
+
+        // Sync VAT (ставка НДС)
+        $vatRate = $product['vat'] ?? null; // 20, 10, 0, null
+        $this->standardEntitySync->syncVat($parentAccountId, $childAccountId, $vatRate);
+
+        // Build child product with mapped IDs
+        $childProduct = [
+            'name' => $product['name'],
+            'code' => $product['code'],
+            // ... other fields
+        ];
+
+        // Add uom reference if synced
+        if ($childUomId) {
+            $childProduct['uom'] = [
+                'meta' => [
+                    'href' => $this->moySkladService->buildUrl($childAccountId, 'uom', $childUomId),
+                    'type' => 'uom',
+                    'mediaType' => 'application/json'
+                ]
+            ];
+        }
+
+        // Add country reference if synced
+        if ($childCountryId) {
+            $childProduct['country'] = [
+                'meta' => [
+                    'href' => $this->moySkladService->buildUrl($childAccountId, 'country', $childCountryId),
+                    'type' => 'country',
+                    'mediaType' => 'application/json'
+                ]
+            ];
+        }
+
+        // Create product in child account
+        return $this->moySkladService->createEntity($childAccountId, 'product', $childProduct)['data'];
+    }
+}
+```
+
+**Key methods:**
+
+1. **syncUom(parentAccountId, childAccountId, parentUomId)** → childUomId
+   - Maps by `code` ("796", "166", "163")
+   - Creates custom UOM if not found
+   - Caches locally to avoid duplicate API calls
+   - Returns `null` on error
+
+2. **syncCurrency(parentAccountId, childAccountId, parentCurrencyId)** → childCurrencyId
+   - Maps by `isoCode` ("RUB", "USD", "EUR")
+   - Only maps (can't create currency)
+   - Returns `null` if not found
+
+3. **syncCountry(parentAccountId, childAccountId, parentCountryId)** → childCountryId
+   - Maps by `code` ("643", "840", "276")
+   - Only maps (can't create country)
+   - Returns `null` if not found
+
+4. **syncVat(parentAccountId, childAccountId, vatRate)** → vatRate
+   - Maps by rate (20, 10, 0, null)
+   - Always returns same rate (for tracking only)
+   - Saves mapping for statistics
+
+**Performance notes:**
+- Service has internal cache (uomCache, currencyCache, countryCache)
+- Call `clearCache()` if processing multiple unrelated batches
+- DB mappings persist across requests (checked first)
+- API calls only made if mapping not found in DB
+
+**Error handling:**
+- Returns `null` if entity not found or can't be created
+- Logs warnings/errors but doesn't throw exceptions
+- Caller should check return value and handle gracefully
+
+```php
+$childUomId = $this->standardEntitySync->syncUom($parentId, $childId, $parentUomId);
+if (!$childUomId) {
+    Log::warning('Failed to sync UOM, skipping uom field');
+    // Continue without uom reference
+}
 ```
 
 ## Important Gotchas
