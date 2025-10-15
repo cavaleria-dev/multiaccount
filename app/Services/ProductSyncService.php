@@ -161,7 +161,7 @@ class ProductSyncService
         }
 
         // Создать товар
-        Log::info('Creating product in child account - REQUEST', [
+        Log::channel('sync')->info('Creating product in child account - REQUEST', [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
             'main_product_id' => $product['id'],
@@ -174,7 +174,7 @@ class ProductSyncService
 
         $newProduct = $newProductResult['data'];
 
-        Log::info('Creating product in child account - RESPONSE', [
+        Log::channel('sync')->info('Creating product in child account - RESPONSE', [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
             'main_product_id' => $product['id'],
@@ -271,7 +271,7 @@ class ProductSyncService
         }
 
         // Обновить товар
-        Log::info('Updating product in child account - REQUEST', [
+        Log::channel('sync')->info('Updating product in child account - REQUEST', [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
             'main_product_id' => $product['id'],
@@ -283,7 +283,7 @@ class ProductSyncService
             ->setAccessToken($childAccount->access_token)
             ->put("entity/product/{$mapping->child_entity_id}", $productData);
 
-        Log::info('Updating product in child account - RESPONSE', [
+        Log::channel('sync')->info('Updating product in child account - RESPONSE', [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
             'main_product_id' => $product['id'],
