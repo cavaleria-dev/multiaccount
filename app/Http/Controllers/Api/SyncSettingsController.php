@@ -98,6 +98,7 @@ class SyncSettingsController extends Controller
             'supplier_counterparty_id' => 'nullable|uuid',
             'product_filters' => 'nullable|array',
             'product_filters_enabled' => 'sometimes|boolean',
+            'target_objects_meta' => 'nullable|array',
         ]);
 
         $settings = SyncSetting::updateOrCreate(
@@ -126,6 +127,7 @@ class SyncSettingsController extends Controller
                 'supplier_counterparty_id',
                 'product_filters',
                 'product_filters_enabled',
+                'target_objects_meta',
             ])
         );
 
@@ -553,6 +555,366 @@ class SyncSettingsController extends Controller
             return response()->json([
                 'error' => 'Failed to create price type: ' . $errorMessage
             ], 500);
+        }
+    }
+
+    /**
+     * Получить список организаций из главного аккаунта
+     */
+    public function getOrganizations(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Получить главный аккаунт через parent_account_id
+        $link = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account link not found'], 404);
+        }
+
+        try {
+            $mainAccount = Account::where('account_id', $link->parent_account_id)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            $response = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->get('entity/organization', ['limit' => 1000]);
+
+            $result = array_map(fn($item) => [
+                'id' => $item['id'],
+                'name' => $item['name']
+            ], $response['data']['rows'] ?? []);
+
+            Log::info('Organizations loaded', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'count' => count($result)
+            ]);
+
+            return response()->json(['data' => $result]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to load organizations', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Failed to load organizations: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Получить список складов из главного аккаунта
+     */
+    public function getStores(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Получить главный аккаунт через parent_account_id
+        $link = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account link not found'], 404);
+        }
+
+        try {
+            $mainAccount = Account::where('account_id', $link->parent_account_id)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            $response = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->get('entity/store', ['limit' => 1000]);
+
+            $result = array_map(fn($item) => [
+                'id' => $item['id'],
+                'name' => $item['name']
+            ], $response['data']['rows'] ?? []);
+
+            Log::info('Stores loaded', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'count' => count($result)
+            ]);
+
+            return response()->json(['data' => $result]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to load stores', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Failed to load stores: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Получить список проектов из главного аккаунта
+     */
+    public function getProjects(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Получить главный аккаунт через parent_account_id
+        $link = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account link not found'], 404);
+        }
+
+        try {
+            $mainAccount = Account::where('account_id', $link->parent_account_id)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            $response = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->get('entity/project', ['limit' => 1000]);
+
+            $result = array_map(fn($item) => [
+                'id' => $item['id'],
+                'name' => $item['name']
+            ], $response['data']['rows'] ?? []);
+
+            Log::info('Projects loaded', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'count' => count($result)
+            ]);
+
+            return response()->json(['data' => $result]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to load projects', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Failed to load projects: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Получить список сотрудников из главного аккаунта
+     */
+    public function getEmployees(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Получить главный аккаунт через parent_account_id
+        $link = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account link not found'], 404);
+        }
+
+        try {
+            $mainAccount = Account::where('account_id', $link->parent_account_id)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            $response = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->get('entity/employee', ['limit' => 1000]);
+
+            $result = array_map(fn($item) => [
+                'id' => $item['id'],
+                'name' => $item['name']
+            ], $response['data']['rows'] ?? []);
+
+            Log::info('Employees loaded', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'count' => count($result)
+            ]);
+
+            return response()->json(['data' => $result]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to load employees', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Failed to load employees: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Получить список каналов продаж из главного аккаунта
+     */
+    public function getSalesChannels(Request $request, $accountId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Получить главный аккаунт через parent_account_id
+        $link = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account link not found'], 404);
+        }
+
+        try {
+            $mainAccount = Account::where('account_id', $link->parent_account_id)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            $response = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->get('entity/saleschannel', ['limit' => 1000]);
+
+            $result = array_map(fn($item) => [
+                'id' => $item['id'],
+                'name' => $item['name'],
+                'type' => $item['type'] ?? null
+            ], $response['data']['rows'] ?? []);
+
+            Log::info('Sales channels loaded', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'count' => count($result)
+            ]);
+
+            return response()->json(['data' => $result]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to load sales channels', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Failed to load sales channels: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Получить статусы для типа документа из главного аккаунта
+     */
+    public function getStates(Request $request, $accountId, $entityType)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Валидация: только customerorder и purchaseorder
+        $allowedTypes = ['customerorder', 'purchaseorder'];
+        if (!in_array($entityType, $allowedTypes)) {
+            return response()->json(['error' => 'Invalid entity type. Allowed: ' . implode(', ', $allowedTypes)], 400);
+        }
+
+        // Получить главный аккаунт через parent_account_id
+        $link = DB::table('child_accounts')
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account link not found'], 404);
+        }
+
+        try {
+            $mainAccount = Account::where('account_id', $link->parent_account_id)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            // Получить metadata для получения статусов
+            $metadata = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->get("entity/{$entityType}/metadata");
+
+            $states = array_map(fn($state) => [
+                'id' => $state['id'],
+                'name' => $state['name'],
+                'color' => $state['color'] ?? null,
+                'stateType' => $state['stateType'] ?? 'Regular'
+            ], $metadata['data']['states'] ?? []);
+
+            Log::info('States loaded', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'entity_type' => $entityType,
+                'count' => count($states)
+            ]);
+
+            return response()->json(['data' => $states]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to load states', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'entity_type' => $entityType,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json(['error' => 'Failed to load states: ' . $e->getMessage()], 500);
         }
     }
 }
