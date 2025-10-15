@@ -48,6 +48,7 @@ Route::middleware(['moysklad.context'])->group(function () {
     Route::post('sync-settings/{accountId}/price-types', [SyncSettingsController::class, 'createPriceType']);
     Route::get('sync-settings/{accountId}/attributes', [SyncSettingsController::class, 'getAttributes']);
     Route::get('sync-settings/{accountId}/folders', [SyncSettingsController::class, 'getFolders']);
+    Route::get('sync-settings/{accountId}/custom-entities/{customEntityId}/elements', [SyncSettingsController::class, 'getCustomEntityElements']);
 
     // Справочники для целевых объектов (GET)
     Route::get('sync-settings/{accountId}/organizations', [SyncSettingsController::class, 'getOrganizations']);

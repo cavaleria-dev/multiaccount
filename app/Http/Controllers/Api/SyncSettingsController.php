@@ -289,7 +289,8 @@ class SyncSettingsController extends Controller
                 $result[] = [
                     'id' => $attr['id'],
                     'name' => $attr['name'] ?? 'Без имени',
-                    'type' => $attr['type'] ?? 'unknown'
+                    'type' => $attr['type'] ?? 'unknown',
+                    'customEntityMeta' => $attr['customEntityMeta'] ?? null
                 ];
             }
 
@@ -1306,7 +1307,8 @@ class SyncSettingsController extends Controller
                             $attributes[] = [
                                 'id' => $attr['id'],
                                 'name' => $attr['name'] ?? 'Без имени',
-                                'type' => $attr['type'] ?? 'unknown'
+                                'type' => $attr['type'] ?? 'unknown',
+                                'customEntityMeta' => $attr['customEntityMeta'] ?? null
                             ];
                         }
                     }
@@ -1351,6 +1353,87 @@ class SyncSettingsController extends Controller
             ]);
 
             return response()->json(['error' => 'Failed to load batch data: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Получить элементы справочника (custom entity) из main аккаунта
+     *
+     * @param Request $request
+     * @param string $accountId ID дочернего аккаунта
+     * @param string $customEntityId ID справочника
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getCustomEntityElements(Request $request, string $accountId, string $customEntityId)
+    {
+        $contextData = $request->get('moysklad_context');
+        if (!$contextData || !isset($contextData['accountId'])) {
+            return response()->json(['error' => 'Account context not found'], 400);
+        }
+
+        $mainAccountId = $contextData['accountId'];
+
+        // Проверить что это дочерний аккаунт текущего главного
+        $link = DB::table('child_accounts')
+            ->where('parent_account_id', $mainAccountId)
+            ->where('child_account_id', $accountId)
+            ->first();
+
+        if (!$link) {
+            return response()->json(['error' => 'Child account not found'], 404);
+        }
+
+        try {
+            // Получить main аккаунт
+            $mainAccount = Account::where('account_id', $mainAccountId)->first();
+
+            if (!$mainAccount) {
+                return response()->json(['error' => 'Main account not found'], 404);
+            }
+
+            if (!$mainAccount->access_token) {
+                return response()->json(['error' => 'Main account has no access token'], 500);
+            }
+
+            $moysklad = app(MoySkladService::class);
+
+            Log::info('Fetching custom entity elements', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'custom_entity_id' => $customEntityId
+            ]);
+
+            // Получить элементы справочника
+            $response = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->get("entity/customentity/{$customEntityId}", ['limit' => 1000]);
+
+            $result = array_map(fn($item) => [
+                'id' => $item['id'],
+                'name' => $item['name']
+            ], $response['data']['rows'] ?? []);
+
+            Log::info('Custom entity elements loaded', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'custom_entity_id' => $customEntityId,
+                'count' => count($result)
+            ]);
+
+            return response()->json(['data' => $result]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to load custom entity elements', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $accountId,
+                'custom_entity_id' => $customEntityId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to load custom entity elements: ' . $e->getMessage()
+            ], 500);
         }
     }
 }

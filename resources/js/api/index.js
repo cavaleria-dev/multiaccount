@@ -81,6 +81,9 @@ export default {
     getFolders(accountId) {
       return api.get(`/sync-settings/${accountId}/folders`)
     },
+    getCustomEntityElements(accountId, customEntityId) {
+      return api.get(`/sync-settings/${accountId}/custom-entities/${customEntityId}/elements`)
+    },
     // Справочники для целевых объектов
     getOrganizations(accountId) {
       return api.get(`/sync-settings/${accountId}/organizations`)

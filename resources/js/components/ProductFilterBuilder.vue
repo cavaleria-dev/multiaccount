@@ -126,6 +126,31 @@
                     />
                   </div>
                 </div>
+
+                <!-- Attribute customentity condition -->
+                <div v-else-if="condition.type === 'attribute_customentity'" class="flex gap-2">
+                  <div class="flex-grow">
+                    <SimpleSelect
+                      :model-value="condition.attribute_id"
+                      @update:model-value="(val) => onCustomEntityAttributeChange(groupIndex, condIndex, val)"
+                      placeholder="Выберите справочник"
+                      :options="customEntityAttributeOptions"
+                    />
+                  </div>
+                  <div class="flex-grow">
+                    <SimpleSelect
+                      v-if="condition.attribute_id"
+                      :model-value="condition.value"
+                      @update:model-value="(val) => updateConditionValue(groupIndex, condIndex, val)"
+                      placeholder="Выберите значение"
+                      :options="getCustomEntityElementOptions(condition.attribute_id)"
+                      :disabled="loadingCustomEntityElements[customEntityAttributeOptions.find(a => a.id === condition.attribute_id)?.customEntityId]"
+                    />
+                    <div v-else class="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-400 bg-gray-50">
+                      Сначала выберите справочник
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <!-- Remove condition button -->
@@ -200,11 +225,13 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import ProductFolderPicker from './ProductFolderPicker.vue'
 import SimpleSelect from './SimpleSelect.vue'
+import api from '../api'
 
 // Condition type options
 const conditionTypeOptions = [
   { id: 'folder', name: 'Группа товаров' },
-  { id: 'attribute_flag', name: 'Признак (флаг)' }
+  { id: 'attribute_flag', name: 'Признак (флаг)' },
+  { id: 'attribute_customentity', name: 'Справочник' }
 ]
 
 // Boolean value options
@@ -243,6 +270,8 @@ const filterGroups = ref([])
 const tempFolderSelection = ref([])
 const currentEditingCondition = ref(null) // { groupIndex, condIndex }
 const folderPicker = ref(null)
+const customEntityElements = ref({}) // { customEntityId: [{id, name}] }
+const loadingCustomEntityElements = ref({}) // { customEntityId: boolean }
 
 // Computed
 const flagAttributes = computed(() => {
@@ -253,6 +282,18 @@ const flagAttributeOptions = computed(() => {
   return flagAttributes.value.map(attr => ({
     id: attr.id,
     name: attr.name
+  }))
+})
+
+const customEntityAttributes = computed(() => {
+  return props.attributes.filter(attr => attr.type === 'customentity' && attr.customEntityMeta)
+})
+
+const customEntityAttributeOptions = computed(() => {
+  return customEntityAttributes.value.map(attr => ({
+    id: attr.id,
+    name: attr.name,
+    customEntityId: extractCustomEntityId(attr.customEntityMeta?.href)
   }))
 })
 
@@ -320,6 +361,10 @@ const onConditionTypeChange = (groupIndex, condIndex) => {
     condition.attribute_id = ''
     condition.value = true
     delete condition.folder_ids
+  } else if (condition.type === 'attribute_customentity') {
+    condition.attribute_id = ''
+    condition.value = ''
+    delete condition.folder_ids
   }
 
   emitUpdate()
@@ -381,6 +426,54 @@ const removeFolderFromCondition = (groupIndex, condIndex, folderId) => {
   if (index > -1) {
     condition.folder_ids.splice(index, 1)
     emitUpdate()
+  }
+}
+
+// Извлечь ID справочника из href
+const extractCustomEntityId = (href) => {
+  if (!href) return null
+  const match = href.match(/\/entity\/customentity\/([a-f0-9-]+)/)
+  return match ? match[1] : null
+}
+
+// Загрузить элементы справочника
+const loadCustomEntityElements = async (customEntityId) => {
+  if (!customEntityId || customEntityElements.value[customEntityId]) {
+    return // Уже загружены
+  }
+
+  try {
+    loadingCustomEntityElements.value[customEntityId] = true
+    const response = await api.syncSettings.getCustomEntityElements(props.accountId, customEntityId)
+    customEntityElements.value[customEntityId] = response.data.data || []
+  } catch (error) {
+    console.error('Failed to load custom entity elements:', error)
+    customEntityElements.value[customEntityId] = []
+  } finally {
+    loadingCustomEntityElements.value[customEntityId] = false
+  }
+}
+
+// Получить опции для выбора элемента справочника
+const getCustomEntityElementOptions = (attributeId) => {
+  const attr = customEntityAttributeOptions.value.find(a => a.id === attributeId)
+  if (!attr || !attr.customEntityId) return []
+
+  const elements = customEntityElements.value[attr.customEntityId] || []
+  return elements.map(el => ({
+    id: el.id,
+    name: el.name
+  }))
+}
+
+// Обработать изменение атрибута справочника
+const onCustomEntityAttributeChange = async (groupIndex, condIndex, attributeId) => {
+  updateConditionAttribute(groupIndex, condIndex, attributeId)
+
+  // Загрузить элементы справочника
+  const attr = customEntityAttributeOptions.value.find(a => a.id === attributeId)
+  if (attr && attr.customEntityId) {
+    await loadCustomEntityElements(attr.customEntityId)
   }
 }
 </script>
