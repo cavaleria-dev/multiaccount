@@ -18,7 +18,7 @@
         <p class="text-sm text-gray-500 mt-2">Загрузка типов цен...</p>
       </div>
 
-      <div v-else class="space-y-3 max-h-96 overflow-y-auto pr-1">
+      <div v-else class="space-y-3">
         <div
           v-for="(mapping, index) in modelValue"
           :key="`price-mapping-${index}`"
