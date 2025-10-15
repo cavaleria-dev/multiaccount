@@ -40,6 +40,15 @@ class ProcessSyncQueueJob implements ShouldQueue
         SyncStatisticsService $statisticsService,
         WebhookService $webhookService
     ): void {
+        // Детальное логирование для диагностики
+        $totalPending = \DB::table('sync_queue')->where('status', 'pending')->count();
+        $currentTime = now()->toDateTimeString();
+
+        Log::info('ProcessSyncQueueJob START', [
+            'current_time' => $currentTime,
+            'total_pending_in_db' => $totalPending
+        ]);
+
         // Обработать задачи из очереди (порциями по 50)
         $tasks = SyncQueue::where('status', 'pending')
             ->where(function($query) {
@@ -52,7 +61,11 @@ class ProcessSyncQueueJob implements ShouldQueue
             ->get();
 
         if ($tasks->isEmpty()) {
-            Log::debug('No pending tasks in sync queue');
+            Log::warning('ProcessSyncQueueJob: No tasks ready to process', [
+                'total_pending_in_db' => $totalPending,
+                'tasks_found_by_query' => 0,
+                'reason' => 'Either all tasks have scheduled_at in future, or no pending tasks exist'
+            ]);
             return;
         }
 
