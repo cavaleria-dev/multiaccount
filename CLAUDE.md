@@ -182,6 +182,15 @@ This app integrates with МойСклад (Russian inventory management system) 
 
 **Key Composables** (`resources/js/composables/`):
 - `useMoyskladContext.js` - Context management, loads from URL params, saves to sessionStorage
+- `useMoyskladEntities.js` - Universal loader for МойСклад entities with caching
+  * Supports 10 entity types: organizations, stores, projects, employees, salesChannels, customerOrderStates, purchaseOrderStates, attributes, folders, priceTypes
+  * Auto-caching with `loaded` flag
+  * Methods: `load(force)`, `reload()`, `clear()`, `addItem()`, `addChildPriceType()`
+  * Reduces code duplication (~300 lines saved across components)
+- `useTargetObjectsMetadata.js` - Metadata management for target objects
+  * Auto-watches 10 settings fields (target_organization_id, target_store_id, etc.)
+  * Methods: `updateMetadata()`, `clearMetadata()`, `initializeMetadata()`, `getMetadata()`
+  * Replaces 9 identical watch handlers (~50 lines saved)
 
 **Pages** (`resources/js/pages/`):
 - `Dashboard.vue` - Statistics overview
@@ -191,6 +200,23 @@ This app integrates with МойСклад (Russian inventory management system) 
 
 **API Client** (`resources/js/api/index.js`):
 - Axios instance with interceptor that auto-adds `X-MoySklad-Context-Key` from sessionStorage
+
+**Component Architecture:**
+
+Settings pages use modular component structure for maintainability:
+
+`FranchiseSettings.vue` (983 lines) - Main settings page, composed of:
+- `ProductSyncSection.vue` (131 lines) - Product sync checkboxes + advanced settings
+- `PriceMappingsSection.vue` (254 lines) - Price type mappings + attribute selection
+- `ProductFiltersSection.vue` (77 lines) - Product filters toggle + ProductFilterBuilder
+- `DocumentSyncSection.vue` (356 lines) - Document sync options + target objects
+- `AutoCreateSection.vue` (72 lines) - Auto-creation settings
+
+**Component pattern:** "Dumb" components that only render UI and emit events. All business logic remains in parent component (FranchiseSettings.vue). This approach:
+- Reduces main file size by 32% (1454 → 983 lines)
+- Improves code organization and readability
+- Maintains single source of truth for data and logic
+- Easy to add/remove/reorder sections
 
 ### Database Structure
 
@@ -345,6 +371,18 @@ If valid → Creates row in `child_accounts` → Creates default `sync_settings`
 - Получить дерево групп товаров из main аккаунта
 - Возвращает иерархическую структуру папок
 
+**GET** `/api/sync-settings/{accountId}/batch` ⭐ **NEW - Batch Loading**
+- Batch load initial data for settings page (optimization)
+- Returns in single request:
+  1. `settings` - Sync settings object
+  2. `accountName` - Child account name
+  3. `priceTypes` - { main: [...], child: [...] } with buyPrice prepended
+  4. `attributes` - [{id, name, type}]
+  5. `folders` - Hierarchical folder tree
+- **Performance:** 4-5 API calls → 1 API call (3-4x faster page load)
+- Graceful degradation: if one resource fails, others still load
+- Returns: `{data: {settings, accountName, priceTypes, attributes, folders}}`
+
 ### Sync Actions
 
 **POST** `/api/sync/{accountId}/products/all`
@@ -404,6 +442,81 @@ SyncQueue::create([
 ]);
 ```
 
+### Using useMoyskladEntities Composable
+
+```javascript
+import { useMoyskladEntities } from '@/composables/useMoyskladEntities'
+
+// In component setup
+const accountId = ref('uuid-here')
+
+// Create entity loaders
+const organizationsLoader = useMoyskladEntities(accountId.value, 'organizations')
+const storesLoader = useMoyskladEntities(accountId.value, 'stores')
+
+// Access reactive data
+const organizations = organizationsLoader.items
+const loading = organizationsLoader.loading
+const error = organizationsLoader.error
+
+// Load data (with auto-caching)
+await organizationsLoader.load() // Won't reload if already loaded
+await organizationsLoader.reload() // Force reload
+
+// Add new item after creation
+const newOrg = await api.syncSettings.createOrganization(accountId.value, data)
+organizationsLoader.addItem(newOrg.data)
+```
+
+### Using useTargetObjectsMetadata Composable
+
+```javascript
+import { useTargetObjectsMetadata } from '@/composables/useTargetObjectsMetadata'
+
+// In component setup
+const settings = ref({
+  target_organization_id: null,
+  target_store_id: null,
+  // ... other fields
+})
+
+const entities = {
+  organizations: organizationsLoader.items,
+  stores: storesLoader.items,
+  projects: projectsLoader.items,
+  employees: employeesLoader.items,
+  customerOrderStates: customerOrderStatesLoader.items,
+  salesChannels: salesChannelsLoader.items,
+  purchaseOrderStates: purchaseOrderStatesLoader.items
+}
+
+// Setup metadata management (auto-watches all fields)
+const { metadata, initializeMetadata } = useTargetObjectsMetadata(settings, entities)
+
+// Initialize from API response
+initializeMetadata(response.data.targetObjectsMeta)
+
+// metadata.value automatically updates when selections change
+// Use in SearchableSelect :initial-name="metadata.customer_order_state_id?.name"
+```
+
+### Using Batch Loading
+
+```javascript
+// OLD WAY (5 separate requests):
+const settings = await api.syncSettings.get(accountId)
+const priceTypes = await api.syncSettings.getPriceTypes(accountId)
+const attributes = await api.syncSettings.getAttributes(accountId)
+const folders = await api.syncSettings.getFolders(accountId)
+// accountName from separate query...
+
+// NEW WAY (1 batch request):
+const batchData = await api.syncSettings.getBatch(accountId)
+const { settings, accountName, priceTypes, attributes, folders } = batchData.data.data
+
+// 3-4x faster, especially on slow connections
+```
+
 ## Important Gotchas
 
 1. **JWT for МойСклад MUST use `JSON_UNESCAPED_SLASHES`** - will fail without it
@@ -416,6 +529,10 @@ SyncQueue::create([
 8. **CORS** - Only `online.moysklad.ru` and `dev.moysklad.ru` allowed
 9. **Price Types Endpoint** - Use `context/companysettings` (NOT `context/companysettings/pricetype`), returns all company settings including `priceTypes` array
 10. **MoySkladService Response Structure** - All methods return `['data' => ..., 'rateLimitInfo' => ...]`, always access via `$response['data']`
+11. **useMoyskladEntities Caching** - Always check if data is loaded before calling `load()`. Use `reload()` to force refresh. The composable prevents duplicate API calls automatically.
+12. **Component Emit Events** - Section components (ProductSyncSection, etc.) only emit events, they don't call APIs directly. Parent component (FranchiseSettings.vue) handles all API calls and state management.
+13. **Batch Loading First** - Use `getBatch()` for initial page load, then use individual endpoints only when user interacts (opens dropdown, clicks create, etc.)
+14. **Price Types Structure** - priceTypes endpoint returns `{main: [...], child: [...]}`, NOT a flat array. Always destructure correctly.
 
 ## Configuration
 
