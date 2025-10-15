@@ -133,7 +133,8 @@ class ProcessSyncQueueJob implements ShouldQueue
                 // Прервать обработку текущей порции
                 break;
 
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
+                // Ловим и Exception, и Error (включая TypeError)
                 $task->increment('attempts');
 
                 if ($task->attempts >= $task->max_attempts) {
@@ -194,7 +195,8 @@ class ProcessSyncQueueJob implements ShouldQueue
         PurchaseOrderSyncService $purchaseOrderSyncService,
         WebhookService $webhookService
     ): void {
-        $payload = $task->payload;
+        // Гарантировать что payload это массив, а не null
+        $payload = $task->payload ?? [];
 
         match($task->entity_type) {
             'product' => $this->processProductSync($task, $payload, $productSyncService),
