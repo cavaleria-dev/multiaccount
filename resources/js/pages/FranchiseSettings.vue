@@ -68,51 +68,106 @@
         </div>
       </div>
 
-      <!-- Grid для компактных секций (2 колонки) -->
+      <!-- Секция 1: Синхронизация товаров + Расширенные настройки -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
         <!-- Синхронизация товаров -->
         <div class="bg-white shadow rounded-lg p-5">
           <h3 class="text-base font-medium text-gray-900 mb-3">Синхронизация товаров</h3>
           <div class="space-y-3">
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="sync_products"
-                v-model="settings.sync_products"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
+            <div class="flex items-start">
+              <div class="flex items-center h-5">
+                <input
+                  id="sync_products"
+                  v-model="settings.sync_products"
+                  type="checkbox"
+                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                />
+              </div>
+              <div class="ml-2 text-sm">
+                <label for="sync_products" class="font-medium text-gray-700">Товары</label>
+              </div>
             </div>
-            <div class="ml-2 text-sm">
-              <label for="sync_products" class="font-medium text-gray-700">Товары</label>
+            <div class="flex items-center">
+              <input id="sync_variants" v-model="settings.sync_variants" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+              <label for="sync_variants" class="ml-2 text-sm font-medium text-gray-700">Модификации</label>
             </div>
-          </div>
-          <div class="flex items-center">
-            <input id="sync_variants" v-model="settings.sync_variants" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-            <label for="sync_variants" class="ml-2 text-sm font-medium text-gray-700">Модификации</label>
-          </div>
-          <div class="flex items-center">
-            <input id="sync_bundles" v-model="settings.sync_bundles" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-            <label for="sync_bundles" class="ml-2 text-sm font-medium text-gray-700">Комплекты</label>
-          </div>
-          <div class="flex items-center">
-            <input id="sync_services" v-model="settings.sync_services" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-            <label for="sync_services" class="ml-2 text-sm font-medium text-gray-700">Услуги</label>
-          </div>
-          <div class="flex items-center">
-            <input id="sync_images" v-model="settings.sync_images" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-            <label for="sync_images" class="ml-2 text-sm font-medium text-gray-700">Изображения</label>
-          </div>
-          <div class="flex items-center">
-            <input id="sync_images_all" v-model="settings.sync_images_all" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-            <label for="sync_images_all" class="ml-2 text-sm font-medium text-gray-700">Все изображения</label>
-          </div>
-          <div class="flex items-center">
-            <input id="sync_prices" v-model="settings.sync_prices" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
-            <label for="sync_prices" class="ml-2 text-sm font-medium text-gray-700">Цены</label>
+            <div class="flex items-center">
+              <input id="sync_bundles" v-model="settings.sync_bundles" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+              <label for="sync_bundles" class="ml-2 text-sm font-medium text-gray-700">Комплекты</label>
+            </div>
+            <div class="flex items-center">
+              <input id="sync_services" v-model="settings.sync_services" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+              <label for="sync_services" class="ml-2 text-sm font-medium text-gray-700">Услуги</label>
+            </div>
+            <div class="flex items-center">
+              <input id="sync_images" v-model="settings.sync_images" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+              <label for="sync_images" class="ml-2 text-sm font-medium text-gray-700">Изображения</label>
+            </div>
+            <div class="flex items-center">
+              <input id="sync_images_all" v-model="settings.sync_images_all" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+              <label for="sync_images_all" class="ml-2 text-sm font-medium text-gray-700">Все изображения</label>
+            </div>
+            <div class="flex items-center">
+              <input id="sync_prices" v-model="settings.sync_prices" type="checkbox" class="h-4 w-4 text-indigo-600 border-gray-300 rounded" />
+              <label for="sync_prices" class="ml-2 text-sm font-medium text-gray-700">Цены</label>
+            </div>
           </div>
         </div>
+
+        <!-- Расширенные настройки товаров -->
+        <div class="bg-white shadow rounded-lg p-5">
+          <h3 class="text-base font-medium text-gray-900 mb-3">Расширенные настройки товаров</h3>
+          <div class="space-y-4">
+            <!-- Product match field -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">Поле для сопоставления товаров</label>
+              <select
+                v-model="settings.product_match_field"
+                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+              >
+                <option value="code">Код (code)</option>
+                <option value="article">Артикул (article)</option>
+                <option value="externalCode">Внешний код (externalCode)</option>
+                <option value="barcode">Штрихкод (первый barcode)</option>
+              </select>
+              <p class="mt-1 text-xs text-gray-500">По какому полю искать существующие товары в дочернем аккаунте</p>
+            </div>
+
+            <!-- Create product folders -->
+            <div class="flex items-start">
+              <div class="flex items-center h-5">
+                <input
+                  id="create_product_folders"
+                  v-model="settings.create_product_folders"
+                  type="checkbox"
+                  class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
+                />
+              </div>
+              <div class="ml-3 text-sm">
+                <label for="create_product_folders" class="font-medium text-gray-700">Создавать группы товаров</label>
+                <p class="text-gray-500">Создавать соответствующие группы товаров в дочернем аккаунте (структура каталога)</p>
+              </div>
+            </div>
+
+            <!-- Sync all products button -->
+            <div class="border-t border-gray-200 pt-3">
+              <button
+                type="button"
+                @click="syncAllProducts"
+                :disabled="syncing"
+                class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-all"
+              >
+                <svg v-if="syncing" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span v-if="syncing">Синхронизация...</span>
+                <span v-else>Синхронизировать все товары</span>
+              </button>
+              <p v-if="syncProgress" class="mt-2 text-sm text-green-600">{{ syncProgress }}</p>
+              <p class="mt-2 text-xs text-gray-500">Запустит синхронизацию всех товаров согласно настройкам и фильтрам</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -324,63 +379,7 @@
         </div>
       </div>
 
-      <!-- Расширенные настройки товаров -->
-      <div class="bg-white shadow rounded-lg p-6">
-        <h3 class="text-lg font-medium text-gray-900 mb-4">Расширенные настройки товаров</h3>
-        <div class="space-y-6">
-          <!-- Product match field -->
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-2">Поле для сопоставления товаров</label>
-            <select
-              v-model="settings.product_match_field"
-              class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-            >
-              <option value="code">Код (code)</option>
-              <option value="article">Артикул (article)</option>
-              <option value="externalCode">Внешний код (externalCode)</option>
-              <option value="barcode">Штрихкод (первый barcode)</option>
-            </select>
-            <p class="mt-1 text-xs text-gray-500">По какому полю искать существующие товары в дочернем аккаунте</p>
-          </div>
-
-          <!-- Create product folders -->
-          <div class="flex items-start">
-            <div class="flex items-center h-5">
-              <input
-                id="create_product_folders"
-                v-model="settings.create_product_folders"
-                type="checkbox"
-                class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-              />
-            </div>
-            <div class="ml-3 text-sm">
-              <label for="create_product_folders" class="font-medium text-gray-700">Создавать группы товаров</label>
-              <p class="text-gray-500">Создавать соответствующие группы товаров в дочернем аккаунте (структура каталога)</p>
-            </div>
-          </div>
-
-          <!-- Sync all products button -->
-          <div class="border-t border-gray-200 pt-4">
-            <button
-              type="button"
-              @click="syncAllProducts"
-              :disabled="syncing"
-              class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-all"
-            >
-              <svg v-if="syncing" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              <span v-if="syncing">Синхронизация...</span>
-              <span v-else>Синхронизировать все товары</span>
-            </button>
-            <p v-if="syncProgress" class="mt-2 text-sm text-green-600">{{ syncProgress }}</p>
-            <p class="mt-2 text-xs text-gray-500">Запустит синхронизацию всех товаров согласно настройкам и фильтрам</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Price mappings -->
+      <!-- Секция 2: Сопоставление типов цен + Выбор доп.полей -->
       <div class="bg-white shadow rounded-lg p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">Сопоставление типов цен</h3>
         <p class="text-sm text-gray-500 mb-2">
