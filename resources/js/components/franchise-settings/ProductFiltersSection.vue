@@ -7,7 +7,7 @@
         label="Включить фильтрацию товаров"
         description="Использовать фильтры для выборочной синхронизации товаров"
         size="small"
-        color="purple"
+        color="green"
       />
     </div>
 

@@ -77,6 +77,8 @@ class SyncSetting extends Model
         'purchase_order_sales_channel_id',
         'supplier_counterparty_id',
         'target_objects_meta',
+        'product_filters',
+        'product_filters_enabled',
     ];
 
     /**
@@ -114,6 +116,8 @@ class SyncSetting extends Model
         'sync_priority' => 'integer',
         'sync_delay_seconds' => 'integer',
         'target_objects_meta' => 'array',
+        'product_filters' => 'array',
+        'product_filters_enabled' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
