@@ -306,6 +306,22 @@ watch(() => props.modelValue, (newVal) => {
   }
 }, { immediate: true, deep: true })
 
+// Load custom entity elements on mount for existing conditions
+onMounted(() => {
+  // Пройтись по всем условиям и загрузить элементы справочников
+  filterGroups.value.forEach(group => {
+    group.conditions.forEach(condition => {
+      if (condition.type === 'attribute_customentity' && condition.attribute_id) {
+        // Найти атрибут и загрузить его элементы
+        const attr = customEntityAttributeOptions.value.find(a => a.id === condition.attribute_id)
+        if (attr && attr.customEntityId) {
+          loadCustomEntityElements(attr.customEntityId)
+        }
+      }
+    })
+  })
+})
+
 // Methods
 const emitUpdate = () => {
   emit('update:modelValue', { groups: filterGroups.value })
