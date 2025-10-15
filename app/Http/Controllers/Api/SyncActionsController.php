@@ -65,6 +65,7 @@ class SyncActionsController extends Controller
                     $moysklad,
                     $mainAccount->access_token,
                     'product',
+                    $mainAccountId,
                     $accountId,
                     $syncSettings,
                     $filterService
@@ -77,6 +78,7 @@ class SyncActionsController extends Controller
                     $moysklad,
                     $mainAccount->access_token,
                     'bundle',
+                    $mainAccountId,
                     $accountId,
                     $syncSettings,
                     $filterService
@@ -89,6 +91,7 @@ class SyncActionsController extends Controller
                     $moysklad,
                     $mainAccount->access_token,
                     'service',
+                    $mainAccountId,
                     $accountId,
                     $syncSettings,
                     $filterService
@@ -125,7 +128,8 @@ class SyncActionsController extends Controller
      * @param MoySkladService $moysklad
      * @param string $token
      * @param string $entityType product|bundle|service
-     * @param string $accountId
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $accountId UUID дочернего аккаунта
      * @param SyncSetting $syncSettings
      * @param ProductFilterService $filterService
      * @return int Количество созданных задач
@@ -134,24 +138,47 @@ class SyncActionsController extends Controller
         MoySkladService $moysklad,
         string $token,
         string $entityType,
+        string $mainAccountId,
         string $accountId,
         SyncSetting $syncSettings,
         ProductFilterService $filterService
     ): int {
         $tasksCreated = 0;
         $offset = 0;
-        $limit = 1000; // Максимум для МойСклад без expand
         $totalProcessed = 0;
+        $totalFiltered = 0;
 
-        Log::info("Starting sync for entity type: {$entityType}");
+        // Проверить нужен ли expand для фильтров
+        $needsExpand = in_array($entityType, ['product', 'bundle'])
+            && $syncSettings->product_filters_enabled
+            && $syncSettings->product_filters;
+
+        // С expand лимит 100, без expand - 1000
+        $limit = $needsExpand ? 100 : 1000;
+
+        Log::info("Starting sync for entity type: {$entityType}", [
+            'filters_enabled' => $syncSettings->product_filters_enabled ?? false,
+            'needs_expand' => $needsExpand,
+            'limit' => $limit
+        ]);
 
         do {
+            $pageTasksCreated = 0;
+            $pageFiltered = 0;
+
             // Загрузить страницу
+            $params = [
+                'limit' => $limit,
+                'offset' => $offset
+            ];
+
+            // Добавить expand для полей, если нужны фильтры
+            if ($needsExpand) {
+                $params['expand'] = 'productFolder,attributes';
+            }
+
             $response = $moysklad->setAccessToken($token)
-                ->get("/entity/{$entityType}", [
-                    'limit' => $limit,
-                    'offset' => $offset
-                ]);
+                ->get("/entity/{$entityType}", $params);
 
             $entities = $response['data']['rows'] ?? [];
             $pageCount = count($entities);
@@ -163,6 +190,8 @@ class SyncActionsController extends Controller
                 if (in_array($entityType, ['product', 'bundle'])) {
                     if ($syncSettings->product_filters_enabled && $syncSettings->product_filters) {
                         if (!$filterService->passes($entity, $syncSettings->product_filters)) {
+                            $pageFiltered++;
+                            $totalFiltered++;
                             continue; // Пропустить
                         }
                     }
@@ -177,27 +206,35 @@ class SyncActionsController extends Controller
                     'priority' => 10, // Высокий приоритет для ручной синхронизации
                     'scheduled_at' => now(),
                     'status' => 'pending',
-                    'attempts' => 0
+                    'attempts' => 0,
+                    'payload' => [
+                        'main_account_id' => $mainAccountId
+                    ]
                 ]);
 
+                $pageTasksCreated++;
                 $tasksCreated++;
             }
 
             Log::info("Processed page for {$entityType}", [
                 'offset' => $offset,
                 'page_size' => $pageCount,
-                'tasks_created_on_page' => $tasksCreated,
-                'total_processed' => $totalProcessed
+                'tasks_created_on_page' => $pageTasksCreated,
+                'filtered_on_page' => $pageFiltered,
+                'total_processed' => $totalProcessed,
+                'total_created' => $tasksCreated,
+                'total_filtered' => $totalFiltered
             ]);
 
             $offset += $limit;
 
-            // Продолжать пока получаем полную страницу (1000 записей)
+            // Продолжать пока получаем полную страницу
         } while ($pageCount === $limit);
 
         Log::info("Finished sync for entity type: {$entityType}", [
             'total_entities_processed' => $totalProcessed,
-            'total_tasks_created' => $tasksCreated
+            'total_tasks_created' => $tasksCreated,
+            'total_filtered_out' => $totalFiltered
         ]);
 
         return $tasksCreated;
