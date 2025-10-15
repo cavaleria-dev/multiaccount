@@ -1,24 +1,11 @@
 <template>
   <div class="product-filter-builder">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <h4 class="text-sm font-medium text-gray-900">Фильтры товаров</h4>
-        <p class="text-xs text-gray-500 mt-1">
-          Условия внутри группы объединяются по И, группы между собой по ИЛИ
-        </p>
-      </div>
-      <button
-        v-if="filterGroups.length < 10"
-        @click="addGroup"
-        type="button"
-        class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
-      >
-        <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-        </svg>
-        Добавить группу
-      </button>
+    <div class="mb-4">
+      <h4 class="text-sm font-medium text-gray-900">Фильтры товаров</h4>
+      <p class="text-xs text-gray-500 mt-1">
+        Условия внутри группы объединяются по И, группы между собой по ИЛИ
+      </p>
     </div>
 
     <!-- Empty state -->
@@ -28,13 +15,24 @@
       </svg>
       <p class="text-sm text-gray-500 mt-3">Фильтры не настроены</p>
       <p class="text-xs text-gray-400 mt-1">Нажмите "Добавить группу" для создания первого фильтра</p>
+      <button
+        @click="addGroup"
+        type="button"
+        class="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors mt-4"
+      >
+        <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        Добавить группу
+      </button>
     </div>
 
     <!-- Filter groups -->
     <div v-else class="space-y-4">
       <template v-for="(group, groupIndex) in filterGroups" :key="`group-${groupIndex}`">
       <div
-        class="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-white"
+        class="border-2 border-solid rounded-lg p-4 bg-white"
+        style="border-color: rgb(171, 171, 171);"
       >
         <!-- Group header -->
         <div class="flex items-center justify-between mb-3">
@@ -56,7 +54,8 @@
         <div class="space-y-3">
           <template v-for="(condition, condIndex) in group.conditions" :key="`condition-${groupIndex}-${condIndex}`">
           <div
-            class="bg-gray-50 rounded-md p-3 border border-gray-200"
+            class="bg-gray-50 rounded-md p-3 border-2 border-dashed"
+            style="border-color: rgb(171, 171, 171);"
           >
             <div class="flex items-start gap-3">
               <!-- Condition type selector -->
@@ -154,9 +153,12 @@
           <button
             @click="addCondition(groupIndex)"
             type="button"
-            class="w-full px-3 py-2 border border-dashed border-gray-300 rounded-md text-sm text-gray-600 hover:border-indigo-500 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+            class="inline-flex items-center justify-center w-full px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
           >
-            + Добавить условие
+            <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            Добавить условие
           </button>
         </div>
       </div>
@@ -168,6 +170,19 @@
         </span>
       </div>
       </template>
+
+      <!-- Add group button -->
+      <button
+        v-if="filterGroups.length < 10"
+        @click="addGroup"
+        type="button"
+        class="inline-flex items-center justify-center w-full px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+      >
+        <svg class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        Добавить группу
+      </button>
     </div>
 
     <!-- Folder picker modal -->
