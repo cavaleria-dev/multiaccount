@@ -51,7 +51,7 @@ import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   modelValue: {
-    type: Number, // ARGB integer format
+    type: Number, // RGB integer format (МойСклад: (R << 16) | (G << 8) | B)
     default: null
   },
   label: {
@@ -81,12 +81,14 @@ const presetColors = [
   { name: 'Серый', hex: '#8E8E93' }
 ]
 
-// Convert ARGB integer to hex color
+// Convert RGB integer to hex color
+// МойСклад uses RGB format (not ARGB), example: rgb(162, 198, 23) = 10667543
 const intToHex = (colorInt) => {
   if (!colorInt && colorInt !== 0) {
     return '#007AFF' // Default blue
   }
 
+  // Extract RGB bytes (no alpha channel in МойСклад format)
   const r = (colorInt >> 16) & 0xFF
   const g = (colorInt >> 8) & 0xFF
   const b = colorInt & 0xFF
@@ -94,17 +96,18 @@ const intToHex = (colorInt) => {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
 }
 
-// Convert hex color to ARGB integer (with alpha = 255)
+// Convert hex color to RGB integer (МойСклад format)
+// Example: #A2C617 → 10667543
 const hexToInt = (hex) => {
   const r = parseInt(hex.slice(1, 3), 16)
   const g = parseInt(hex.slice(3, 5), 16)
   const b = parseInt(hex.slice(5, 7), 16)
-  const alpha = 255 // Full opacity
 
-  return (alpha << 24) | (r << 16) | (g << 8) | b
+  // МойСклад format: RGB as single integer (no alpha channel)
+  return (r << 16) | (g << 8) | b
 }
 
-// Computed hex color from ARGB integer
+// Computed hex color from RGB integer
 const hexColor = computed(() => intToHex(props.modelValue))
 
 // Handle color input change

@@ -1168,7 +1168,7 @@ class SyncSettingsController extends Controller
         // Валидация
         $request->validate([
             'name' => 'required|string|min:1|max:255',
-            'color' => 'required|integer|min:0|max:4294967295', // ARGB формат: 0 до 2^32-1
+            'color' => 'required|integer|min:0|max:16777215', // RGB формат: 0 до 16777215 (0xFFFFFF)
             'stateType' => 'nullable|in:Regular,Successful,Unsuccessful'
         ]);
 

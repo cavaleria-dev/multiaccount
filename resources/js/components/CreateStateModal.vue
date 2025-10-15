@@ -167,7 +167,7 @@ const loading = ref(false)
 const formData = ref({
   name: '',
   stateType: 'Regular',
-  color: 33023 // Default blue color (0x007AFF)
+  color: 31487 // Default blue color #007AFF (RGB: 0, 122, 255)
 })
 const errors = ref({
   name: null,
@@ -182,7 +182,7 @@ watch(() => props.show, (newValue) => {
     formData.value = {
       name: '',
       stateType: 'Regular',
-      color: 33023 // Default blue
+      color: 31487 // Default blue #007AFF
     }
     errors.value = {
       name: null,

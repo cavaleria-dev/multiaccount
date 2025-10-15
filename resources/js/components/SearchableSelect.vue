@@ -204,7 +204,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'open', 'create', 'clear'])
 
-// Convert ARGB integer to hex color for display
+// Convert RGB integer to hex color for display
+// МойСклад format: RGB as single integer (R << 16) | (G << 8) | B
 const intToHex = (colorInt) => {
   if (!colorInt && colorInt !== 0) {
     return '#cccccc'
