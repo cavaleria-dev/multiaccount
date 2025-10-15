@@ -214,6 +214,17 @@ class ProcessSyncQueueJob implements ShouldQueue
      */
     protected function processProductSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
     {
+        // Проверить что payload содержит необходимые данные
+        if (empty($payload) || !isset($payload['main_account_id'])) {
+            Log::warning('Task skipped: missing main_account_id in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'entity_id' => $task->entity_id,
+                'payload' => $payload
+            ]);
+            throw new \Exception('Invalid payload: missing main_account_id');
+        }
+
         if ($task->operation === 'delete') {
             // При удалении или архивации товара в главном - архивируем во всех дочерних
             $archivedCount = $productSyncService->archiveProduct(
@@ -241,6 +252,17 @@ class ProcessSyncQueueJob implements ShouldQueue
      */
     protected function processVariantSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
     {
+        // Проверить что payload содержит необходимые данные
+        if (empty($payload) || !isset($payload['main_account_id'])) {
+            Log::warning('Task skipped: missing main_account_id in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'entity_id' => $task->entity_id,
+                'payload' => $payload
+            ]);
+            throw new \Exception('Invalid payload: missing main_account_id');
+        }
+
         if ($task->operation === 'delete') {
             // При удалении или архивации модификации в главном - архивируем во всех дочерних
             $archivedCount = $productSyncService->archiveVariant(
@@ -268,6 +290,17 @@ class ProcessSyncQueueJob implements ShouldQueue
      */
     protected function processBundleSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
     {
+        // Проверить что payload содержит необходимые данные
+        if (empty($payload) || !isset($payload['main_account_id'])) {
+            Log::warning('Task skipped: missing main_account_id in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'entity_id' => $task->entity_id,
+                'payload' => $payload
+            ]);
+            throw new \Exception('Invalid payload: missing main_account_id');
+        }
+
         if ($task->operation === 'delete') {
             // При удалении или архивации комплекта в главном - архивируем во всех дочерних
             $archivedCount = $productSyncService->archiveBundle(
@@ -295,6 +328,17 @@ class ProcessSyncQueueJob implements ShouldQueue
      */
     protected function processServiceSync(SyncQueue $task, array $payload, ServiceSyncService $serviceSyncService): void
     {
+        // Проверить что payload содержит необходимые данные
+        if (empty($payload) || !isset($payload['main_account_id'])) {
+            Log::warning('Task skipped: missing main_account_id in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'entity_id' => $task->entity_id,
+                'payload' => $payload
+            ]);
+            throw new \Exception('Invalid payload: missing main_account_id');
+        }
+
         if ($task->operation === 'delete') {
             // При удалении или архивации услуги в главном - архивируем во всех дочерних
             $archivedCount = $serviceSyncService->archiveService(
