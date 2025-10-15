@@ -454,16 +454,25 @@ const extractCustomEntityId = (href) => {
 
 // Загрузить элементы справочника
 const loadCustomEntityElements = async (customEntityId) => {
+  console.log('loadCustomEntityElements called with:', customEntityId)
+  console.log('accountId:', props.accountId)
+  console.log('Already cached?:', customEntityElements.value[customEntityId])
+
   if (!customEntityId || customEntityElements.value[customEntityId]) {
+    console.log('Skipping load - already cached or no ID')
     return // Уже загружены
   }
 
   try {
     loadingCustomEntityElements.value[customEntityId] = true
+    console.log('Calling API...')
     const response = await api.syncSettings.getCustomEntityElements(props.accountId, customEntityId)
+    console.log('API response:', response.data)
     customEntityElements.value[customEntityId] = response.data.data || []
+    console.log('Saved to cache:', customEntityElements.value[customEntityId])
   } catch (error) {
     console.error('Failed to load custom entity elements:', error)
+    console.error('Error details:', error.response?.data)
     customEntityElements.value[customEntityId] = []
   } finally {
     loadingCustomEntityElements.value[customEntityId] = false
@@ -484,12 +493,20 @@ const getCustomEntityElementOptions = (attributeId) => {
 
 // Обработать изменение атрибута справочника
 const onCustomEntityAttributeChange = async (groupIndex, condIndex, attributeId) => {
+  console.log('onCustomEntityAttributeChange called', { groupIndex, condIndex, attributeId })
   updateConditionAttribute(groupIndex, condIndex, attributeId)
 
   // Загрузить элементы справочника
   const attr = customEntityAttributeOptions.value.find(a => a.id === attributeId)
+  console.log('Found attribute:', attr)
+  console.log('All customEntityAttributeOptions:', customEntityAttributeOptions.value)
+
   if (attr && attr.customEntityId) {
+    console.log('Loading elements for customEntityId:', attr.customEntityId)
     await loadCustomEntityElements(attr.customEntityId)
+    console.log('Elements loaded:', customEntityElements.value[attr.customEntityId])
+  } else {
+    console.warn('No customEntityId found for attribute')
   }
 }
 </script>
