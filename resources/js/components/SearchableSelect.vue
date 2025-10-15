@@ -63,7 +63,7 @@
       >
         <div
           v-if="isOpen"
-          class="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-hidden"
+          class="absolute z-50 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-80 overflow-y-auto"
         >
           <!-- Search input -->
           <div class="p-2 border-b border-gray-200">
@@ -92,7 +92,7 @@
           </div>
 
           <!-- Options list -->
-          <div class="overflow-y-auto max-h-48">
+          <div class="max-h-full">
             <!-- Loading state -->
             <div v-if="loading" class="p-4 text-center text-gray-500">
               <svg class="animate-spin h-5 w-5 mx-auto text-indigo-500" fill="none" viewBox="0 0 24 24">
