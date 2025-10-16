@@ -79,6 +79,13 @@ class ProductSyncService
             $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
             $productResult = $this->moySkladService
                 ->setAccessToken($mainAccount->access_token)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: 'product',
+                    entityId: $productId
+                )
                 ->get("entity/product/{$productId}", ['expand' => 'attributes,productFolder,uom,country']);
 
             $product = $productResult['data'];
@@ -104,13 +111,21 @@ class ProductSyncService
 
             if ($mapping) {
                 // Товар уже существует, обновляем
-                return $this->updateProduct($childAccount, $mainAccountId, $childAccountId, $product, $mapping, $settings);
+                $result = $this->updateProduct($childAccount, $mainAccountId, $childAccountId, $product, $mapping, $settings);
             } else {
                 // Создаем новый товар
-                return $this->createProduct($childAccount, $mainAccountId, $childAccountId, $product, $settings);
+                $result = $this->createProduct($childAccount, $mainAccountId, $childAccountId, $product, $settings);
             }
 
+            // Очистить контекст логирования после успешной синхронизации
+            $this->moySkladService->clearLogContext();
+
+            return $result;
+
         } catch (\Exception $e) {
+            // Очистить контекст логирования при ошибке
+            $this->moySkladService->clearLogContext();
+
             Log::error('Failed to sync product', [
                 'main_account_id' => $mainAccountId,
                 'child_account_id' => $childAccountId,
@@ -461,9 +476,19 @@ class ProductSyncService
                     // Архивировать товар в дочернем аккаунте
                     $this->moySkladService
                         ->setAccessToken($childAccount->access_token)
+                        ->setLogContext(
+                            accountId: $mainAccountId,
+                            direction: 'main_to_child',
+                            relatedAccountId: $mapping->child_account_id,
+                            entityType: 'product',
+                            entityId: $productId
+                        )
                         ->put("entity/product/{$mapping->child_entity_id}", [
                             'archived' => true
                         ]);
+
+                    // Очистить контекст после операции
+                    $this->moySkladService->clearLogContext();
 
                     $archivedCount++;
 

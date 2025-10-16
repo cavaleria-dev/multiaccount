@@ -164,13 +164,16 @@ class MoySkladService
             }
 
             if ($response->failed()) {
-                $errorMessage = 'API request failed: ' . $response->body();
+                // Парсить структуру ошибок МойСклад
+                $errorMessage = $this->parseErrorMessage($responseBody);
 
                 Log::error('МойСклад API Error', [
                     'method' => $method,
                     'url' => $url,
                     'status' => $response->status(),
-                    'body' => $response->body()
+                    'parsed_error' => $errorMessage,
+                    'errors_array' => $responseBody['errors'] ?? [],
+                    'raw_body' => $response->body()
                 ]);
 
                 // Логировать запрос
@@ -599,5 +602,65 @@ class MoySkladService
                 'syncsToday' => 0
             ];
         }
+    }
+
+    /**
+     * Парсить сообщение об ошибке из ответа МойСклад API
+     *
+     * Структура ошибок МойСклад:
+     * {
+     *   "errors": [
+     *     {
+     *       "error": "Ошибка сохранения объекта",
+     *       "error_message": "Поле 'name' обязательно",
+     *       "code": 1016,
+     *       "parameter": "name",
+     *       "moreInfo": "https://dev.moysklad.ru/...",
+     *       "line": 12,
+     *       "column": 34
+     *     }
+     *   ]
+     * }
+     *
+     * @param mixed $responseBody Ответ от API (array или null)
+     * @return string Форматированное сообщение об ошибке
+     */
+    protected function parseErrorMessage($responseBody): string
+    {
+        if (!is_array($responseBody) || !isset($responseBody['errors'])) {
+            return 'API request failed: Unknown error';
+        }
+
+        $errors = $responseBody['errors'];
+        if (empty($errors) || !is_array($errors)) {
+            return 'API request failed: Empty error response';
+        }
+
+        // Извлечь первую ошибку (обычно самая критичная)
+        $firstError = $errors[0];
+
+        $parts = [];
+
+        if (isset($firstError['error'])) {
+            $parts[] = $firstError['error'];
+        }
+
+        if (isset($firstError['error_message'])) {
+            $parts[] = $firstError['error_message'];
+        }
+
+        if (isset($firstError['code'])) {
+            $parts[] = "Code: {$firstError['code']}";
+        }
+
+        if (isset($firstError['parameter'])) {
+            $parts[] = "Parameter: {$firstError['parameter']}";
+        }
+
+        if (empty($parts)) {
+            return 'API request failed: Malformed error response';
+        }
+
+        return implode(' | ', $parts);
     }
 }

@@ -11,7 +11,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Регистрация MoySkladService с ApiLogService (singleton для сохранения контекста)
+        $this->app->singleton(\App\Services\MoySkladService::class, function ($app) {
+            return new \App\Services\MoySkladService(
+                $app->make(\App\Services\RateLimitHandler::class),
+                $app->make(\App\Services\ApiLogService::class)
+            );
+        });
     }
 
     /**
