@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -18,19 +19,15 @@ class AdminAuth
      */
     public function handle(Request $request, Closure $next): Response
     {
-        // Проверить, авторизован ли администратор
-        if (!session()->has('admin_user_id')) {
+        // Проверить, авторизован ли администратор через guard
+        if (!Auth::guard('admin')->check()) {
             return redirect()->route('admin.login')->with('error', 'Необходима авторизация');
         }
 
-        // Проверить, существует ли администратор
-        $adminUser = \App\Models\AdminUser::find(session('admin_user_id'));
-        if (!$adminUser) {
-            session()->forget('admin_user_id');
-            return redirect()->route('admin.login')->with('error', 'Пользователь не найден');
-        }
+        // Получить текущего администратора
+        $adminUser = Auth::guard('admin')->user();
 
-        // Добавить данные администратора в request
+        // Добавить данные администратора в request (для обратной совместимости)
         $request->merge(['admin_user' => $adminUser]);
 
         return $next($request);

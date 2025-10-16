@@ -3,9 +3,8 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\AdminUser;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -18,7 +17,7 @@ class AuthController extends Controller
     public function showLogin()
     {
         // Если уже авторизован, перенаправить на дашборд
-        if (session()->has('admin_user_id')) {
+        if (Auth::guard('admin')->check()) {
             return redirect()->route('admin.logs.index');
         }
 
@@ -46,10 +45,10 @@ class AuthController extends Controller
             ]);
         }
 
-        // Найти пользователя
-        $user = AdminUser::where('email', $request->email)->first();
+        // Попытка аутентификации через guard
+        $credentials = $request->only('email', 'password');
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (!Auth::guard('admin')->attempt($credentials)) {
             RateLimiter::hit($key, 60);
 
             Log::warning('Failed admin login attempt', [
@@ -65,13 +64,12 @@ class AuthController extends Controller
         // Успешная авторизация
         RateLimiter::clear($key);
 
-        session()->put('admin_user_id', $user->id);
-        session()->put('admin_user_name', $user->name);
-        session()->regenerate();
+        // Регенерация сессии для безопасности
+        $request->session()->regenerate();
 
         Log::info('Admin user logged in', [
-            'user_id' => $user->id,
-            'email' => $user->email,
+            'user_id' => Auth::guard('admin')->id(),
+            'email' => Auth::guard('admin')->user()->email,
             'ip' => $request->ip(),
         ]);
 
@@ -83,17 +81,19 @@ class AuthController extends Controller
      */
     public function logout(Request $request)
     {
-        $userId = session('admin_user_id');
+        $userId = Auth::guard('admin')->id();
 
         Log::info('Admin user logged out', [
             'user_id' => $userId,
             'ip' => $request->ip(),
         ]);
 
-        session()->forget('admin_user_id');
-        session()->forget('admin_user_name');
-        session()->invalidate();
-        session()->regenerateToken();
+        // Выход через guard
+        Auth::guard('admin')->logout();
+
+        // Инвалидация сессии и регенерация CSRF токена
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
         return redirect()->route('admin.login')->with('success', 'Вы успешно вышли из системы');
     }

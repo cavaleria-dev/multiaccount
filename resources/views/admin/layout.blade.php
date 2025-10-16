@@ -18,7 +18,7 @@
                     <a href="{{ route('admin.statistics') }}" class="hover:text-indigo-200">Статистика</a>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <span>{{ session('admin_user_name') }}</span>
+                    <span>{{ Auth::guard('admin')->user()->name }}</span>
                     <form action="{{ route('admin.logout') }}" method="POST" class="inline">
                         @csrf
                         <button type="submit" class="bg-indigo-700 hover:bg-indigo-800 px-4 py-2 rounded">
