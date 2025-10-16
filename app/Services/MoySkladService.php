@@ -137,7 +137,12 @@ class MoySkladService
                     'stream' => false, // Отключить стриминг для получения полного body
                     'decode_content' => true, // Декодировать gzip
                 ])
-                ->retry(3, 100)
+                // ✅ REMOVED ->retry(3, 100) - Laravel HTTP Client выбрасывает RequestException
+                // для 4xx/5xx ДО того как наш код получит $response, что приводит к:
+                // - HTTP статус = 0 (вместо 404, 412, 500)
+                // - Нет response body
+                // - Generic Laravel exception message вместо детальной ошибки МойСклад
+                // Мы обрабатываем все ошибки сами через $response->failed() и parseErrorMessage()
                 ->{strtolower($method)}($url, $method === 'GET' ? $params : $data);
 
             $responseStatus = $response->status();
