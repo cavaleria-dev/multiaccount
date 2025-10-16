@@ -207,8 +207,9 @@ class MoySkladService
             $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, null, $rateLimitInfo, $startTime);
 
             // Вернуть данные вместе с информацией о rate limits
+            // ВАЖНО: Используем $responseBody (уже распарсированный), а НЕ $response->json() который может быть null!
             return [
-                'data' => $response->json(),
+                'data' => $responseBody,
                 'rateLimitInfo' => $rateLimitInfo
             ];
 
