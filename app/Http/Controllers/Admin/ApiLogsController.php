@@ -91,12 +91,17 @@ class ApiLogsController extends Controller
         try {
             $filters = [];
 
-            // Получить период из запроса (по умолчанию - последние 7 дней)
-            $startDate = $request->input('start_date', now()->subDays(7)->format('Y-m-d'));
-            $endDate = $request->input('end_date', now()->format('Y-m-d'));
+            // Получить период из запроса
+            // По умолчанию - за всё время (если логов мало)
+            $startDate = $request->input('start_date');
+            $endDate = $request->input('end_date');
 
-            $filters['start_date'] = $startDate;
-            $filters['end_date'] = $endDate;
+            if ($startDate) {
+                $filters['start_date'] = $startDate . ' 00:00:00';
+            }
+            if ($endDate) {
+                $filters['end_date'] = $endDate . ' 23:59:59';
+            }
 
             $statistics = $this->apiLogService->getStatistics($filters);
 

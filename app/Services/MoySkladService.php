@@ -137,6 +137,15 @@ class MoySkladService
             $responseStatus = $response->status();
             $responseBody = $response->json();
 
+            // Если JSON не распарсился (например, HTML ошибка или truncated response)
+            // сохраняем сырой body как строку для отладки
+            if ($responseBody === null && !empty($response->body())) {
+                $responseBody = [
+                    'raw' => $response->body(),
+                    'parse_error' => 'Response is not valid JSON'
+                ];
+            }
+
             // Извлечь информацию о rate limits из заголовков
             $rateLimitInfo = $this->rateLimitHandler->extractFromHeaders($response->headers());
 

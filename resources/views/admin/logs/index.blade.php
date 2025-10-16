@@ -55,6 +55,8 @@
                     <tr>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Дата/Время</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Аккаунт</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Направление</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Метод</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Endpoint</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Статус</th>
@@ -67,6 +69,27 @@
                         <tr class="{{ $log->isError() ? 'bg-red-50' : '' }}">
                             <td class="px-4 py-3 text-sm">{{ $log->id }}</td>
                             <td class="px-4 py-3 text-sm">{{ $log->created_at->format('Y-m-d H:i:s') }}</td>
+                            <td class="px-4 py-3 text-sm">
+                                <div class="text-xs text-gray-600" title="{{ $log->account_id }}">
+                                    {{ $log->account?->account_name ?? Str::limit($log->account_id, 8) }}
+                                </div>
+                                @if($log->related_account_id)
+                                    <div class="text-xs text-gray-500 mt-1" title="{{ $log->related_account_id }}">
+                                        → {{ $log->relatedAccount?->account_name ?? Str::limit($log->related_account_id, 8) }}
+                                    </div>
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                @if($log->direction === 'main_to_child')
+                                    <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">Главный → Дочерний</span>
+                                @elseif($log->direction === 'child_to_main')
+                                    <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">Дочерний → Главный</span>
+                                @elseif($log->direction === 'internal')
+                                    <span class="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded">Внутренний</span>
+                                @else
+                                    <span class="text-xs text-gray-400">-</span>
+                                @endif
+                            </td>
                             <td class="px-4 py-3 text-sm font-mono">{{ $log->method }}</td>
                             <td class="px-4 py-3 text-sm text-xs truncate max-w-xs" title="{{ $log->endpoint }}">
                                 {{ Str::limit($log->endpoint, 50) }}
