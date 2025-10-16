@@ -16,12 +16,21 @@ class MoySkladService
     protected string $accessToken;
     protected int $timeout;
     protected RateLimitHandler $rateLimitHandler;
+    protected ?ApiLogService $apiLogService = null;
 
-    public function __construct(RateLimitHandler $rateLimitHandler)
+    // Контекст для логирования
+    protected ?string $accountId = null;
+    protected ?string $direction = null;
+    protected ?string $relatedAccountId = null;
+    protected ?string $entityType = null;
+    protected ?string $entityId = null;
+
+    public function __construct(RateLimitHandler $rateLimitHandler, ?ApiLogService $apiLogService = null)
     {
         $this->apiUrl = config('moysklad.api_url');
         $this->timeout = config('moysklad.timeout', 30);
         $this->rateLimitHandler = $rateLimitHandler;
+        $this->apiLogService = $apiLogService;
     }
 
     /**
@@ -30,6 +39,37 @@ class MoySkladService
     public function setAccessToken(string $token): self
     {
         $this->accessToken = $token;
+        return $this;
+    }
+
+    /**
+     * Установить контекст для логирования
+     */
+    public function setLogContext(
+        ?string $accountId = null,
+        ?string $direction = null,
+        ?string $relatedAccountId = null,
+        ?string $entityType = null,
+        ?string $entityId = null
+    ): self {
+        $this->accountId = $accountId;
+        $this->direction = $direction;
+        $this->relatedAccountId = $relatedAccountId;
+        $this->entityType = $entityType;
+        $this->entityId = $entityId;
+        return $this;
+    }
+
+    /**
+     * Очистить контекст логирования
+     */
+    public function clearLogContext(): self
+    {
+        $this->accountId = null;
+        $this->direction = null;
+        $this->relatedAccountId = null;
+        $this->entityType = null;
+        $this->entityId = null;
         return $this;
     }
 
@@ -75,6 +115,7 @@ class MoySkladService
         array $data = []
     ): array {
         $url = $this->apiUrl . '/' . ltrim($endpoint, '/');
+        $startTime = microtime(true);
 
         $headers = [
             'Authorization' => 'Bearer ' . $this->accessToken,
@@ -82,11 +123,19 @@ class MoySkladService
             'Content-Type' => 'application/json',
         ];
 
+        $responseStatus = null;
+        $responseBody = null;
+        $errorMessage = null;
+        $rateLimitInfo = [];
+
         try {
             $response = Http::withHeaders($headers)
                 ->timeout($this->timeout)
                 ->retry(3, 100)
                 ->{strtolower($method)}($url, $method === 'GET' ? $params : $data);
+
+            $responseStatus = $response->status();
+            $responseBody = $response->json();
 
             // Извлечь информацию о rate limits из заголовков
             $rateLimitInfo = $this->rateLimitHandler->extractFromHeaders($response->headers());
@@ -95,12 +144,17 @@ class MoySkladService
             if ($response->status() === 429) {
                 $retryAfter = $rateLimitInfo['retry_after'] ?? 1000;
 
+                $errorMessage = 'Rate limit exceeded';
+
                 Log::warning('МойСклад API Rate Limit Exceeded', [
                     'method' => $method,
                     'url' => $url,
                     'retry_after' => $retryAfter,
                     'rate_limit_info' => $rateLimitInfo
                 ]);
+
+                // Логировать запрос
+                $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
 
                 throw new \App\Exceptions\RateLimitException(
                     'Rate limit exceeded',
@@ -110,6 +164,8 @@ class MoySkladService
             }
 
             if ($response->failed()) {
+                $errorMessage = 'API request failed: ' . $response->body();
+
                 Log::error('МойСклад API Error', [
                     'method' => $method,
                     'url' => $url,
@@ -117,8 +173,14 @@ class MoySkladService
                     'body' => $response->body()
                 ]);
 
-                throw new \Exception('API request failed: ' . $response->body());
+                // Логировать запрос
+                $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
+
+                throw new \Exception($errorMessage);
             }
+
+            // Логировать успешный запрос
+            $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, null, $rateLimitInfo, $startTime);
 
             // Вернуть данные вместе с информацией о rate limits
             return [
@@ -131,14 +193,59 @@ class MoySkladService
             throw $e;
 
         } catch (\Exception $e) {
+            $errorMessage = $e->getMessage();
+
             Log::error('МойСклад API Exception', [
                 'method' => $method,
                 'url' => $url,
-                'error' => $e->getMessage()
+                'error' => $errorMessage
             ]);
+
+            // Логировать запрос с ошибкой
+            if ($responseStatus === null) {
+                $responseStatus = 0; // Сетевая ошибка или exception до получения ответа
+            }
+            $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
 
             throw $e;
         }
+    }
+
+    /**
+     * Логировать API-запрос
+     */
+    protected function logApiRequest(
+        string $method,
+        string $url,
+        array $requestPayload,
+        ?int $responseStatus,
+        $responseBody,
+        ?string $errorMessage,
+        array $rateLimitInfo,
+        float $startTime
+    ): void {
+        // Пропустить логирование, если сервис не внедрен или нет accountId
+        if (!$this->apiLogService || !$this->accountId) {
+            return;
+        }
+
+        $durationMs = (int)((microtime(true) - $startTime) * 1000);
+
+        $this->apiLogService->logRequest([
+            'account_id' => $this->accountId,
+            'direction' => $this->direction,
+            'related_account_id' => $this->relatedAccountId,
+            'entity_type' => $this->entityType,
+            'entity_id' => $this->entityId,
+            'method' => $method,
+            'endpoint' => $url,
+            'request_payload' => $requestPayload,
+            'response_status' => $responseStatus,
+            'response_body' => $responseBody,
+            'error_message' => $errorMessage,
+            'rate_limit_info' => $rateLimitInfo,
+            'duration_ms' => $durationMs,
+        ]);
     }
 
     // ============ Методы для работы с товарами ============
