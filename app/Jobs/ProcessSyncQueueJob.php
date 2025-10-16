@@ -150,7 +150,11 @@ class ProcessSyncQueueJob implements ShouldQueue
                 // Ловим и Exception, и Error (включая TypeError)
                 $task->increment('attempts');
 
-                if ($task->attempts >= $task->max_attempts) {
+                // Проверить, стоит ли повторять задачу
+                $shouldRetry = $this->isRetryableError($e->getMessage());
+
+                if (!$shouldRetry || $task->attempts >= $task->max_attempts) {
+                    // Постоянная ошибка (4xx) или исчерпаны попытки - сразу failed
                     $task->update([
                         'status' => 'failed',
                         'error' => $e->getMessage(),
@@ -175,20 +179,23 @@ class ProcessSyncQueueJob implements ShouldQueue
                         'entity_type' => $task->entity_type,
                         'entity_id' => $task->entity_id,
                         'attempts' => $task->attempts,
+                        'retryable' => $shouldRetry,
                         'error' => $e->getMessage()
                     ]);
 
                 } else {
+                    // Временная ошибка (5xx, network) - retry с exponential backoff
                     $task->update([
                         'status' => 'pending',
                         'error' => $e->getMessage(),
-                        'scheduled_at' => now()->addMinutes(5 * $task->attempts), // Exponential backoff
+                        'scheduled_at' => now()->addMinutes(5 * $task->attempts), // 5мин, 10мин, 15мин
                     ]);
 
-                    Log::warning('Task failed, will retry', [
+                    Log::warning('Task failed, will retry (retryable error)', [
                         'task_id' => $task->id,
                         'attempts' => $task->attempts,
                         'max_attempts' => $task->max_attempts,
+                        'retry_at' => now()->addMinutes(5 * $task->attempts)->toDateTimeString(),
                         'error' => $e->getMessage()
                     ]);
                 }
@@ -442,5 +449,53 @@ class ProcessSyncQueueJob implements ShouldQueue
             ->first();
 
         return $link?->parent_account_id;
+    }
+
+    /**
+     * Проверить, стоит ли повторять задачу при данной ошибке
+     *
+     * Retry имеет смысл ТОЛЬКО для:
+     * - 5xx Server Errors (500, 502, 503, 504) - временные проблемы МойСклад
+     * - Network errors (timeout, connection refused)
+     *
+     * Все 4xx ошибки (404, 400, 403, etc.) - постоянные, retry бессмыслен
+     */
+    protected function isRetryableError(string $errorMessage): bool
+    {
+        // Извлечь HTTP статус из сообщения (формат: "[HTTP 404 Not Found] ...")
+        if (preg_match('/\[HTTP (\d{3})/i', $errorMessage, $matches)) {
+            $httpStatus = (int)$matches[1];
+
+            // Retry только для 5xx серверных ошибок
+            if ($httpStatus >= 500 && $httpStatus < 600) {
+                return true;
+            }
+
+            // Все 4xx (400, 404, 403, etc.) - не retry
+            if ($httpStatus >= 400 && $httpStatus < 500) {
+                return false;
+            }
+        }
+
+        // Network errors - retry
+        $networkErrors = [
+            'timeout',
+            'connection refused',
+            'connection timed out',
+            'could not resolve host',
+            'failed to connect',
+            'network is unreachable',
+            'dns',
+        ];
+
+        $lowerMessage = strtolower($errorMessage);
+        foreach ($networkErrors as $pattern) {
+            if (str_contains($lowerMessage, $pattern)) {
+                return true;
+            }
+        }
+
+        // По умолчанию - не retry (безопаснее)
+        return false;
     }
 }
