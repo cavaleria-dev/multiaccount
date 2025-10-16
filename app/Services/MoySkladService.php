@@ -185,8 +185,8 @@ class MoySkladService
             }
 
             if ($response->failed()) {
-                // Парсить структуру ошибок МойСклад
-                $errorMessage = $this->parseErrorMessage($responseBody);
+                // Парсить структуру ошибок МойСклад (с HTTP status context)
+                $errorMessage = $this->parseErrorMessage($responseBody, $responseStatus);
 
                 Log::error('МойСклад API Error', [
                     'method' => $method,
@@ -194,7 +194,7 @@ class MoySkladService
                     'status' => $response->status(),
                     'parsed_error' => $errorMessage,
                     'errors_array' => $responseBody['errors'] ?? [],
-                    'raw_body' => $response->body()
+                    'raw_body_size' => $bodySize
                 ]);
 
                 // Логировать запрос
@@ -628,6 +628,13 @@ class MoySkladService
     /**
      * Обработать специальные HTTP статусы МойСклад
      *
+     * Обрабатываются только статусы, требующие специальной логики:
+     * - 3xx редиректы (возврат Location без exception)
+     * - 429 Rate Limit (выбросить RateLimitException с retry_after)
+     *
+     * Остальные ошибки (400, 404, 500 и т.д.) обрабатываются через parseErrorMessage()
+     * чтобы получить детальное сообщение из response body.
+     *
      * Документация: https://dev.moysklad.ru/doc/api/remap/1.2/#mojsklad-json-api-oshibki
      *
      * @param int $status HTTP status code
@@ -636,60 +643,43 @@ class MoySkladService
      */
     protected function handleSpecialHttpStatus(int $status, array $rateLimitInfo): ?array
     {
-        $statusMessages = [
-            // 3xx - Редиректы
-            301 => ['message' => 'Moved Permanently - запрашиваемый ресурс находится по другому URL', 'throw' => false],
-            302 => ['message' => 'Found - ресурс временно находится по другому URI', 'throw' => false],
-            303 => ['message' => 'See Other - ресурс доступен по другому URI (используйте GET)', 'throw' => false],
+        // 3xx - Редиректы (не ошибки, требуют специальной обработки)
+        if (in_array($status, [301, 302, 303])) {
+            $redirectMessages = [
+                301 => 'Moved Permanently - запрашиваемый ресурс находится по другому URL',
+                302 => 'Found - ресурс временно находится по другому URI',
+                303 => 'See Other - ресурс доступен по другому URI (используйте GET)',
+            ];
 
-            // 4xx - Client Errors
-            400 => ['message' => 'Bad Request - ошибка в структуре JSON передаваемого запроса', 'throw' => true],
-            401 => ['message' => 'Unauthorized - имя/пароль указаны неверно или заблокированы', 'throw' => true],
-            403 => ['message' => 'Forbidden - нет прав на просмотр данного объекта', 'throw' => true],
-            404 => ['message' => 'Not Found - запрошенный ресурс не существует', 'throw' => true],
-            405 => ['message' => 'Method Not Allowed - HTTP-метод указан неверно', 'throw' => true],
-            409 => ['message' => 'Conflict - объект используется и не может быть удален', 'throw' => true],
-            410 => ['message' => 'Gone - версия API больше не поддерживается', 'throw' => true],
-            412 => ['message' => 'Precondition Failed - не указан обязательный параметр или поле', 'throw' => true],
-            413 => ['message' => 'Payload Too Large - размер запроса или количество элементов превышает лимит', 'throw' => true],
-            414 => ['message' => 'URI Too Long - превышена допустимая длина URL', 'throw' => true],
-            415 => ['message' => 'Unsupported Media Type - формат headers/body не поддерживается', 'throw' => true],
-            429 => ['message' => 'Too Many Requests - превышен лимит количества запросов', 'throw' => true],
+            $message = "[HTTP {$status}] " . $redirectMessages[$status];
 
-            // 5xx - Server Errors
-            500 => ['message' => 'Internal Server Error - непредвиденная ошибка при обработке запроса', 'throw' => true],
-            502 => ['message' => 'Bad Gateway - сервис временно недоступен', 'throw' => true],
-            503 => ['message' => 'Service Unavailable - сервис временно отключен', 'throw' => true],
-            504 => ['message' => 'Gateway Timeout - превышен таймаут, повторите попытку позднее', 'throw' => true],
-        ];
+            if (isset($rateLimitInfo['location'])) {
+                $message .= " → {$rateLimitInfo['location']}";
+            }
 
-        if (!isset($statusMessages[$status])) {
-            return null; // Статус не требует специальной обработки
+            return [
+                'message' => $message,
+                'throw_exception' => false // Редиректы не выбрасывают exception
+            ];
         }
 
-        $info = $statusMessages[$status];
-        $message = "[HTTP {$status}] " . $info['message'];
+        // 429 - Rate Limit (требует RateLimitException с retry_after)
+        if ($status === 429) {
+            $message = "[HTTP 429] Too Many Requests - превышен лимит количества запросов";
 
-        // Добавить информацию о Location для редиректов
-        if (in_array($status, [301, 302, 303]) && isset($rateLimitInfo['location'])) {
-            $message .= " → {$rateLimitInfo['location']}";
+            if (isset($rateLimitInfo['retry_after'])) {
+                $retrySeconds = round($rateLimitInfo['retry_after'] / 1000, 1);
+                $message .= " (retry after {$retrySeconds}s)";
+            }
+
+            return [
+                'message' => $message,
+                'throw_exception' => true
+            ];
         }
 
-        // Добавить информацию о retry_after для 429
-        if ($status === 429 && isset($rateLimitInfo['retry_after'])) {
-            $retrySeconds = round($rateLimitInfo['retry_after'] / 1000, 1);
-            $message .= " (retry after {$retrySeconds}s)";
-        }
-
-        // Добавить информацию о deprecated API версии
-        if ($status === 410 && isset($rateLimitInfo['api_version_deprecated'])) {
-            $message .= " (deprecated date: {$rateLimitInfo['api_version_deprecated']})";
-        }
-
-        return [
-            'message' => $message,
-            'throw_exception' => $info['throw']
-        ];
+        // Все остальные статусы (400, 404, 500 и т.д.) обрабатываются через parseErrorMessage()
+        return null;
     }
 
     /**
@@ -823,17 +813,44 @@ class MoySkladService
      * }
      *
      * @param mixed $responseBody Ответ от API (array или null)
+     * @param int|null $httpStatus HTTP status code для добавления контекста
      * @return string Форматированное сообщение об ошибке
      */
-    protected function parseErrorMessage($responseBody): string
+    protected function parseErrorMessage($responseBody, ?int $httpStatus = null): string
     {
+        // Добавить HTTP status context
+        $statusContext = '';
+        if ($httpStatus !== null) {
+            $statusDescriptions = [
+                400 => 'Bad Request',
+                401 => 'Unauthorized',
+                403 => 'Forbidden',
+                404 => 'Not Found',
+                405 => 'Method Not Allowed',
+                409 => 'Conflict',
+                410 => 'API Deprecated',
+                412 => 'Precondition Failed',
+                413 => 'Payload Too Large',
+                414 => 'URI Too Long',
+                415 => 'Unsupported Media Type',
+                500 => 'Internal Server Error',
+                502 => 'Bad Gateway',
+                503 => 'Service Unavailable',
+                504 => 'Gateway Timeout',
+            ];
+
+            $statusDescription = $statusDescriptions[$httpStatus] ?? 'Error';
+            $statusContext = "[HTTP {$httpStatus} {$statusDescription}] ";
+        }
+
+        // Если нет структуры errors в ответе
         if (!is_array($responseBody) || !isset($responseBody['errors'])) {
-            return 'API request failed: Unknown error';
+            return $statusContext . 'API request failed: Unknown error';
         }
 
         $errors = $responseBody['errors'];
         if (empty($errors) || !is_array($errors)) {
-            return 'API request failed: Empty error response';
+            return $statusContext . 'API request failed: Empty error response';
         }
 
         // Извлечь первую ошибку (обычно самая критичная)
@@ -841,26 +858,30 @@ class MoySkladService
 
         $parts = [];
 
+        // Основное сообщение об ошибке
         if (isset($firstError['error'])) {
             $parts[] = $firstError['error'];
         }
 
+        // Детальное описание
         if (isset($firstError['error_message'])) {
             $parts[] = $firstError['error_message'];
         }
 
+        // Код ошибки МойСклад
         if (isset($firstError['code'])) {
             $parts[] = "Code: {$firstError['code']}";
         }
 
+        // Параметр, вызвавший ошибку
         if (isset($firstError['parameter'])) {
             $parts[] = "Parameter: {$firstError['parameter']}";
         }
 
         if (empty($parts)) {
-            return 'API request failed: Malformed error response';
+            return $statusContext . 'API request failed: Malformed error response';
         }
 
-        return implode(' | ', $parts);
+        return $statusContext . implode(' | ', $parts);
     }
 }
