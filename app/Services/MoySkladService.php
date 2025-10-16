@@ -127,6 +127,7 @@ class MoySkladService
         $responseBody = null;
         $errorMessage = null;
         $rateLimitInfo = [];
+        $logged = false; // Флаг для предотвращения двойного логирования
 
         try {
             // Увеличиваем максимальный размер ответа до 10MB (по умолчанию 2MB в Guzzle)
@@ -163,6 +164,7 @@ class MoySkladService
             if ($statusHandling !== null) {
                 $errorMessage = $statusHandling['message'];
                 $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
+                $logged = true; // Отметить что залогировали
 
                 // Если статус требует exception, выбрасываем
                 if ($statusHandling['throw_exception']) {
@@ -199,12 +201,14 @@ class MoySkladService
 
                 // Логировать запрос
                 $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
+                $logged = true; // Отметить что залогировали
 
                 throw new \Exception($errorMessage);
             }
 
             // Логировать успешный запрос
             $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, null, $rateLimitInfo, $startTime);
+            $logged = true; // Отметить что залогировали
 
             // Вернуть данные вместе с информацией о rate limits
             // ВАЖНО: Используем $responseBody (уже распарсированный), а НЕ $response->json() который может быть null!
@@ -214,7 +218,7 @@ class MoySkladService
             ];
 
         } catch (\App\Exceptions\RateLimitException $e) {
-            // Пробросить RateLimitException дальше
+            // Пробросить RateLimitException дальше (уже залогирован выше)
             throw $e;
 
         } catch (\Exception $e) {
@@ -223,14 +227,18 @@ class MoySkladService
             Log::error('МойСклад API Exception', [
                 'method' => $method,
                 'url' => $url,
-                'error' => $errorMessage
+                'error' => $errorMessage,
+                'logged' => $logged
             ]);
 
-            // Логировать запрос с ошибкой
-            if ($responseStatus === null) {
-                $responseStatus = 0; // Сетевая ошибка или exception до получения ответа
+            // Логировать ТОЛЬКО если ещё НЕ логировали
+            // (например, сетевая ошибка ДО получения ответа)
+            if (!$logged) {
+                if ($responseStatus === null) {
+                    $responseStatus = 0; // Сетевая ошибка или exception до получения ответа
+                }
+                $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
             }
-            $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
 
             throw $e;
         }
@@ -844,9 +852,30 @@ class MoySkladService
             $statusContext = "[HTTP {$httpStatus} {$statusDescription}] ";
         }
 
-        // Если нет структуры errors в ответе
-        if (!is_array($responseBody) || !isset($responseBody['errors'])) {
-            return $statusContext . 'API request failed: Unknown error';
+        // Проверить если это не массив вообще
+        if (!is_array($responseBody)) {
+            return $statusContext . 'API request failed: Invalid response format';
+        }
+
+        // Обработать случай когда JSON не распарсился (есть raw body)
+        if (isset($responseBody['raw']) && !empty($responseBody['raw'])) {
+            // Обрезать до разумной длины (500 символов для error_message)
+            $rawText = substr($responseBody['raw'], 0, 500);
+            return $statusContext . $rawText;
+        }
+
+        // Обработать случай с ошибкой парсинга JSON
+        if (isset($responseBody['_parse_error'])) {
+            $parseError = $responseBody['_parse_error'];
+            if (isset($responseBody['raw_preview_start'])) {
+                return $statusContext . "JSON parse error: {$parseError}. Preview: " . substr($responseBody['raw_preview_start'], 0, 200);
+            }
+            return $statusContext . "JSON parse error: {$parseError}";
+        }
+
+        // Стандартная обработка errors[] от МойСклад
+        if (!isset($responseBody['errors'])) {
+            return $statusContext . 'API request failed: Unknown error (no errors array)';
         }
 
         $errors = $responseBody['errors'];
