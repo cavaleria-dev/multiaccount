@@ -7,7 +7,31 @@
     <h2 class="text-2xl font-bold mb-6">Логи API запросов</h2>
 
     {{-- Фильтры --}}
-    <form method="GET" action="{{ route('admin.logs.index') }}" class="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+    <form method="GET" action="{{ route('admin.logs.index') }}" class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+            <label class="block text-sm font-medium mb-1">Главная франшиза</label>
+            <select name="parent_account_id" class="w-full border rounded px-3 py-2">
+                <option value="">Все</option>
+                @foreach($mainAccounts ?? [] as $account)
+                    <option value="{{ $account->account_id }}" {{ request('parent_account_id') === $account->account_id ? 'selected' : '' }}>
+                        {{ $account->account_name }}
+                    </option>
+                @endforeach
+            </select>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium mb-1">Дочерняя франшиза</label>
+            <select name="child_account_id" class="w-full border rounded px-3 py-2">
+                <option value="">Все</option>
+                @foreach($childAccounts ?? [] as $account)
+                    <option value="{{ $account->account_id }}" {{ request('child_account_id') === $account->account_id ? 'selected' : '' }}>
+                        {{ $account->account_name }}
+                    </option>
+                @endforeach
+            </select>
+        </div>
+
         <div>
             <label class="block text-sm font-medium mb-1">Тип ошибки</label>
             <select name="status_range" class="w-full border rounded px-3 py-2">
@@ -35,7 +59,7 @@
             </label>
         </div>
 
-        <div class="md:col-span-4">
+        <div class="md:col-span-3">
             <button type="submit" class="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700">
                 Применить фильтры
             </button>

@@ -26,8 +26,22 @@ class ApiLogsController extends Controller
 
             $logs = $this->apiLogService->getLogs($filters, 50);
 
-            // Получить уникальные значения для фильтров
-            $accounts = \App\Models\Account::select('account_id', 'account_name')->get();
+            // Получить списки аккаунтов для фильтров
+            // Main аккаунты
+            $mainAccounts = \App\Models\Account::where('account_type', 'main')
+                ->select('account_id', 'account_name')
+                ->orderBy('account_name')
+                ->get();
+
+            // Child аккаунты (через связь с child_accounts)
+            $childAccounts = \App\Models\Account::whereIn('account_id', function($query) {
+                    $query->select('child_account_id')
+                        ->from('child_accounts');
+                })
+                ->select('account_id', 'account_name')
+                ->orderBy('account_name')
+                ->get();
+
             $entityTypes = \App\Models\MoySkladApiLog::select('entity_type')
                 ->distinct()
                 ->whereNotNull('entity_type')
@@ -36,7 +50,8 @@ class ApiLogsController extends Controller
             return view('admin.logs.index', [
                 'logs' => $logs,
                 'filters' => $filters,
-                'accounts' => $accounts,
+                'mainAccounts' => $mainAccounts,
+                'childAccounts' => $childAccounts,
                 'entityTypes' => $entityTypes,
             ]);
 
@@ -49,7 +64,8 @@ class ApiLogsController extends Controller
                 'logs' => null,
                 'error' => 'Ошибка загрузки логов: ' . $e->getMessage(),
                 'filters' => [],
-                'accounts' => [],
+                'mainAccounts' => [],
+                'childAccounts' => [],
                 'entityTypes' => [],
             ]);
         }
@@ -131,6 +147,14 @@ class ApiLogsController extends Controller
     protected function getFiltersFromRequest(Request $request): array
     {
         $filters = [];
+
+        if ($request->filled('parent_account_id')) {
+            $filters['parent_account_id'] = $request->input('parent_account_id');
+        }
+
+        if ($request->filled('child_account_id')) {
+            $filters['child_account_id'] = $request->input('child_account_id');
+        }
 
         if ($request->filled('account_id')) {
             $filters['account_id'] = $request->input('account_id');

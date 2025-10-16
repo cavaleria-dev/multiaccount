@@ -47,12 +47,38 @@
             <h3 class="font-semibold text-lg mb-3">Контекст</h3>
             <dl class="space-y-2">
                 <div>
-                    <dt class="text-sm text-gray-600">Account ID:</dt>
-                    <dd class="font-mono text-sm">{{ $log->account_id ?? 'N/A' }}</dd>
+                    <dt class="text-sm text-gray-600">Аккаунт:</dt>
+                    <dd>
+                        <div class="font-medium">{{ $log->account?->account_name ?? 'Неизвестный' }}</div>
+                        <div class="font-mono text-xs text-gray-500" title="{{ $log->account_id }}">
+                            {{ Str::limit($log->account_id, 20) }}
+                        </div>
+                    </dd>
                 </div>
+                @if($log->related_account_id)
+                    <div>
+                        <dt class="text-sm text-gray-600">Связанный аккаунт:</dt>
+                        <dd>
+                            <div class="font-medium">{{ $log->relatedAccount?->account_name ?? 'Неизвестный' }}</div>
+                            <div class="font-mono text-xs text-gray-500" title="{{ $log->related_account_id }}">
+                                {{ Str::limit($log->related_account_id, 20) }}
+                            </div>
+                        </dd>
+                    </div>
+                @endif
                 <div>
                     <dt class="text-sm text-gray-600">Направление:</dt>
-                    <dd>{{ $log->direction ?? 'N/A' }}</dd>
+                    <dd>
+                        @if($log->direction === 'main_to_child')
+                            <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">Главный → Дочерний</span>
+                        @elseif($log->direction === 'child_to_main')
+                            <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">Дочерний → Главный</span>
+                        @elseif($log->direction === 'internal')
+                            <span class="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded">Внутренний</span>
+                        @else
+                            <span class="text-sm text-gray-400">-</span>
+                        @endif
+                    </dd>
                 </div>
                 <div>
                     <dt class="text-sm text-gray-600">Тип сущности:</dt>

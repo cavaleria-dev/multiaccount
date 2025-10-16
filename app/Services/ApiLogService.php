@@ -158,6 +158,45 @@ class ApiLogService
      */
     protected function applyFilters($query, array $filters)
     {
+        // Фильтр по главной франшизе (parent account)
+        if (isset($filters['parent_account_id'])) {
+            $parentId = $filters['parent_account_id'];
+
+            // Если также указан child_account_id - фильтруем по обоим (логика "И")
+            if (isset($filters['child_account_id'])) {
+                $childId = $filters['child_account_id'];
+
+                // Логи между конкретными двумя аккаунтами
+                $query->where(function($q) use ($parentId, $childId) {
+                    // Запрос от parent к child
+                    $q->where(function($subQ) use ($parentId, $childId) {
+                        $subQ->where('account_id', $parentId)
+                             ->where('related_account_id', $childId);
+                    })
+                    // ИЛИ запрос от child к parent
+                    ->orWhere(function($subQ) use ($parentId, $childId) {
+                        $subQ->where('account_id', $childId)
+                             ->where('related_account_id', $parentId);
+                    });
+                });
+            } else {
+                // Только parent_account_id - все логи с участием этого аккаунта
+                $query->where(function($q) use ($parentId) {
+                    $q->where('account_id', $parentId)
+                      ->orWhere('related_account_id', $parentId);
+                });
+            }
+        }
+        // Фильтр только по дочерней франшизе (если parent не указан)
+        elseif (isset($filters['child_account_id'])) {
+            $childId = $filters['child_account_id'];
+
+            $query->where(function($q) use ($childId) {
+                $q->where('account_id', $childId)
+                  ->orWhere('related_account_id', $childId);
+            });
+        }
+
         if (isset($filters['account_id'])) {
             $query->where('account_id', $filters['account_id']);
         }
