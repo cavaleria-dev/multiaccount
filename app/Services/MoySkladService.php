@@ -129,47 +129,59 @@ class MoySkladService
         $rateLimitInfo = [];
 
         try {
+            // Увеличиваем максимальный размер ответа до 10MB (по умолчанию 2MB в Guzzle)
             $response = Http::withHeaders($headers)
                 ->timeout($this->timeout)
+                ->withOptions([
+                    'stream' => false, // Отключить стриминг для получения полного body
+                    'decode_content' => true, // Декодировать gzip
+                ])
                 ->retry(3, 100)
                 ->{strtolower($method)}($url, $method === 'GET' ? $params : $data);
 
             $responseStatus = $response->status();
-            $responseBody = $response->json();
 
-            // Если JSON не распарсился (например, HTML ошибка или truncated response)
-            // сохраняем сырой body как строку для отладки
-            if ($responseBody === null && !empty($response->body())) {
-                $responseBody = [
-                    'raw' => $response->body(),
-                    'parse_error' => 'Response is not valid JSON'
-                ];
-            }
+            // Получаем raw body в первую очередь (до любой обработки)
+            $rawBody = $response->body();
+            $bodySize = strlen($rawBody);
 
-            // Извлечь информацию о rate limits из заголовков
+            // Пытаемся распарсить JSON вручную с контролем размера
+            $responseBody = $this->parseResponseBody($rawBody, $bodySize);
+
+            // Извлечь информацию о rate limits и специальных заголовков МойСклад
             $rateLimitInfo = $this->rateLimitHandler->extractFromHeaders($response->headers());
 
-            // Проверить статус 429 (Too Many Requests)
-            if ($response->status() === 429) {
-                $retryAfter = $rateLimitInfo['retry_after'] ?? 1000;
+            // Добавить специальные заголовки МойСклад в rateLimitInfo
+            $rateLimitInfo = $this->enrichWithMoySkladHeaders($response->headers(), $rateLimitInfo);
 
-                $errorMessage = 'Rate limit exceeded';
+            // Добавить метаинформацию о размере ответа
+            $rateLimitInfo['response_size'] = $bodySize;
+            $rateLimitInfo['response_truncated'] = isset($responseBody['_truncated']) ? true : false;
 
-                Log::warning('МойСклад API Rate Limit Exceeded', [
-                    'method' => $method,
-                    'url' => $url,
-                    'retry_after' => $retryAfter,
-                    'rate_limit_info' => $rateLimitInfo
-                ]);
-
-                // Логировать запрос
+            // Проверить специальные HTTP статусы МойСклад
+            $statusHandling = $this->handleSpecialHttpStatus($responseStatus, $rateLimitInfo);
+            if ($statusHandling !== null) {
+                $errorMessage = $statusHandling['message'];
                 $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
 
-                throw new \App\Exceptions\RateLimitException(
-                    'Rate limit exceeded',
-                    $retryAfter,
-                    $rateLimitInfo
-                );
+                // Если статус требует exception, выбрасываем
+                if ($statusHandling['throw_exception']) {
+                    if ($responseStatus === 429) {
+                        throw new \App\Exceptions\RateLimitException(
+                            $errorMessage,
+                            $rateLimitInfo['retry_after'] ?? 1000,
+                            $rateLimitInfo
+                        );
+                    }
+                    throw new \Exception($errorMessage);
+                }
+
+                // Для редиректов возвращаем успешный результат с Location
+                return [
+                    'data' => $responseBody,
+                    'rateLimitInfo' => $rateLimitInfo,
+                    'redirect' => $rateLimitInfo['location'] ?? null
+                ];
             }
 
             if ($response->failed()) {
@@ -611,6 +623,185 @@ class MoySkladService
                 'syncsToday' => 0
             ];
         }
+    }
+
+    /**
+     * Обработать специальные HTTP статусы МойСклад
+     *
+     * Документация: https://dev.moysklad.ru/doc/api/remap/1.2/#mojsklad-json-api-oshibki
+     *
+     * @param int $status HTTP status code
+     * @param array $rateLimitInfo Rate limit info (может содержать location для редиректов)
+     * @return array|null ['message' => string, 'throw_exception' => bool] или null если обработка не нужна
+     */
+    protected function handleSpecialHttpStatus(int $status, array $rateLimitInfo): ?array
+    {
+        $statusMessages = [
+            // 3xx - Редиректы
+            301 => ['message' => 'Moved Permanently - запрашиваемый ресурс находится по другому URL', 'throw' => false],
+            302 => ['message' => 'Found - ресурс временно находится по другому URI', 'throw' => false],
+            303 => ['message' => 'See Other - ресурс доступен по другому URI (используйте GET)', 'throw' => false],
+
+            // 4xx - Client Errors
+            400 => ['message' => 'Bad Request - ошибка в структуре JSON передаваемого запроса', 'throw' => true],
+            401 => ['message' => 'Unauthorized - имя/пароль указаны неверно или заблокированы', 'throw' => true],
+            403 => ['message' => 'Forbidden - нет прав на просмотр данного объекта', 'throw' => true],
+            404 => ['message' => 'Not Found - запрошенный ресурс не существует', 'throw' => true],
+            405 => ['message' => 'Method Not Allowed - HTTP-метод указан неверно', 'throw' => true],
+            409 => ['message' => 'Conflict - объект используется и не может быть удален', 'throw' => true],
+            410 => ['message' => 'Gone - версия API больше не поддерживается', 'throw' => true],
+            412 => ['message' => 'Precondition Failed - не указан обязательный параметр или поле', 'throw' => true],
+            413 => ['message' => 'Payload Too Large - размер запроса или количество элементов превышает лимит', 'throw' => true],
+            414 => ['message' => 'URI Too Long - превышена допустимая длина URL', 'throw' => true],
+            415 => ['message' => 'Unsupported Media Type - формат headers/body не поддерживается', 'throw' => true],
+            429 => ['message' => 'Too Many Requests - превышен лимит количества запросов', 'throw' => true],
+
+            // 5xx - Server Errors
+            500 => ['message' => 'Internal Server Error - непредвиденная ошибка при обработке запроса', 'throw' => true],
+            502 => ['message' => 'Bad Gateway - сервис временно недоступен', 'throw' => true],
+            503 => ['message' => 'Service Unavailable - сервис временно отключен', 'throw' => true],
+            504 => ['message' => 'Gateway Timeout - превышен таймаут, повторите попытку позднее', 'throw' => true],
+        ];
+
+        if (!isset($statusMessages[$status])) {
+            return null; // Статус не требует специальной обработки
+        }
+
+        $info = $statusMessages[$status];
+        $message = "[HTTP {$status}] " . $info['message'];
+
+        // Добавить информацию о Location для редиректов
+        if (in_array($status, [301, 302, 303]) && isset($rateLimitInfo['location'])) {
+            $message .= " → {$rateLimitInfo['location']}";
+        }
+
+        // Добавить информацию о retry_after для 429
+        if ($status === 429 && isset($rateLimitInfo['retry_after'])) {
+            $retrySeconds = round($rateLimitInfo['retry_after'] / 1000, 1);
+            $message .= " (retry after {$retrySeconds}s)";
+        }
+
+        // Добавить информацию о deprecated API версии
+        if ($status === 410 && isset($rateLimitInfo['api_version_deprecated'])) {
+            $message .= " (deprecated date: {$rateLimitInfo['api_version_deprecated']})";
+        }
+
+        return [
+            'message' => $message,
+            'throw_exception' => $info['throw']
+        ];
+    }
+
+    /**
+     * Распарсить тело ответа с обработкой больших данных
+     *
+     * @param string $rawBody Raw body от HTTP response
+     * @param int $bodySize Размер в байтах
+     * @return array Распарсированный JSON или структура с raw body
+     */
+    protected function parseResponseBody(string $rawBody, int $bodySize): array
+    {
+        // Лимит: 5MB для сохранения в БД (PostgreSQL JSON)
+        $maxSaveSize = 5 * 1024 * 1024;
+
+        // Пустой ответ
+        if (empty($rawBody)) {
+            return ['_empty' => true];
+        }
+
+        // Попытка распарсить JSON
+        $parsed = json_decode($rawBody, true);
+
+        if (json_last_error() === JSON_ERROR_NONE && is_array($parsed)) {
+            // JSON успешно распарсился
+
+            // Если размер слишком большой, обрезаем но сохраняем ключевые поля
+            if ($bodySize > $maxSaveSize) {
+                $truncated = [
+                    '_truncated' => true,
+                    '_original_size' => $bodySize,
+                    '_truncated_reason' => 'Response too large for database storage (max 5MB)'
+                ];
+
+                // Сохранить важные поля если есть
+                if (isset($parsed['errors'])) {
+                    $truncated['errors'] = $parsed['errors']; // Ошибки всегда сохраняем
+                }
+                if (isset($parsed['meta'])) {
+                    $truncated['meta'] = $parsed['meta']; // Метаданные
+                }
+                if (isset($parsed['rows']) && is_array($parsed['rows'])) {
+                    $truncated['rows_count'] = count($parsed['rows']);
+                    $truncated['first_row'] = $parsed['rows'][0] ?? null;
+                }
+
+                return $truncated;
+            }
+
+            return $parsed;
+        }
+
+        // JSON не распарсился
+        $error = [
+            '_parse_error' => json_last_error_msg(),
+            '_original_size' => $bodySize
+        ];
+
+        // Если размер небольшой, сохраняем raw body
+        if ($bodySize < $maxSaveSize) {
+            $error['raw'] = $rawBody;
+        } else {
+            // Сохраняем только начало и конец
+            $error['raw_preview_start'] = substr($rawBody, 0, 1000);
+            $error['raw_preview_end'] = substr($rawBody, -1000);
+            $error['_truncated'] = true;
+        }
+
+        return $error;
+    }
+
+    /**
+     * Добавить специальные заголовки МойСклад к rate limit info
+     *
+     * @param array $headers Заголовки от HTTP response
+     * @param array $rateLimitInfo Существующая информация о rate limits
+     * @return array Расширенная информация
+     */
+    protected function enrichWithMoySkladHeaders(array $headers, array $rateLimitInfo): array
+    {
+        // X-Lognex-Auth - код ошибки аутентификации
+        if (isset($headers['X-Lognex-Auth'])) {
+            $rateLimitInfo['lognex_auth_code'] = $this->getHeaderValue($headers['X-Lognex-Auth']);
+        }
+
+        // X-Lognex-Auth-Message - сообщение об ошибке аутентификации
+        if (isset($headers['X-Lognex-Auth-Message'])) {
+            $rateLimitInfo['lognex_auth_message'] = $this->getHeaderValue($headers['X-Lognex-Auth-Message']);
+        }
+
+        // X-Lognex-API-Version-Deprecated - дата отключения API
+        if (isset($headers['X-Lognex-API-Version-Deprecated'])) {
+            $rateLimitInfo['api_version_deprecated'] = $this->getHeaderValue($headers['X-Lognex-API-Version-Deprecated']);
+        }
+
+        // Location - URL для редиректов (301, 302, 303)
+        if (isset($headers['Location'])) {
+            $rateLimitInfo['location'] = $this->getHeaderValue($headers['Location']);
+        }
+
+        return $rateLimitInfo;
+    }
+
+    /**
+     * Получить значение заголовка (может быть массивом или строкой)
+     */
+    protected function getHeaderValue($headerValue): string
+    {
+        if (is_array($headerValue)) {
+            return $headerValue[0] ?? '';
+        }
+
+        return (string) $headerValue;
     }
 
     /**

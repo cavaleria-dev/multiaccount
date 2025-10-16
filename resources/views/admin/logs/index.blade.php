@@ -95,13 +95,34 @@
                                 {{ Str::limit($log->endpoint, 50) }}
                             </td>
                             <td class="px-4 py-3 text-sm">
-                                <span class="px-2 py-1 rounded text-xs font-medium
-                                    {{ $log->response_status < 300 ? 'bg-green-100 text-green-800' : '' }}
-                                    {{ $log->response_status >= 400 && $log->response_status < 500 ? 'bg-yellow-100 text-yellow-800' : '' }}
-                                    {{ $log->response_status >= 500 ? 'bg-red-100 text-red-800' : '' }}
-                                    {{ $log->response_status === 429 ? 'bg-orange-100 text-orange-800' : '' }}">
-                                    {{ $log->response_status }}
-                                </span>
+                                @php
+                                    $statusDescriptions = [
+                                        200 => 'OK', 301 => 'Redirect', 302 => 'Redirect', 303 => 'Redirect',
+                                        400 => 'Bad Request', 401 => 'Unauthorized', 403 => 'Forbidden',
+                                        404 => 'Not Found', 405 => 'Method Not Allowed', 409 => 'Conflict',
+                                        410 => 'API Deprecated', 412 => 'Missing Param', 413 => 'Too Large',
+                                        414 => 'URI Too Long', 415 => 'Unsupported', 429 => 'Rate Limit',
+                                        500 => 'Server Error', 502 => 'Bad Gateway', 503 => 'Unavailable', 504 => 'Timeout',
+                                    ];
+                                    $description = $statusDescriptions[$log->response_status] ?? '';
+                                @endphp
+                                <div class="flex flex-col gap-1">
+                                    <span class="px-2 py-1 rounded text-xs font-medium inline-block
+                                        {{ $log->response_status < 300 ? 'bg-green-100 text-green-800' : '' }}
+                                        {{ $log->response_status >= 300 && $log->response_status < 400 ? 'bg-blue-100 text-blue-800' : '' }}
+                                        {{ $log->response_status >= 400 && $log->response_status < 500 && $log->response_status !== 429 ? 'bg-yellow-100 text-yellow-800' : '' }}
+                                        {{ $log->response_status >= 500 ? 'bg-red-100 text-red-800' : '' }}
+                                        {{ $log->response_status === 429 ? 'bg-orange-100 text-orange-800' : '' }}"
+                                        title="{{ $description }}">
+                                        {{ $log->response_status }}
+                                    </span>
+
+                                    @if($log->rate_limit_info && isset($log->rate_limit_info['response_truncated']) && $log->rate_limit_info['response_truncated'])
+                                        <span class="px-1 py-0.5 bg-yellow-50 text-yellow-700 rounded text-xs border border-yellow-300">
+                                            ✂️ Truncated
+                                        </span>
+                                    @endif
+                                </div>
                             </td>
                             <td class="px-4 py-3 text-sm">{{ $log->duration_ms ?? '-' }} ms</td>
                             <td class="px-4 py-3 text-sm">

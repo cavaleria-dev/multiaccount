@@ -180,6 +180,99 @@
         </div>
     @endif
 
+    {{-- Response Size & Truncated Warning --}}
+    @if($log->rate_limit_info && isset($log->rate_limit_info['response_size']))
+        <div class="mb-6">
+            <h3 class="font-semibold text-lg mb-2">Информация об ответе</h3>
+            <div class="bg-gray-50 p-4 rounded border border-gray-200">
+                <dl class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <dt class="text-sm text-gray-600 mb-1">Размер ответа:</dt>
+                        <dd class="font-mono text-lg">
+                            @php
+                                $size = $log->rate_limit_info['response_size'];
+                                if ($size < 1024) {
+                                    echo $size . ' bytes';
+                                } elseif ($size < 1024 * 1024) {
+                                    echo round($size / 1024, 2) . ' KB';
+                                } else {
+                                    echo round($size / (1024 * 1024), 2) . ' MB';
+                                }
+                            @endphp
+                        </dd>
+                    </div>
+
+                    @if(isset($log->rate_limit_info['response_truncated']) && $log->rate_limit_info['response_truncated'])
+                        <div>
+                            <dt class="text-sm text-gray-600 mb-1">Статус:</dt>
+                            <dd>
+                                <span class="px-3 py-1 bg-yellow-100 text-yellow-800 rounded font-medium inline-flex items-center">
+                                    <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    </svg>
+                                    ОБРЕЗАН (слишком большой)
+                                </span>
+                            </dd>
+                        </div>
+                    @endif
+                </dl>
+
+                @if(isset($log->rate_limit_info['response_truncated']) && $log->rate_limit_info['response_truncated'])
+                    <div class="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                        ⚠️ Ответ был обрезан для сохранения в базе данных (max 5MB). Ключевые поля (errors, meta) сохранены полностью.
+                    </div>
+                @endif
+            </div>
+        </div>
+    @endif
+
+    {{-- МойСклад Special Headers --}}
+    @if($log->rate_limit_info && (
+        isset($log->rate_limit_info['lognex_auth_code']) ||
+        isset($log->rate_limit_info['lognex_auth_message']) ||
+        isset($log->rate_limit_info['api_version_deprecated']) ||
+        isset($log->rate_limit_info['location'])
+    ))
+        <div class="mb-6">
+            <h3 class="font-semibold text-lg mb-2">🔖 Специальные заголовки МойСклад</h3>
+            <div class="bg-blue-50 border border-blue-200 p-4 rounded">
+                <dl class="space-y-3">
+                    @if(isset($log->rate_limit_info['lognex_auth_code']))
+                        <div>
+                            <dt class="text-sm text-gray-700 font-medium">X-Lognex-Auth (код ошибки аутентификации):</dt>
+                            <dd class="font-mono text-red-800 bg-white px-2 py-1 rounded mt-1">{{ $log->rate_limit_info['lognex_auth_code'] }}</dd>
+                        </div>
+                    @endif
+
+                    @if(isset($log->rate_limit_info['lognex_auth_message']))
+                        <div>
+                            <dt class="text-sm text-gray-700 font-medium">X-Lognex-Auth-Message:</dt>
+                            <dd class="text-red-800 bg-white px-2 py-1 rounded mt-1">{{ $log->rate_limit_info['lognex_auth_message'] }}</dd>
+                        </div>
+                    @endif
+
+                    @if(isset($log->rate_limit_info['api_version_deprecated']))
+                        <div class="bg-red-100 border border-red-300 p-3 rounded">
+                            <dt class="text-sm text-red-900 font-bold mb-1">⚠️ X-Lognex-API-Version-Deprecated:</dt>
+                            <dd class="text-red-800">Версия API будет отключена: <span class="font-mono font-bold">{{ $log->rate_limit_info['api_version_deprecated'] }}</span></dd>
+                        </div>
+                    @endif
+
+                    @if(isset($log->rate_limit_info['location']))
+                        <div>
+                            <dt class="text-sm text-gray-700 font-medium">Location (редирект):</dt>
+                            <dd class="font-mono text-sm bg-white px-2 py-1 rounded mt-1 break-all">
+                                <a href="{{ $log->rate_limit_info['location'] }}" target="_blank" class="text-indigo-600 hover:text-indigo-800 underline">
+                                    {{ $log->rate_limit_info['location'] }}
+                                </a>
+                            </dd>
+                        </div>
+                    @endif
+                </dl>
+            </div>
+        </div>
+    @endif
+
     {{-- Rate Limit Info --}}
     @if($log->rate_limit_info)
         <div class="mb-6">
