@@ -31,9 +31,10 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
         ]);
 
-        // Регистрируем алиас для middleware контекста МойСклад
+        // Регистрируем алиасы для middleware
         $middleware->alias([
             'moysklad.context' => \App\Http\Middleware\MoySkladContext::class,
+            'admin.auth' => \App\Http\Middleware\AdminAuth::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

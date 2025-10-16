@@ -11,7 +11,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
     Route::post('login', [AuthController::class, 'login']);
 
     // Защищенные роуты админ-панели
-    Route::middleware(\App\Http\Middleware\AdminAuth::class)->group(function () {
+    Route::middleware('admin.auth')->group(function () {
         Route::post('logout', [AuthController::class, 'logout'])->name('logout');
 
         // Логи API
