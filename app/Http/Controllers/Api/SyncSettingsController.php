@@ -16,6 +16,18 @@ use Illuminate\Support\Facades\Log;
 class SyncSettingsController extends Controller
 {
     /**
+     * Типы атрибутов, которые НЕ отображаются в UI и НЕ синхронизируются
+     * (связанные сущности управляются через настройки target objects)
+     */
+    protected const EXCLUDED_ATTRIBUTE_TYPES = [
+        'counterparty',  // Контрагент
+        'employee',      // Сотрудник
+        'store',         // Склад
+        'organization',  // Организация
+        'product',       // Товар
+    ];
+
+    /**
      * Получить настройки синхронизации для дочернего аккаунта
      */
     public function show(Request $request, $accountId)
@@ -298,6 +310,16 @@ class SyncSettingsController extends Controller
                     Log::warning('Attribute without id skipped', [
                         'index' => $index,
                         'attribute' => json_encode($attr, JSON_UNESCAPED_UNICODE)
+                    ]);
+                    continue;
+                }
+
+                // Пропустить запрещённые типы (не показывать в UI)
+                if (isset($attr['type']) && in_array($attr['type'], self::EXCLUDED_ATTRIBUTE_TYPES)) {
+                    $skipped++;
+                    Log::debug('Excluded attribute type skipped', [
+                        'name' => $attr['name'] ?? 'unknown',
+                        'type' => $attr['type']
                     ]);
                     continue;
                 }
@@ -1319,6 +1341,11 @@ class SyncSettingsController extends Controller
                     $attributesResponse = $moysklad->setAccessToken($mainAccount->access_token)->get('entity/product/metadata/attributes');
                     $attributes = [];
                     foreach ($attributesResponse['data']['rows'] ?? [] as $attr) {
+                        // Пропустить запрещённые типы
+                        if (isset($attr['type']) && in_array($attr['type'], self::EXCLUDED_ATTRIBUTE_TYPES)) {
+                            continue;
+                        }
+
                         if (isset($attr['id'])) {
                             $attributes[] = [
                                 'id' => $attr['id'],

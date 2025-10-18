@@ -456,6 +456,35 @@ This app integrates with МойСклад (Russian inventory management system) 
   - Optional product folder creation
   - Visual filter constructor for selective sync
 
+**Дополнительные поля (Attributes) - Логика синхронизации:**
+
+**UI Filtering:**
+- Excluded attribute types are NOT shown in selection list (filtered at API level)
+- Excluded types: `counterparty`, `employee`, `store`, `organization`, `product`
+- These types are managed separately through target objects settings
+- Filtering happens in `SyncSettingsController::getAttributes()` and `getBatchData()`
+
+**Sync Logic (`SyncHelpers::syncAttributes()`):**
+- **Empty `attribute_sync_list`** → NO attributes synced at all (returns `[]`)
+- **Filled `attribute_sync_list`** → Only selected attributes synced
+- Attributes NOT in the list are skipped (logged with `debug` level)
+
+**CustomEntity Attribute Handling (`SyncHelpers::createAttributeInChild()`):**
+- For `type: customentity` attributes, requires `customEntityMeta` reference
+- **Fallback logic:**
+  1. Try to get `customEntityMeta.name` from attribute data
+  2. If missing, load customEntity by `href` using `MoySkladService::getEntity()`
+  3. Extract name from loaded entity
+  4. If still no name → return `null` (skip attribute with warning)
+- Syncs custom dictionary using `CustomEntitySyncService::syncCustomEntity()`
+- Creates mapping in `custom_entity_mappings` table
+
+**Important Notes:**
+- Attributes are checked/created BEFORE syncing products (pre-sync)
+- Mapping stored in `attribute_mappings` table (checked first, then created if needed)
+- Sync by `name` + `type` match (attributes don't have universal codes like standard entities)
+- Failed attribute sync doesn't block product sync (gracefully skipped)
+
 **Queue Flow Details:**
 1. User clicks "Sync All" or webhook triggers
 2. Controller creates tasks in `sync_queue` (status: pending, priority: 1-10)

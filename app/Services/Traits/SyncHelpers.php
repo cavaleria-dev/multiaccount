@@ -54,7 +54,15 @@ trait SyncHelpers
         // Получить настройки для фильтрации атрибутов
         $settings = SyncSetting::where('account_id', $childAccountId)->first();
         $attributeSyncList = $settings && $settings->attribute_sync_list ? $settings->attribute_sync_list : null;
-        $useFilter = !empty($attributeSyncList) && is_array($attributeSyncList);
+
+        // Если список ПУСТОЙ → НЕ синхронизировать доп.поля вообще
+        if (empty($attributeSyncList) || !is_array($attributeSyncList)) {
+            Log::debug('Attribute sync disabled: attribute_sync_list is empty', [
+                'entity_type' => $entityType,
+                'child_account_id' => $childAccountId
+            ]);
+            return []; // Вернуть пустой массив = не синхронизировать атрибуты
+        }
 
         foreach ($attributes as $attribute) {
             // Проверить маппинг атрибута
@@ -66,9 +74,13 @@ trait SyncHelpers
                 continue;
             }
 
-            // Если используется фильтр - проверить разрешен ли этот атрибут
-            if ($useFilter && !in_array($attributeId, $attributeSyncList)) {
-                continue; // Атрибут не в списке разрешенных - пропустить
+            // Синхронизировать только атрибуты из списка разрешенных
+            if (!in_array($attributeId, $attributeSyncList)) {
+                Log::debug('Skipping non-selected attribute', [
+                    'attribute_name' => $attributeName,
+                    'attribute_id' => $attributeId
+                ]);
+                continue;
             }
 
             $attributeMapping = AttributeMapping::where('parent_account_id', $mainAccountId)
@@ -136,20 +148,53 @@ trait SyncHelpers
             ];
 
             // Для customentity нужно синхронизировать сам справочник
-            if ($attribute['type'] === 'customentity' && isset($attribute['customEntityMeta'])) {
-                $customEntityName = $attribute['customEntityMeta']['name'] ?? null;
-                if ($customEntityName) {
-                    $syncedEntity = $this->customEntitySyncService->syncCustomEntity(
-                        $mainAccountId,
-                        $childAccountId,
-                        $customEntityName
-                    );
-                    $attributeData['customEntityMeta'] = [
-                        'href' => config('moysklad.api_url') . "/entity/customentity/{$syncedEntity['child_id']}",
-                        'type' => 'customentity',
-                        'mediaType' => 'application/json'
-                    ];
+            if ($attribute['type'] === 'customentity') {
+                $customEntityName = null;
+
+                // Попытка 1: Извлечь name из customEntityMeta
+                if (isset($attribute['customEntityMeta']['name'])) {
+                    $customEntityName = $attribute['customEntityMeta']['name'];
                 }
+                // Попытка 2: Загрузить customEntity по href
+                elseif (isset($attribute['customEntityMeta']['href'])) {
+                    try {
+                        $customEntityId = $this->extractEntityId($attribute['customEntityMeta']['href']);
+                        if ($customEntityId) {
+                            // Используем метод MoySkladService::getEntity()
+                            $customEntityData = $this->moySkladService->getEntity(
+                                $mainAccountId,
+                                'customentity',
+                                $customEntityId
+                            );
+                            $customEntityName = $customEntityData['name'] ?? null;
+                        }
+                    } catch (\Exception $e) {
+                        Log::warning('Failed to load customEntity by href', [
+                            'href' => $attribute['customEntityMeta']['href'],
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
+
+                if (!$customEntityName) {
+                    Log::warning('Cannot sync customentity attribute: missing customEntityMeta.name', [
+                        'attribute' => $attribute
+                    ]);
+                    return null; // Пропустить атрибут
+                }
+
+                // Синхронизировать справочник
+                $syncedEntity = $this->customEntitySyncService->syncCustomEntity(
+                    $mainAccountId,
+                    $childAccountId,
+                    $customEntityName
+                );
+
+                $attributeData['customEntityMeta'] = [
+                    'href' => config('moysklad.api_url') . "/entity/customentity/{$syncedEntity['child_id']}",
+                    'type' => 'customentity',
+                    'mediaType' => 'application/json'
+                ];
             }
 
             $result = $this->moySkladService
