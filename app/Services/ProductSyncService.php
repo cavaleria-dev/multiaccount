@@ -195,7 +195,7 @@ class ProductSyncService
         }
 
         // Синхронизировать доп.поля (используя трейт SyncHelpers)
-        if (isset($product['attributes']) && $settings->auto_create_attributes) {
+        if (isset($product['attributes'])) {
             $productData['attributes'] = $this->syncAttributes(
                 $mainAccountId,
                 $childAccountId,
@@ -353,7 +353,7 @@ class ProductSyncService
         }
 
         // Доп.поля (используя трейт SyncHelpers)
-        if (isset($product['attributes']) && $settings->auto_create_attributes) {
+        if (isset($product['attributes'])) {
             $productData['attributes'] = $this->syncAttributes(
                 $mainAccountId,
                 $childAccountId,

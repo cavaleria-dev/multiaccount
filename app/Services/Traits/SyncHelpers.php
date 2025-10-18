@@ -64,6 +64,15 @@ trait SyncHelpers
             return []; // Вернуть пустой массив = не синхронизировать атрибуты
         }
 
+        Log::info('Starting attribute sync', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'entity_type' => $entityType,
+            'total_attributes' => count($attributes),
+            'attribute_sync_list' => $attributeSyncList,
+            'auto_create_attributes' => $settings->auto_create_attributes ?? null
+        ]);
+
         foreach ($attributes as $attribute) {
             // Проверить маппинг атрибута
             $attributeName = $attribute['name'] ?? null;
@@ -141,6 +150,15 @@ trait SyncHelpers
         try {
             $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
 
+            Log::info('Creating attribute in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => $entityType,
+                'attribute_name' => $attribute['name'],
+                'attribute_type' => $attribute['type'],
+                'has_customEntityMeta' => isset($attribute['customEntityMeta'])
+            ]);
+
             $attributeData = [
                 'name' => $attribute['name'],
                 'type' => $attribute['type'],
@@ -177,11 +195,22 @@ trait SyncHelpers
                 }
 
                 if (!$customEntityName) {
-                    Log::warning('Cannot sync customentity attribute: missing customEntityMeta.name', [
-                        'attribute' => $attribute
+                    Log::error('Cannot sync customentity attribute: failed to extract custom entity name', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'attribute' => $attribute,
+                        'has_href' => isset($attribute['customEntityMeta']['href']),
+                        'href' => $attribute['customEntityMeta']['href'] ?? null
                     ]);
                     return null; // Пропустить атрибут
                 }
+
+                Log::info('Syncing custom entity for attribute', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'custom_entity_name' => $customEntityName,
+                    'attribute_name' => $attribute['name']
+                ]);
 
                 // Синхронизировать справочник
                 $syncedEntity = $this->customEntitySyncService->syncCustomEntity(

@@ -129,7 +129,7 @@ class ServiceSyncService
         ];
 
         // Синхронизировать доп.поля
-        if (isset($service['attributes']) && $settings->auto_create_attributes) {
+        if (isset($service['attributes'])) {
             $serviceData['attributes'] = $this->syncAttributes(
                 $mainAccountId,
                 $childAccountId,
@@ -198,7 +198,7 @@ class ServiceSyncService
         ];
 
         // Доп.поля
-        if (isset($service['attributes']) && $settings->auto_create_attributes) {
+        if (isset($service['attributes'])) {
             $serviceData['attributes'] = $this->syncAttributes(
                 $mainAccountId,
                 $childAccountId,
