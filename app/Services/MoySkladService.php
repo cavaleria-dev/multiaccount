@@ -511,6 +511,81 @@ class MoySkladService
         return $response['data']['priceTypes'] ?? [];
     }
 
+    // ============ Универсальные методы для работы с сущностями ============
+
+    /**
+     * Получить сущность по ID (с автоматическим получением токена из БД)
+     *
+     * @param string $accountId UUID аккаунта
+     * @param string $entityType Тип сущности (uom, currency, country, product, etc.)
+     * @param string $entityId UUID сущности
+     * @param array $params Query параметры (expand, filter, etc.)
+     * @return array|null Данные сущности или null
+     */
+    public function getEntity(string $accountId, string $entityType, string $entityId, array $params = []): ?array
+    {
+        $account = \App\Models\Account::where('account_id', $accountId)->first();
+
+        if (!$account) {
+            Log::error('Account not found for getEntity', ['account_id' => $accountId]);
+            return null;
+        }
+
+        $this->setAccessToken($account->access_token);
+
+        $result = $this->get("entity/{$entityType}/{$entityId}", $params);
+
+        return $result['data'] ?? null;
+    }
+
+    /**
+     * Получить список сущностей (с автоматическим получением токена из БД)
+     *
+     * @param string $accountId UUID аккаунта
+     * @param string $entityType Тип сущности (uom, currency, country, product, etc.)
+     * @param array $params Query параметры (filter, limit, offset, etc.)
+     * @return array Данные ответа с rows и meta
+     */
+    public function getList(string $accountId, string $entityType, array $params = []): array
+    {
+        $account = \App\Models\Account::where('account_id', $accountId)->first();
+
+        if (!$account) {
+            Log::error('Account not found for getList', ['account_id' => $accountId]);
+            return ['rows' => [], 'meta' => []];
+        }
+
+        $this->setAccessToken($account->access_token);
+
+        $result = $this->get("entity/{$entityType}", $params);
+
+        return $result['data'] ?? ['rows' => [], 'meta' => []];
+    }
+
+    /**
+     * Создать сущность (с автоматическим получением токена из БД)
+     *
+     * @param string $accountId UUID аккаунта
+     * @param string $entityType Тип сущности (uom, currency, country, product, etc.)
+     * @param array $data Данные для создания
+     * @return array|null Созданная сущность или null
+     */
+    public function createEntity(string $accountId, string $entityType, array $data): ?array
+    {
+        $account = \App\Models\Account::where('account_id', $accountId)->first();
+
+        if (!$account) {
+            Log::error('Account not found for createEntity', ['account_id' => $accountId]);
+            return null;
+        }
+
+        $this->setAccessToken($account->access_token);
+
+        $result = $this->post("entity/{$entityType}", $data);
+
+        return $result['data'] ?? null;
+    }
+
     // ============ Методы для работы с контекстом приложения ============
 
     /**
