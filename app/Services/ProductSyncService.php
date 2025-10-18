@@ -90,6 +90,18 @@ class ProductSyncService
 
             $product = $productResult['data'];
 
+            // Проверить, что поле сопоставления заполнено
+            $matchField = $settings->product_match_field ?? 'article';
+            if (empty($product[$matchField])) {
+                Log::warning('Product skipped: match field is empty', [
+                    'product_id' => $productId,
+                    'child_account_id' => $childAccountId,
+                    'match_field' => $matchField,
+                    'product_name' => $product['name'] ?? 'unknown'
+                ]);
+                return null;
+            }
+
             // Проверить фильтры (используя трейт SyncHelpers)
             if (!$this->passesFilters($product, $settings, $mainAccountId)) {
                 Log::debug('Product does not pass filters', [

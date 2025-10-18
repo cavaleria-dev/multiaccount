@@ -485,6 +485,17 @@ This app integrates with МойСклад (Russian inventory management system) 
 - Sync by `name` + `type` match (attributes don't have universal codes like standard entities)
 - Failed attribute sync doesn't block product sync (gracefully skipped)
 
+**Validation Before Sync:**
+- Products/variants/bundles/services are **SKIPPED** if `product_match_field` value is empty
+- Example: if `product_match_field = 'article'` but product has no article → skip sync
+- Logged as warning: `"Entity skipped: match field '{field}' is empty"`
+- Files implementing validation:
+  * `ProductSyncService::syncProduct()` - Checks article/code/externalCode
+  * `VariantSyncService::syncVariant()` - Checks article/code/externalCode (if applicable)
+  * `BundleSyncService::syncBundle()` - Checks article/code/externalCode
+  * `ServiceSyncService::syncService()` - Checks code/externalCode (default: code)
+- **Why critical:** МойСклад API returns error if match field (article/code) is sent as empty string
+
 **Queue Flow Details:**
 1. User clicks "Sync All" or webhook triggers
 2. Controller creates tasks in `sync_queue` (status: pending, priority: 1-10)

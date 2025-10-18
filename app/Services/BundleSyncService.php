@@ -62,6 +62,18 @@ class BundleSyncService
 
             $bundle = $bundleResult['data'];
 
+            // Проверить, что поле сопоставления заполнено
+            $matchField = $settings->product_match_field ?? 'article';
+            if (empty($bundle[$matchField])) {
+                Log::warning('Bundle skipped: match field is empty', [
+                    'bundle_id' => $bundleId,
+                    'child_account_id' => $childAccountId,
+                    'match_field' => $matchField,
+                    'bundle_name' => $bundle['name'] ?? 'unknown'
+                ]);
+                return null;
+            }
+
             // Проверить фильтры (используя трейт SyncHelpers)
             if (!$this->passesFilters($bundle, $settings, $mainAccountId)) {
                 Log::debug('Bundle does not pass filters', [

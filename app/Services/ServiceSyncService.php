@@ -47,6 +47,18 @@ class ServiceSyncService
 
             $service = $serviceResult['data'];
 
+            // Проверить, что поле сопоставления заполнено
+            $matchField = $settings->product_match_field ?? 'code';
+            if (empty($service[$matchField])) {
+                Log::warning('Service skipped: match field is empty', [
+                    'service_id' => $serviceId,
+                    'child_account_id' => $childAccountId,
+                    'match_field' => $matchField,
+                    'service_name' => $service['name'] ?? 'unknown'
+                ]);
+                return null;
+            }
+
             // Проверить маппинг
             $mapping = EntityMapping::where('parent_account_id', $mainAccountId)
                 ->where('child_account_id', $childAccountId)
