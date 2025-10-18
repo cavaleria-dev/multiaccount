@@ -23,6 +23,7 @@ class BundleSyncService
     protected ProductFilterService $productFilterService;
     protected ProductSyncService $productSyncService;
     protected VariantSyncService $variantSyncService;
+    protected AttributeSyncService $attributeSyncService;
 
     public function __construct(
         MoySkladService $moySkladService,
@@ -30,7 +31,8 @@ class BundleSyncService
         StandardEntitySyncService $standardEntitySync,
         ProductFilterService $productFilterService,
         ProductSyncService $productSyncService,
-        VariantSyncService $variantSyncService
+        VariantSyncService $variantSyncService,
+        AttributeSyncService $attributeSyncService
     ) {
         $this->moySkladService = $moySkladService;
         $this->customEntitySyncService = $customEntitySyncService;
@@ -38,6 +40,7 @@ class BundleSyncService
         $this->productFilterService = $productFilterService;
         $this->productSyncService = $productSyncService;
         $this->variantSyncService = $variantSyncService;
+        $this->attributeSyncService = $attributeSyncService;
     }
 
     /**
@@ -75,8 +78,9 @@ class BundleSyncService
             }
 
             // Смержить метаданные атрибутов с значениями (для customEntityMeta)
+            // Используем AttributeSyncService для загрузки метаданных
             if (isset($bundle['attributes']) && is_array($bundle['attributes'])) {
-                $attributesMetadata = $this->loadAttributesMetadata($mainAccountId);
+                $attributesMetadata = $this->attributeSyncService->loadAttributesMetadata($mainAccountId, 'bundle');
 
                 foreach ($bundle['attributes'] as &$attr) {
                     $attrId = $attr['id'] ?? null;

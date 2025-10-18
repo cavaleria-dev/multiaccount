@@ -23,6 +23,7 @@ class ProductSyncService
     protected ProductFilterService $productFilterService;
     protected StandardEntitySyncService $standardEntitySync;
     protected ProductFolderSyncService $productFolderSyncService;
+    protected AttributeSyncService $attributeSyncService;
     protected ?VariantSyncService $variantSyncService = null;
     protected ?BundleSyncService $bundleSyncService = null;
 
@@ -31,13 +32,15 @@ class ProductSyncService
         CustomEntitySyncService $customEntitySyncService,
         ProductFilterService $productFilterService,
         StandardEntitySyncService $standardEntitySync,
-        ProductFolderSyncService $productFolderSyncService
+        ProductFolderSyncService $productFolderSyncService,
+        AttributeSyncService $attributeSyncService
     ) {
         $this->moySkladService = $moySkladService;
         $this->customEntitySyncService = $customEntitySyncService;
         $this->productFilterService = $productFilterService;
         $this->standardEntitySync = $standardEntitySync;
         $this->productFolderSyncService = $productFolderSyncService;
+        $this->attributeSyncService = $attributeSyncService;
     }
 
     /**
@@ -103,8 +106,9 @@ class ProductSyncService
             }
 
             // Смержить метаданные атрибутов с значениями (для customEntityMeta)
+            // Используем AttributeSyncService для загрузки метаданных
             if (isset($product['attributes']) && is_array($product['attributes'])) {
-                $attributesMetadata = $this->loadAttributesMetadata($mainAccountId);
+                $attributesMetadata = $this->attributeSyncService->loadAttributesMetadata($mainAccountId, 'product');
 
                 foreach ($product['attributes'] as &$attr) {
                     $attrId = $attr['id'] ?? null;
@@ -194,13 +198,15 @@ class ProductSyncService
             $productData['barcodes'] = $product['barcodes'];
         }
 
-        // Синхронизировать доп.поля (используя трейт SyncHelpers)
+        // Синхронизировать доп.поля (используя AttributeSyncService)
         if (isset($product['attributes'])) {
-            $productData['attributes'] = $this->syncAttributes(
-                $mainAccountId,
-                $childAccountId,
-                'product',
-                $product['attributes']
+            $productData['attributes'] = $this->attributeSyncService->syncAttributes(
+                sourceAccountId: $mainAccountId,
+                targetAccountId: $childAccountId,
+                settingsAccountId: $childAccountId,
+                entityType: 'product',
+                attributes: $product['attributes'],
+                direction: 'main_to_child'
             );
         }
 
@@ -352,13 +358,15 @@ class ProductSyncService
             $productData['barcodes'] = $product['barcodes'];
         }
 
-        // Доп.поля (используя трейт SyncHelpers)
+        // Доп.поля (используя AttributeSyncService)
         if (isset($product['attributes'])) {
-            $productData['attributes'] = $this->syncAttributes(
-                $mainAccountId,
-                $childAccountId,
-                'product',
-                $product['attributes']
+            $productData['attributes'] = $this->attributeSyncService->syncAttributes(
+                sourceAccountId: $mainAccountId,
+                targetAccountId: $childAccountId,
+                settingsAccountId: $childAccountId,
+                entityType: 'product',
+                attributes: $product['attributes'],
+                direction: 'main_to_child'
             );
         }
 

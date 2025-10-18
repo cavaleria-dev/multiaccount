@@ -20,15 +20,18 @@ class ServiceSyncService
     protected MoySkladService $moySkladService;
     protected CustomEntitySyncService $customEntitySyncService;
     protected StandardEntitySyncService $standardEntitySync;
+    protected AttributeSyncService $attributeSyncService;
 
     public function __construct(
         MoySkladService $moySkladService,
         CustomEntitySyncService $customEntitySyncService,
-        StandardEntitySyncService $standardEntitySync
+        StandardEntitySyncService $standardEntitySync,
+        AttributeSyncService $attributeSyncService
     ) {
         $this->moySkladService = $moySkladService;
         $this->customEntitySyncService = $customEntitySyncService;
         $this->standardEntitySync = $standardEntitySync;
+        $this->attributeSyncService = $attributeSyncService;
     }
 
     /**
@@ -66,8 +69,9 @@ class ServiceSyncService
             }
 
             // Смержить метаданные атрибутов с значениями (для customEntityMeta)
+            // Используем AttributeSyncService для загрузки метаданных
             if (isset($service['attributes']) && is_array($service['attributes'])) {
-                $attributesMetadata = $this->loadAttributesMetadata($mainAccountId);
+                $attributesMetadata = $this->attributeSyncService->loadAttributesMetadata($mainAccountId, 'service');
 
                 foreach ($service['attributes'] as &$attr) {
                     $attrId = $attr['id'] ?? null;
@@ -134,13 +138,15 @@ class ServiceSyncService
             'description' => $service['description'] ?? null,
         ];
 
-        // Синхронизировать доп.поля
+        // Синхронизировать доп.поля (используя AttributeSyncService)
         if (isset($service['attributes'])) {
-            $serviceData['attributes'] = $this->syncAttributes(
-                $mainAccountId,
-                $childAccountId,
-                'service',
-                $service['attributes']
+            $serviceData['attributes'] = $this->attributeSyncService->syncAttributes(
+                sourceAccountId: $mainAccountId,
+                targetAccountId: $childAccountId,
+                settingsAccountId: $childAccountId,
+                entityType: 'service',
+                attributes: $service['attributes'],
+                direction: 'main_to_child'
             );
         }
 
@@ -203,13 +209,15 @@ class ServiceSyncService
             'description' => $service['description'] ?? null,
         ];
 
-        // Доп.поля
+        // Доп.поля (используя AttributeSyncService)
         if (isset($service['attributes'])) {
-            $serviceData['attributes'] = $this->syncAttributes(
-                $mainAccountId,
-                $childAccountId,
-                'service',
-                $service['attributes']
+            $serviceData['attributes'] = $this->attributeSyncService->syncAttributes(
+                sourceAccountId: $mainAccountId,
+                targetAccountId: $childAccountId,
+                settingsAccountId: $childAccountId,
+                entityType: 'service',
+                attributes: $service['attributes'],
+                direction: 'main_to_child'
             );
         }
 
@@ -238,150 +246,6 @@ class ServiceSyncService
         ]);
 
         return $updatedServiceResult['data'];
-    }
-
-    /**
-     * Синхронизировать доп.поля (копия из ProductSyncService)
-     */
-    protected function syncAttributes(
-        string $mainAccountId,
-        string $childAccountId,
-        string $entityType,
-        array $attributes
-    ): array {
-        $syncedAttributes = [];
-
-        // Получить настройки для фильтрации атрибутов
-        $settings = SyncSetting::where('account_id', $childAccountId)->first();
-        $attributeSyncList = $settings && $settings->attribute_sync_list ? $settings->attribute_sync_list : null;
-        $useFilter = !empty($attributeSyncList) && is_array($attributeSyncList);
-
-        foreach ($attributes as $attribute) {
-            $attributeName = $attribute['name'] ?? null;
-            $attributeType = $attribute['type'] ?? null;
-            $attributeId = $attribute['id'] ?? null;
-
-            if (!$attributeName || !$attributeType || !$attributeId) {
-                continue;
-            }
-
-            // Если используется фильтр - проверить разрешен ли этот атрибут
-            if ($useFilter && !in_array($attributeId, $attributeSyncList)) {
-                continue;
-            }
-
-            $attributeMapping = AttributeMapping::where('parent_account_id', $mainAccountId)
-                ->where('child_account_id', $childAccountId)
-                ->where('entity_type', $entityType)
-                ->where('attribute_name', $attributeName)
-                ->where('attribute_type', $attributeType)
-                ->first();
-
-            if (!$attributeMapping) {
-                $attributeMapping = $this->createAttributeInChild(
-                    $mainAccountId,
-                    $childAccountId,
-                    $entityType,
-                    $attribute
-                );
-            }
-
-            if (!$attributeMapping) {
-                continue;
-            }
-
-            $value = $attribute['value'] ?? null;
-
-            if ($attributeType === 'customentity' && $value) {
-                $value = $this->customEntitySyncService->syncAttributeValue(
-                    $mainAccountId,
-                    $childAccountId,
-                    $value
-                );
-            }
-
-            $syncedAttributes[] = [
-                'meta' => [
-                    'href' => config('moysklad.api_url') . "/entity/{$entityType}/metadata/attributes/{$attributeMapping->child_attribute_id}",
-                    'type' => 'attributemetadata',
-                    'mediaType' => 'application/json'
-                ],
-                'value' => $value
-            ];
-        }
-
-        return $syncedAttributes;
-    }
-
-    /**
-     * Создать атрибут в дочернем аккаунте
-     */
-    protected function createAttributeInChild(
-        string $mainAccountId,
-        string $childAccountId,
-        string $entityType,
-        array $attribute
-    ): ?AttributeMapping {
-        try {
-            $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
-
-            $attributeData = [
-                'name' => $attribute['name'],
-                'type' => $attribute['type'],
-                'required' => $attribute['required'] ?? false,
-            ];
-
-            if ($attribute['type'] === 'customentity' && isset($attribute['customEntityMeta'])) {
-                $customEntityName = $attribute['customEntityMeta']['name'] ?? null;
-                if ($customEntityName) {
-                    $syncedEntity = $this->customEntitySyncService->syncCustomEntity(
-                        $mainAccountId,
-                        $childAccountId,
-                        $customEntityName
-                    );
-                    $attributeData['customEntityMeta'] = [
-                        'href' => config('moysklad.api_url') . "/entity/customentity/{$syncedEntity['child_id']}",
-                        'type' => 'customentity',
-                        'mediaType' => 'application/json'
-                    ];
-                }
-            }
-
-            $result = $this->moySkladService
-                ->setAccessToken($childAccount->access_token)
-                ->post("entity/{$entityType}/metadata/attributes", $attributeData);
-
-            $newAttribute = $result['data'];
-
-            $mapping = AttributeMapping::create([
-                'parent_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'entity_type' => $entityType,
-                'parent_attribute_id' => $attribute['id'],
-                'child_attribute_id' => $newAttribute['id'],
-                'attribute_name' => $attribute['name'],
-                'attribute_type' => $attribute['type'],
-                'is_synced' => true,
-                'auto_created' => true,
-            ]);
-
-            Log::info('Attribute created in child account for service', [
-                'main_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'attribute_name' => $attribute['name']
-            ]);
-
-            return $mapping;
-
-        } catch (\Exception $e) {
-            Log::error('Failed to create attribute in child account for service', [
-                'main_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'attribute' => $attribute,
-                'error' => $e->getMessage()
-            ]);
-            return null;
-        }
     }
 
     /**
