@@ -540,6 +540,11 @@ This app integrates with МойСклад (Russian inventory management system) 
 
 **Core Services** (`app/Services/`):
 - `MoySkladService` - Low-level API client, rate limit handling
+  * **New methods (added for StandardEntitySyncService):**
+    - `getEntity(accountId, entityType, entityId, params)` - Get entity by ID with auto token management
+    - `getList(accountId, entityType, params)` - Get entity list with filters
+    - `createEntity(accountId, entityType, data)` - Create entity
+    - All methods accept `accountId`, fetch token from DB automatically, return only `['data']` (not full response)
 - `VendorApiService` - JWT generation, context retrieval
 - `ProductSyncService` - **Products ONLY** (товары без модификаций/комплектов) ⭐ **REFACTORED**
 - `VariantSyncService` - **Variants** (модификации) ⭐ **NEW**
@@ -1671,6 +1676,8 @@ if (isset($buyPrice['currency']['meta']['href'])) {
 23. **Price Types Structure** - priceTypes endpoint returns `{main: [...], child: [...]}`, NOT a flat array. Always destructure correctly.
 24. **SimpleSelect Loading State** - Always pass `:loading` prop when data is being fetched asynchronously. This shows spinner and improves UX during API calls.
 25. **CustomEntity ID Extraction** - Use `extractCustomEntityId()` helper to extract UUID from `customEntityMeta.href`. Supports both full URL and relative paths. UUID format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (36 chars).
+26. **EXCLUDED_ATTRIBUTE_TYPES** - Constants in `SyncSettingsController` define attribute types that should NOT be synced (`counterparty`, `employee`, `store`, `organization`, `product`). These are filtered at API level in `getAttributes()` and `getBatchData()`. Never show these types in UI - they are managed via target objects settings.
+27. **MoySkladService New Methods** - Three convenience methods added for `StandardEntitySyncService`: `getEntity()`, `getList()`, `createEntity()`. These accept `accountId` (not token), fetch token from DB automatically, and return only data (not full response with rate limit info). Use these instead of direct `get()`/`post()` when you need simple entity operations.
 
 ## API Monitoring System (Admin Panel)
 
