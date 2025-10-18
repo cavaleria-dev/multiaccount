@@ -169,28 +169,17 @@ trait SyncHelpers
             if ($attribute['type'] === 'customentity') {
                 $customEntityName = null;
 
-                // Попытка 1: Извлечь name из customEntityMeta
+                // Попытка 1: Извлечь name из customEntityMeta (если уже загружено)
                 if (isset($attribute['customEntityMeta']['name'])) {
                     $customEntityName = $attribute['customEntityMeta']['name'];
                 }
-                // Попытка 2: Загрузить customEntity по href
+                // Попытка 2: Загрузить metadata customEntity по href
                 elseif (isset($attribute['customEntityMeta']['href'])) {
-                    try {
-                        $customEntityId = $this->extractEntityId($attribute['customEntityMeta']['href']);
-                        if ($customEntityId) {
-                            // Используем метод MoySkladService::getEntity()
-                            $customEntityData = $this->moySkladService->getEntity(
-                                $mainAccountId,
-                                'customentity',
-                                $customEntityId
-                            );
-                            $customEntityName = $customEntityData['name'] ?? null;
-                        }
-                    } catch (\Exception $e) {
-                        Log::warning('Failed to load customEntity by href', [
-                            'href' => $attribute['customEntityMeta']['href'],
-                            'error' => $e->getMessage()
-                        ]);
+                    $customEntityId = $this->extractEntityId($attribute['customEntityMeta']['href']);
+                    if ($customEntityId) {
+                        // ИСПРАВЛЕНИЕ: Использовать metadata endpoint вместо entity endpoint
+                        $metadata = $this->loadCustomEntityMetadataById($mainAccountId, $customEntityId);
+                        $customEntityName = $metadata['name'] ?? null;
                     }
                 }
 
@@ -668,5 +657,100 @@ trait SyncHelpers
 
         // Применить фильтры
         return $this->productFilterService->passes($entity, $filters);
+    }
+
+    /**
+     * Загрузить метаданные атрибутов (общие для product/service/bundle)
+     *
+     * ВАЖНО: Метаданные возвращают customEntityMeta для атрибутов типа customentity
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @return array Метаданные атрибутов индексированные по ID
+     */
+    protected function loadAttributesMetadata(string $mainAccountId): array
+    {
+        // Проверить кеш (static для переиспользования внутри одного запроса)
+        static $cache = [];
+        if (isset($cache[$mainAccountId])) {
+            return $cache[$mainAccountId];
+        }
+
+        $mainAccount = Account::where('account_id', $mainAccountId)->first();
+        if (!$mainAccount) {
+            Log::warning('Main account not found for attributes metadata', [
+                'main_account_id' => $mainAccountId
+            ]);
+            return [];
+        }
+
+        try {
+            // Получить метаданные атрибутов (общие для товаров, услуг, комплектов)
+            $response = $this->moySkladService
+                ->setAccessToken($mainAccount->access_token)
+                ->get('entity/product/metadata/attributes');
+
+            $metadata = [];
+            foreach ($response['data']['rows'] ?? [] as $attr) {
+                if (isset($attr['id'])) {
+                    $metadata[$attr['id']] = $attr; // Индексировать по ID для O(1) поиска
+                }
+            }
+
+            $cache[$mainAccountId] = $metadata;
+
+            Log::debug('Attributes metadata loaded and cached', [
+                'main_account_id' => $mainAccountId,
+                'count' => count($metadata)
+            ]);
+
+            return $metadata;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to load attributes metadata', [
+                'main_account_id' => $mainAccountId,
+                'error' => $e->getMessage()
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Загрузить метаданные пользовательского справочника по ID
+     *
+     * Endpoint: GET context/companysettings/metadata/customEntities/{id}
+     * Возвращает: {id, name, meta, ...}
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $customEntityId UUID справочника
+     * @return array|null Метаданные справочника с полем 'name' или null
+     */
+    protected function loadCustomEntityMetadataById(string $mainAccountId, string $customEntityId): ?array
+    {
+        try {
+            $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
+
+            $response = $this->moySkladService
+                ->setAccessToken($mainAccount->access_token)
+                ->get("context/companysettings/metadata/customEntities/{$customEntityId}");
+
+            $metadata = $response['data'] ?? null;
+
+            if ($metadata && isset($metadata['name'])) {
+                Log::info('Loaded customEntity metadata by ID', [
+                    'custom_entity_id' => $customEntityId,
+                    'custom_entity_name' => $metadata['name']
+                ]);
+            }
+
+            return $metadata;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to load customEntity metadata by ID', [
+                'main_account_id' => $mainAccountId,
+                'custom_entity_id' => $customEntityId,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
     }
 }
