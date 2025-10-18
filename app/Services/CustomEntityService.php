@@ -28,11 +28,14 @@ class CustomEntityService
         try {
             $account = Account::where('account_id', $accountId)->firstOrFail();
 
+            // ИСПРАВЛЕНО: Используем context/companysettings/metadata для получения списка справочников
+            // Endpoint entity/customentity (без ID) не работает - возвращает ошибку 1012
             $result = $this->moySkladService
                 ->setAccessToken($account->access_token)
-                ->get('entity/customentity');
+                ->get('context/companysettings/metadata');
 
-            return $result['data']['rows'] ?? [];
+            // ИСПРАВЛЕНО: Данные в поле customEntities, а не rows
+            return $result['data']['customEntities'] ?? [];
 
         } catch (\Exception $e) {
             Log::error('Failed to get custom entities', [
