@@ -496,6 +496,80 @@ This app integrates with МойСклад (Russian inventory management system) 
   * `ServiceSyncService::syncService()` - Checks code/externalCode (default: code)
 - **Why critical:** МойСклад API returns error if match field (article/code) is sent as empty string
 
+**Metadata Merging for CustomEntity Attributes:**
+
+**Problem:** МойСклад API returns attribute metadata and values separately:
+- `GET entity/product/{id}?expand=attributes` → Returns attribute **VALUES** only (no `customEntityMeta`)
+- `GET entity/product/metadata/attributes` → Returns attribute **METADATA** (includes `customEntityMeta`)
+
+**Impact:** When syncing products/services/bundles with customentity attributes, `customEntityMeta` is missing, causing API error: "поле 'customEntityMeta' не может быть пустым"
+
+**Solution:** Pre-load metadata, merge `customEntityMeta` into attributes before calling `syncAttributes()`
+
+**Implementation:**
+
+1. **Endpoint used:** `entity/product/metadata/attributes` (same for товары, услуги, комплекты)
+2. **Caching strategy:** `$attributesMetadataCache` array indexed by `mainAccountId` (prevents duplicate API calls)
+3. **Merging location:** In `syncProduct()`, `syncService()`, `syncBundle()` methods AFTER loading entity, BEFORE sync
+
+**Files implementing metadata merging:**
+- `ProductSyncService.php` (lines 105-125, 536-593)
+- `BundleSyncService.php` (lines 77-97, 351-408)
+- `ServiceSyncService.php` (lines 62-82, 650-694)
+
+**Code example:**
+
+```php
+// Load attributes metadata once per account
+protected function loadAttributesMetadata(string $mainAccountId): array
+{
+    // Check cache first
+    if (isset($this->attributesMetadataCache[$mainAccountId])) {
+        return $this->attributesMetadataCache[$mainAccountId];
+    }
+
+    $response = $this->moySkladService
+        ->setAccessToken($mainAccount->access_token)
+        ->get('entity/product/metadata/attributes');
+
+    $metadata = [];
+    foreach ($response['data']['rows'] ?? [] as $attr) {
+        if (isset($attr['id'])) {
+            $metadata[$attr['id']] = $attr; // O(1) lookup by ID
+        }
+    }
+
+    $this->attributesMetadataCache[$mainAccountId] = $metadata;
+    return $metadata;
+}
+
+// Merge metadata with values before sync
+if (isset($product['attributes']) && is_array($product['attributes'])) {
+    $attributesMetadata = $this->loadAttributesMetadata($mainAccountId);
+
+    foreach ($product['attributes'] as &$attr) {
+        $attrId = $attr['id'] ?? null;
+        if ($attrId && isset($attributesMetadata[$attrId])) {
+            // Add customEntityMeta from metadata (if exists)
+            if (isset($attributesMetadata[$attrId]['customEntityMeta'])) {
+                $attr['customEntityMeta'] = $attributesMetadata[$attrId]['customEntityMeta'];
+            }
+        }
+    }
+    unset($attr); // Release reference
+}
+```
+
+**Performance benefits:**
+- Metadata loaded ONCE per account (cached)
+- O(1) lookup by attribute ID
+- No additional API calls per product
+
+**Important notes:**
+- Модификации (variants) DON'T have доп.поля (no merging needed)
+- `customEntityMeta` structure: `{href, type, mediaType}` (NO `name` field in metadata)
+- Fallback in `SyncHelpers::createAttributeInChild()` loads customEntity by href if name needed
+
 **Queue Flow Details:**
 1. User clicks "Sync All" or webhook triggers
 2. Controller creates tasks in `sync_queue` (status: pending, priority: 1-10)
