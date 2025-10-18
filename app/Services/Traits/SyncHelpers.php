@@ -208,9 +208,12 @@ trait SyncHelpers
                     $customEntityName
                 );
 
+                // ИСПРАВЛЕНО: customEntityMeta должен указывать на метаданные справочника, а не на сам справочник
+                // Правильный endpoint: context/companysettings/metadata/customEntities/{id}
+                // Правильный type: customentitymetadata (а не customentity)
                 $attributeData['customEntityMeta'] = [
-                    'href' => config('moysklad.api_url') . "/entity/customentity/{$syncedEntity['child_id']}",
-                    'type' => 'customentity',
+                    'href' => config('moysklad.api_url') . "/context/companysettings/metadata/customEntities/{$syncedEntity['child_id']}",
+                    'type' => 'customentitymetadata',
                     'mediaType' => 'application/json'
                 ];
             }
