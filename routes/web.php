@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Auth;
 use App\Http\Controllers\Admin\AuthController;
 use App\Http\Controllers\Admin\ApiLogsController;
 
@@ -9,6 +10,14 @@ Route::prefix('admin')->name('admin.')->group(function () {
     // Роуты авторизации (без middleware)
     Route::get('login', [AuthController::class, 'showLogin'])->name('login');
     Route::post('login', [AuthController::class, 'login']);
+
+    // Корневой роут /admin - умный редирект
+    Route::get('/', function () {
+        if (Auth::guard('admin')->check()) {
+            return redirect()->route('admin.logs.index');
+        }
+        return redirect()->route('admin.login');
+    })->name('dashboard');
 
     // Защищенные роуты админ-панели
     Route::middleware('admin.auth')->group(function () {
