@@ -10,7 +10,7 @@
     <form method="GET" action="{{ route('admin.logs.index') }}" class="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
             <label class="block text-sm font-medium mb-1">Главная франшиза</label>
-            <select name="parent_account_id" class="w-full border rounded px-3 py-2">
+            <select name="parent_account_id" class="w-full border rounded px-3 py-2" onchange="this.form.submit()">
                 <option value="">Все</option>
                 @foreach($mainAccounts ?? [] as $account)
                     <option value="{{ $account->account_id }}" {{ request('parent_account_id') === $account->account_id ? 'selected' : '' }}>

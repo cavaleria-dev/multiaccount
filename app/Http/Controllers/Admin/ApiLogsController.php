@@ -27,17 +27,32 @@ class ApiLogsController extends Controller
             $logs = $this->apiLogService->getLogs($filters, 50);
 
             // Получить списки аккаунтов для фильтров
-            // Main аккаунты
-            $mainAccounts = \App\Models\Account::where('account_type', 'main')
+            // Main аккаунты - те, у кого есть дочерние в child_accounts
+            $mainAccounts = \App\Models\Account::whereIn('account_id', function($query) {
+                    $query->select('parent_account_id')
+                        ->from('child_accounts')
+                        ->distinct();
+                })
                 ->select('account_id', 'account_name')
                 ->orderBy('account_name')
                 ->get();
 
-            // Child аккаунты (через связь с child_accounts)
-            $childAccounts = \App\Models\Account::whereIn('account_id', function($query) {
+            // Child аккаунты - если выбран parent, показываем только его дочерние
+            $childAccountsQuery = \App\Models\Account::whereIn('account_id', function($query) {
                     $query->select('child_account_id')
                         ->from('child_accounts');
-                })
+                });
+
+            // Фильтровать child аккаунты если выбран parent
+            if ($request->filled('parent_account_id')) {
+                $childAccountsQuery->whereIn('account_id', function($query) use ($request) {
+                    $query->select('child_account_id')
+                        ->from('child_accounts')
+                        ->where('parent_account_id', $request->input('parent_account_id'));
+                });
+            }
+
+            $childAccounts = $childAccountsQuery
                 ->select('account_id', 'account_name')
                 ->orderBy('account_name')
                 ->get();
