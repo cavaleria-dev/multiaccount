@@ -102,7 +102,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                 ]);
 
                 // Записать статистику
-                if (in_array($task->entity_type, ['product', 'variant', 'bundle', 'service'])) {
+                if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'bundle', 'service'])) {
                     $payload = $task->payload;
                     if (isset($payload['main_account_id'])) {
                         $statisticsService->recordSync(
@@ -161,7 +161,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                     ]);
 
                     // Записать статистику о неудаче
-                    if (in_array($task->entity_type, ['product', 'variant', 'bundle', 'service'])) {
+                    if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'bundle', 'service'])) {
                         $payload = $task->payload;
                         if (isset($payload['main_account_id'])) {
                             $statisticsService->recordSync(
@@ -221,6 +221,7 @@ class ProcessSyncQueueJob implements ShouldQueue
         match($task->entity_type) {
             'product' => $this->processProductSync($task, $payload, $productSyncService),
             'variant' => $this->processVariantSync($task, $payload, $productSyncService),
+            'product_variants' => $this->processBatchVariantSync($task, $payload, $productSyncService),
             'bundle' => $this->processBundleSync($task, $payload, $productSyncService),
             'service' => $this->processServiceSync($task, $payload, $serviceSyncService),
             'customerorder' => $this->processCustomerOrderSync($task, $payload, $customerOrderSyncService),
@@ -305,6 +306,119 @@ class ProcessSyncQueueJob implements ShouldQueue
             $task->account_id,
             $task->entity_id
         );
+    }
+
+    /**
+     * Обработать пакетную синхронизацию модификаций одного товара
+     *
+     * entity_id = product ID, загружаем все variants этого product одним запросом
+     */
+    protected function processBatchVariantSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
+    {
+        // Проверить что payload содержит необходимые данные
+        if (empty($payload) || !isset($payload['main_account_id'])) {
+            Log::warning('Batch variant task skipped: missing main_account_id in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'entity_id' => $task->entity_id,
+                'payload' => $payload
+            ]);
+            throw new \Exception('Invalid payload: missing main_account_id');
+        }
+
+        $mainAccountId = $payload['main_account_id'];
+        $childAccountId = $task->account_id;
+        $productId = $task->entity_id; // ID родительского товара
+
+        try {
+            // Получить main account для access token
+            $mainAccount = \App\Models\Account::where('account_id', $mainAccountId)->firstOrFail();
+            $moysklad = app(\App\Services\MoySkladService::class);
+            $variantSyncService = app(\App\Services\VariantSyncService::class);
+
+            // Загрузить все модификации этого товара с expand
+            $response = $moysklad
+                ->setAccessToken($mainAccount->access_token)
+                ->get('/entity/variant', [
+                    'filter' => "product=https://api.moysklad.ru/api/remap/1.2/entity/product/{$productId}",
+                    'expand' => 'product.salePrices,characteristics,packs.uom',
+                    'limit' => 1000
+                ]);
+
+            $variants = $response['data']['rows'] ?? [];
+
+            if (empty($variants)) {
+                Log::info('No variants found for product', [
+                    'task_id' => $task->id,
+                    'product_id' => $productId
+                ]);
+                return;
+            }
+
+            Log::info('Batch variant sync started', [
+                'task_id' => $task->id,
+                'product_id' => $productId,
+                'variants_count' => count($variants)
+            ]);
+
+            $successCount = 0;
+            $failedCount = 0;
+
+            // Синхронизировать каждую модификацию с уже загруженными данными
+            foreach ($variants as $variant) {
+                try {
+                    $variantSyncService->syncVariantData($mainAccountId, $childAccountId, $variant);
+                    $successCount++;
+
+                } catch (\Exception $e) {
+                    $failedCount++;
+
+                    Log::error('Failed to sync variant in batch', [
+                        'task_id' => $task->id,
+                        'product_id' => $productId,
+                        'variant_id' => $variant['id'] ?? 'unknown',
+                        'error' => $e->getMessage()
+                    ]);
+
+                    // Создать индивидуальную задачу для повторной попытки
+                    SyncQueue::create([
+                        'account_id' => $childAccountId,
+                        'entity_type' => 'variant',
+                        'entity_id' => $variant['id'],
+                        'operation' => 'update',
+                        'priority' => 5, // Средний приоритет для retry
+                        'scheduled_at' => now()->addMinutes(5),
+                        'status' => 'pending',
+                        'attempts' => 0,
+                        'payload' => [
+                            'main_account_id' => $mainAccountId,
+                            'batch_retry' => true
+                        ]
+                    ]);
+                }
+            }
+
+            Log::info('Batch variant sync completed', [
+                'task_id' => $task->id,
+                'product_id' => $productId,
+                'total_variants' => count($variants),
+                'success_count' => $successCount,
+                'failed_count' => $failedCount
+            ]);
+
+            // Если более 50% упали - выбросить исключение для retry всей задачи
+            if ($failedCount > count($variants) / 2) {
+                throw new \Exception("Batch sync failed: {$failedCount} of " . count($variants) . " variants failed");
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Batch variant sync failed completely', [
+                'task_id' => $task->id,
+                'product_id' => $productId,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
     }
 
     /**
