@@ -368,6 +368,7 @@ const settings = ref({
   product_filters_enabled: false,
   product_filters: { groups: [] },
   product_match_field: 'article',
+  service_match_field: 'code',
   create_product_folders: true,
   price_mappings: null,
   attribute_sync_list: null,
