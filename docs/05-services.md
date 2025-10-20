@@ -178,3 +178,141 @@ This allows existing code (ProcessSyncQueueJob, webhooks) to continue calling `P
 
 **See also:** [Product Filters Documentation](../docs/PRODUCT_FILTERS.md)
 
+### Service Match Field
+
+**Added:** 2025-10-20 (Migration `2025_10_20_120000_add_service_match_field_to_sync_settings.php`)
+
+**Purpose:** Separate field for matching services (since services don't have `article` field in МойСклад API).
+
+**Problem:**
+- Previously services used `product_match_field` setting
+- Services in МойСклад API **do NOT have `article` field**
+- If `product_match_field = 'article'` → services can't be matched → sync fails
+
+**Solution:**
+- New field `service_match_field` in `sync_settings` table
+- Default value: `'code'`
+- Allowed values: `'name'`, `'code'`, `'externalCode'`, `'barcode'` (NO 'article')
+
+**Database:**
+```sql
+ALTER TABLE sync_settings
+ADD COLUMN service_match_field VARCHAR(50) DEFAULT 'code'
+COMMENT 'Field for matching services: name, code, externalCode, barcode (NO article)';
+```
+
+**Model:**
+```php
+// app/Models/SyncSetting.php
+protected $fillable = [
+    // ...
+    'product_match_field',
+    'service_match_field',  // ⭐ NEW
+    // ...
+];
+```
+
+**UI:**
+```vue
+<!-- resources/js/components/franchise-settings/ProductSyncSection.vue -->
+
+<!-- Service match field (no article!) -->
+<SimpleSelect
+  v-model="localSettings.service_match_field"
+  label="Поле для сопоставления услуг"
+  placeholder="Выберите поле"
+  :options="serviceMatchFieldOptions"
+/>
+
+<script setup>
+// Service match field options (no article field for services!)
+const serviceMatchFieldOptions = [
+  { id: 'name', name: 'Наименование (name)' },
+  { id: 'code', name: 'Код (code)' },
+  { id: 'externalCode', name: 'Внешний код (externalCode)' },
+  { id: 'barcode', name: 'Штрихкод (первый barcode)' }
+]
+</script>
+```
+
+**Important UI Fix (Commit 5552b3a):**
+Previously `service_match_field` was missing from initial `settings` object in `FranchiseSettings.vue`, causing value not to save.
+
+**Fixed in:**
+```javascript
+// resources/js/pages/FranchiseSettings.vue
+const settings = ref({
+  // ...
+  product_match_field: 'article',
+  service_match_field: 'code',  // ⭐ ADDED (was missing!)
+  // ...
+})
+```
+
+**Usage in ServiceSyncService:**
+```php
+// app/Services/ServiceSyncService.php
+
+// In prepareServiceForBatch()
+$matchField = $settings->service_match_field ?? 'code';
+$matchValue = $service[$matchField] ?? null;
+
+if (!$matchValue) {
+    Log::warning('Service has empty match field, skipping', [
+        'service_id' => $service['id'],
+        'match_field' => $matchField
+    ]);
+    return null; // Skip services with empty match value
+}
+
+// Check if service exists in child account
+$existingService = $this->moySkladService->get(
+    "entity/service?filter={$matchField}={$matchValue}"
+);
+
+if ($existingService) {
+    // UPDATE existing service
+    $service['meta'] = ['href' => $existingService['meta']['href']];
+    $service['_is_update'] = true;
+} else {
+    // CREATE new service
+    $service['_is_update'] = false;
+}
+```
+
+**Used in ProcessSyncQueueJob:**
+```php
+// app/Jobs/ProcessSyncQueueJob.php - processBatchServiceSync()
+
+// Create mapping for successful service
+EntityMapping::updateOrCreate(
+    [
+        'parent_account_id' => $mainAccountId,
+        'child_account_id' => $childAccountId,
+        'entity_type' => 'service',
+        'parent_entity_id' => $originalId
+    ],
+    [
+        'child_entity_id' => $createdService['id'],
+        'sync_direction' => 'main_to_child',
+        'match_field' => $syncSettings->service_match_field ?? 'code',  // ⭐ Uses service_match_field
+        'match_value' => $createdService['code'] ?? $createdService['name']
+    ]
+);
+```
+
+**Benefits:**
+- ✅ Services can be matched by appropriate fields (no article available)
+- ✅ Independent configuration for products and services
+- ✅ Services with empty match field are skipped (logged + not synced)
+- ✅ Correct field stored in `entity_mappings.match_field`
+
+**Testing:**
+1. Open `/app/accounts/{id}/settings`
+2. Change "Поле для сопоставления услуг" (code → name → externalCode)
+3. Save settings
+4. Reload page → value persists
+5. Run "Синхронизировать все товары" → services matched by selected field
+
+**Migration:** `database/migrations/2025_10_20_120000_add_service_match_field_to_sync_settings.php`
+

@@ -179,57 +179,214 @@ Total: 10 requests
 
 **Savings: 3750 → 60 requests (↓98.4%)**
 
-## Individual Retry Logic
+## Batch POST Error Handling
 
-**Why critical:**
-- МойСклад batch POST can return partial success (80 success, 20 failed)
-- Need to identify WHICH items failed and WHY
-- Retry only failed items (not entire batch of 100)
-- Detailed error tracking per entity for debugging
+**Updated:** 2025-10-20 (Commit 752332e)
 
-**Implementation:**
+**Problem:**
+МойСклад batch POST returns **mixed array** of successes and errors:
+```json
+[
+    {"id": "uuid-1", "name": "Product 1"},         // Success
+    {"errors": [{"error": "...", "code": 1021}]},  // Error
+    {"id": "uuid-2", "name": "Product 2"}          // Success
+]
+```
+
+**Previous behavior:**
+- Code assumed ALL items are successful
+- Tried to create mappings for error objects → crash
+- Error code 1021 (Entity Not Found) was not handled → stale mappings remained
+
+**Current implementation:**
+
+### Step 1: Separate Successes from Errors
 
 ```php
 // In processBatchProductSync / processBatchServiceSync
-foreach ($createdProducts as $index => $createdProduct) {
-    try {
-        // Create EntityMapping for successful product
-        EntityMapping::updateOrCreate([...]);
+$createdProducts = $response['data'] ?? [];
 
-    } catch (\Exception $e) {
-        // Get original ID from prepared data
-        $originalId = $preparedProducts[$index]['_original_id'] ?? null;
+// Разделить успешные результаты от ошибок
+$successfulResults = [];
+$errorResults = [];
 
-        Log::error('Failed to create mapping in batch', [
-            'task_id' => $task->id,
-            'original_id' => $originalId,
-            'error' => $e->getMessage()
+foreach ($createdProducts as $index => $result) {
+    // МойСклад возвращает mixed array: успехи {"id": "xxx"} и ошибки {"errors": [...]}
+    if (isset($result['errors']) && is_array($result['errors'])) {
+        $errorResults[$index] = $result;
+    } else {
+        $successfulResults[$index] = $result;
+    }
+}
+
+Log::info('Batch POST results separated', [
+    'task_id' => $task->id,
+    'successful_count' => count($successfulResults),
+    'error_count' => count($errorResults)
+]);
+```
+
+### Step 2: Handle Error Code 1021 (Entity Not Found)
+
+**Error code 1021** means the entity was deleted in child account, but mapping still exists.
+
+**Solution:**
+1. Delete stale mapping from `entity_mappings`
+2. Create retry task with `operation='create'` (NOT 'update')
+3. Entity will be recreated in 5 minutes
+
+```php
+foreach ($errorResults as $index => $errorResult) {
+    $originalId = $preparedProducts[$index]['_original_id'] ?? null;
+
+    if (!$originalId) {
+        Log::warning('Error result without _original_id', [...]);
+        continue;
+    }
+
+    // Извлечь код ошибки
+    $firstError = $errorResult['errors'][0] ?? null;
+    $errorCode = $firstError['code'] ?? null;
+    $errorMessage = $firstError['error'] ?? 'Unknown error';
+
+    Log::error('Batch POST error for product', [
+        'task_id' => $task->id,
+        'index' => $index,
+        'original_id' => $originalId,
+        'error_code' => $errorCode,
+        'error_message' => $errorMessage
+    ]);
+
+    // Код 1021 = "Объект не найден"
+    if ($errorCode === 1021) {
+        // Удалить stale mapping
+        $deleted = EntityMapping::where([
+            'parent_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'entity_type' => 'product',
+            'parent_entity_id' => $originalId
+        ])->delete();
+
+        if ($deleted > 0) {
+            $deletedMappingsCount++;
+            Log::info('Deleted stale product mapping (entity not found in child)', [...]);
+        }
+
+        // Создать retry задачу с операцией CREATE (не UPDATE)
+        SyncQueue::create([
+            'account_id' => $childAccountId,
+            'entity_type' => 'product',
+            'entity_id' => $originalId,
+            'operation' => 'create',  // ВАЖНО: CREATE, не update
+            'priority' => 5,
+            'scheduled_at' => now()->addMinutes(5),
+            'status' => 'pending',
+            'attempts' => 0,
+            'payload' => [
+                'main_account_id' => $mainAccountId,
+                'batch_retry' => true,
+                'retry_reason' => 'entity_deleted_in_child'
+            ]
         ]);
 
-        // Create individual retry task
+        $retryTasksCount++;
+
+        Log::info('Created retry task as CREATE for deleted product', [...]);
+    } else {
+        // Другие ошибки - создать retry как UPDATE
+        SyncQueue::create([
+            'account_id' => $childAccountId,
+            'entity_type' => 'product',
+            'entity_id' => $originalId,
+            'operation' => 'update',
+            'priority' => 5,
+            'scheduled_at' => now()->addMinutes(5),
+            'status' => 'pending',
+            'attempts' => 0,
+            'payload' => [
+                'main_account_id' => $mainAccountId,
+                'batch_retry' => true,
+                'error_code' => $errorCode
+            ]
+        ]);
+
+        $retryTasksCount++;
+    }
+}
+```
+
+### Step 3: Create Mappings ONLY for Successful Results
+
+```php
+// Создать mappings ТОЛЬКО для успешных результатов
+$mappingCount = 0;
+$failedCount = 0;
+
+foreach ($successfulResults as $index => $createdProduct) {
+    try {
+        $originalId = $preparedProducts[$index]['_original_id'] ?? null;
+
+        if (!$originalId) {
+            Log::warning('Cannot create mapping: missing _original_id', [...]);
+            $failedCount++;
+            continue;
+        }
+
+        // Создать или обновить mapping
+        EntityMapping::updateOrCreate(
+            [
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'product',
+                'parent_entity_id' => $originalId
+            ],
+            [
+                'child_entity_id' => $createdProduct['id'],
+                'sync_direction' => 'main_to_child',
+                'match_field' => $syncSettings->product_match_field ?? 'code',
+                'match_value' => $createdProduct['code'] ?? $createdProduct['name']
+            ]
+        );
+
+        $mappingCount++;
+
+    } catch (\Exception $e) {
+        $failedCount++;
+
+        Log::error('Failed to create mapping in batch', [...]);
+
+        // Создать retry задачу для упавшей услуги
         if ($originalId) {
             SyncQueue::create([
                 'account_id' => $childAccountId,
-                'entity_type' => 'product',  // Individual sync (NOT batch)
-                'entity_id' => $originalId,   // Specific failed product
+                'entity_type' => 'product',
+                'entity_id' => $originalId,
                 'operation' => 'update',
-                'priority' => 5,              // Medium priority for retry
-                'scheduled_at' => now()->addMinutes(5),  // Delay 5 minutes
+                'priority' => 5,
+                'scheduled_at' => now()->addMinutes(5),
                 'status' => 'pending',
                 'attempts' => 0,
                 'payload' => [
                     'main_account_id' => $mainAccountId,
-                    'batch_retry' => true  // Mark as retry from batch
+                    'batch_retry' => true,
+                    'retry_reason' => 'mapping_creation_failed'
                 ]
-            ]);
-
-            Log::info('Created individual retry task for failed product', [
-                'original_task_id' => $task->id,
-                'product_id' => $originalId
             ]);
         }
     }
 }
+
+Log::info('Batch product sync completed', [
+    'task_id' => $task->id,
+    'total_products' => count($products),
+    'prepared_count' => count($preparedProducts),
+    'successful_results' => count($successfulResults),
+    'error_results' => count($errorResults),
+    'mappings_created' => $mappingCount,
+    'failed_mappings' => $failedCount,
+    'deleted_stale_mappings' => $deletedMappingsCount,
+    'retry_tasks_created' => $retryTasksCount
+]);
 
 // If >50% of batch failed → retry entire batch task
 if ($failedCount > count($preparedProducts) / 2) {
@@ -237,11 +394,34 @@ if ($failedCount > count($preparedProducts) / 2) {
 }
 ```
 
-**Result:**
-- Failed items automatically requeued for individual retry
-- Logs show which specific items failed (with entity_id)
-- Can track retry history (attempts counter)
-- Dashboard shows individual failed tasks for manual inspection
+### Result
+
+**Benefits:**
+- ✅ No crashes on error objects in response
+- ✅ Automatic detection of deleted entities (code 1021)
+- ✅ Stale mappings cleaned up automatically
+- ✅ Deleted entities recreated in 5 minutes
+- ✅ All error types logged with error_code and error_message
+- ✅ Mappings created ONLY for successful results
+- ✅ Detailed statistics: successful_count, error_count, deleted_stale_mappings, retry_tasks_created
+
+**Applies to:**
+- `processBatchProductSync()` - products
+- `processBatchServiceSync()` - services
+
+**Monitoring:**
+```bash
+# Check for error handling in logs
+tail -f storage/logs/laravel.log | grep -E "Batch POST results separated|Deleted stale|Created retry task as CREATE"
+
+# Check deleted mappings count
+grep "deleted_stale_mappings" storage/logs/laravel.log
+
+# Check retry tasks created
+SELECT * FROM sync_queue
+WHERE payload::jsonb @> '{"retry_reason": "entity_deleted_in_child"}'
+ORDER BY created_at DESC;
+```
 
 ## Services Involved
 
