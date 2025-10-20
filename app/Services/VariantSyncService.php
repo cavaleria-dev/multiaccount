@@ -255,7 +255,26 @@ class VariantSyncService
             $variant,
             $settings
         );
-        $variantData['salePrices'] = $prices['salePrices'];
+
+        // Логировать синхронизированные цены для отладки
+        Log::debug('Variant prices synced', [
+            'child_account_id' => $childAccountId,
+            'main_variant_id' => $variant['id'],
+            'child_variant_id' => $variantMapping->child_entity_id,
+            'main_sale_prices_count' => count($variant['salePrices'] ?? []),
+            'synced_sale_prices_count' => count($prices['salePrices']),
+            'has_buy_price' => isset($prices['buyPrice']),
+            'synced_sale_prices' => $prices['salePrices'],
+            'price_mappings_enabled' => !empty($settings->price_mappings)
+        ]);
+
+        // Если salePrices пустой - НЕ отправляем (МойСклад оставит как есть)
+        // Пустой массив может быть интерпретирован как "удалить все цены"
+        if (!empty($prices['salePrices'])) {
+            $variantData['salePrices'] = $prices['salePrices'];
+        }
+
+        // Если buyPrice есть - отправляем
         if (isset($prices['buyPrice'])) {
             $variantData['buyPrice'] = $prices['buyPrice'];
         }
@@ -280,6 +299,15 @@ class VariantSyncService
         $updatedVariantResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
             ->put("entity/variant/{$variantMapping->child_entity_id}", $variantData);
+
+        // Логировать отправленные данные
+        Log::debug('Variant update request sent', [
+            'child_account_id' => $childAccountId,
+            'child_variant_id' => $variantMapping->child_entity_id,
+            'request_data' => $variantData,
+            'has_sale_prices' => isset($variantData['salePrices']) && !empty($variantData['salePrices']),
+            'sale_prices_count' => count($variantData['salePrices'] ?? [])
+        ]);
 
         Log::info('Variant updated in child account', [
             'main_account_id' => $mainAccountId,
