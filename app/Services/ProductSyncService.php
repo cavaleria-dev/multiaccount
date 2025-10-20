@@ -95,14 +95,26 @@ class ProductSyncService
 
             // Проверить, что поле сопоставления заполнено
             $matchField = $settings->product_match_field ?? 'article';
-            if (empty($product[$matchField])) {
-                Log::warning('Product skipped: match field is empty', [
-                    'product_id' => $productId,
-                    'child_account_id' => $childAccountId,
-                    'match_field' => $matchField,
-                    'product_name' => $product['name'] ?? 'unknown'
-                ]);
-                return null;
+            if ($matchField === 'name') {
+                // name - обязательное поле, всегда заполнено
+                if (empty($product['name'])) {
+                    Log::warning('Product has empty name (required field!)', [
+                        'product_id' => $productId,
+                        'child_account_id' => $childAccountId
+                    ]);
+                    return null;
+                }
+            } else {
+                // article, code, externalCode, barcode
+                if (empty($product[$matchField])) {
+                    Log::warning('Product skipped: match field is empty', [
+                        'product_id' => $productId,
+                        'child_account_id' => $childAccountId,
+                        'match_field' => $matchField,
+                        'product_name' => $product['name'] ?? 'unknown'
+                    ]);
+                    return null;
+                }
             }
 
             // Смержить метаданные атрибутов с значениями (для customEntityMeta)
@@ -201,13 +213,22 @@ class ProductSyncService
 
         // 1.5. Проверить, что поле сопоставления заполнено
         $matchField = $settings->product_match_field ?? 'article';
-        if (empty($product[$matchField])) {
-            Log::debug('Product skipped in batch: match field is empty', [
-                'product_id' => $product['id'],
-                'match_field' => $matchField,
-                'product_name' => $product['name'] ?? 'unknown'
-            ]);
-            return null;
+        if ($matchField === 'name') {
+            if (empty($product['name'])) {
+                Log::warning('Product has empty name (required field!)', [
+                    'product_id' => $product['id']
+                ]);
+                return null;
+            }
+        } else {
+            if (empty($product[$matchField])) {
+                Log::debug('Product skipped in batch: match field is empty', [
+                    'product_id' => $product['id'],
+                    'match_field' => $matchField,
+                    'product_name' => $product['name'] ?? 'unknown'
+                ]);
+                return null;
+            }
         }
 
         // 2. Проверить mapping (create or update?)

@@ -544,6 +544,51 @@ class SyncActionsController extends Controller
                 ]);
             }
 
+            // Проверить match_field для каждой услуги
+            if (!empty($services) && $syncSettings) {
+                $matchField = $syncSettings->service_match_field ?? 'code';
+                $servicesBeforeMatchCheck = count($services);
+                $matchFieldFiltered = 0;
+
+                $servicesWithMatchField = [];
+                foreach ($services as $service) {
+                    // name - обязательное поле, всегда заполнено (но проверяем на всякий случай)
+                    if ($matchField === 'name') {
+                        if (!empty($service['name'])) {
+                            $servicesWithMatchField[] = $service;
+                        } else {
+                            $matchFieldFiltered++;
+                            Log::warning('Service has empty name (required field!)', [
+                                'service_id' => $service['id'] ?? 'unknown'
+                            ]);
+                        }
+                    } else {
+                        // code, externalCode, barcode (no article field for services!)
+                        if (!empty($service[$matchField])) {
+                            $servicesWithMatchField[] = $service;
+                        } else {
+                            $matchFieldFiltered++;
+                            Log::debug('Service skipped: match field is empty', [
+                                'service_id' => $service['id'] ?? 'unknown',
+                                'match_field' => $matchField,
+                                'service_name' => $service['name'] ?? 'unknown'
+                            ]);
+                        }
+                    }
+                }
+
+                $services = $servicesWithMatchField;
+
+                if ($matchFieldFiltered > 0) {
+                    Log::info("Services filtered by match_field", [
+                        'before' => $servicesBeforeMatchCheck,
+                        'after' => count($services),
+                        'filtered_out' => $matchFieldFiltered,
+                        'match_field' => $matchField
+                    ]);
+                }
+            }
+
             if (!empty($services)) {
                 // Создать batch задачу для этой страницы
                 SyncQueue::create([

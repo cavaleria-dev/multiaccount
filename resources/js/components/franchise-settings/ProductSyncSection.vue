@@ -62,7 +62,18 @@
             placeholder="Выберите поле"
             :options="matchFieldOptions"
           />
-          <p class="mt-1 text-xs text-gray-500">По какому полю искать существующие товары в дочернем аккаунте</p>
+          <p class="mt-1 text-xs text-gray-500">По какому полю искать существующие товары. Товары с пустым значением не синхронизируются.</p>
+        </div>
+
+        <!-- Service match field -->
+        <div>
+          <SimpleSelect
+            v-model="localSettings.service_match_field"
+            label="Поле для сопоставления услуг"
+            placeholder="Выберите поле"
+            :options="serviceMatchFieldOptions"
+          />
+          <p class="mt-1 text-xs text-gray-500">По какому полю искать существующие услуги. У услуг нет поля "Артикул". Услуги с пустым значением не синхронизируются.</p>
         </div>
 
         <!-- Create product folders -->
@@ -104,8 +115,17 @@ import SimpleSelect from '../SimpleSelect.vue'
 
 // Product match field options
 const matchFieldOptions = [
-  { id: 'code', name: 'Код (code)' },
+  { id: 'name', name: 'Наименование (name)' },
   { id: 'article', name: 'Артикул (article)' },
+  { id: 'code', name: 'Код (code)' },
+  { id: 'externalCode', name: 'Внешний код (externalCode)' },
+  { id: 'barcode', name: 'Штрихкод (первый barcode)' }
+]
+
+// Service match field options (no article field for services!)
+const serviceMatchFieldOptions = [
+  { id: 'name', name: 'Наименование (name)' },
+  { id: 'code', name: 'Код (code)' },
   { id: 'externalCode', name: 'Внешний код (externalCode)' },
   { id: 'barcode', name: 'Штрихкод (первый barcode)' }
 ]

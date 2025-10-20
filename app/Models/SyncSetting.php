@@ -28,6 +28,7 @@ class SyncSetting extends Model
         'price_types',
         'warehouses',
         'product_match_field',
+        'service_match_field',
         // Product sync settings
         'purchase_price_type_id',
         'sale_price_type_id',

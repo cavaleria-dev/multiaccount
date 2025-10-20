@@ -60,15 +60,27 @@ class ServiceSyncService
             $service = $serviceResult['data'];
 
             // Проверить, что поле сопоставления заполнено
-            $matchField = $settings->product_match_field ?? 'code';
-            if (empty($service[$matchField])) {
-                Log::warning('Service skipped: match field is empty', [
-                    'service_id' => $serviceId,
-                    'child_account_id' => $childAccountId,
-                    'match_field' => $matchField,
-                    'service_name' => $service['name'] ?? 'unknown'
-                ]);
-                return null;
+            $matchField = $settings->service_match_field ?? 'code';
+            if ($matchField === 'name') {
+                // name - обязательное поле, всегда заполнено
+                if (empty($service['name'])) {
+                    Log::warning('Service has empty name (required field!)', [
+                        'service_id' => $serviceId,
+                        'child_account_id' => $childAccountId
+                    ]);
+                    return null;
+                }
+            } else {
+                // code, externalCode, barcode (no article field for services!)
+                if (empty($service[$matchField])) {
+                    Log::warning('Service skipped: match field is empty', [
+                        'service_id' => $serviceId,
+                        'child_account_id' => $childAccountId,
+                        'match_field' => $matchField,
+                        'service_name' => $service['name'] ?? 'unknown'
+                    ]);
+                    return null;
+                }
             }
 
             // Смержить метаданные атрибутов с значениями (для customEntityMeta)
@@ -183,8 +195,8 @@ class ServiceSyncService
             'parent_entity_id' => $service['id'],
             'child_entity_id' => $newService['id'],
             'sync_direction' => 'main_to_child',
-            'match_field' => $settings->product_match_field ?? 'code',
-            'match_value' => $service[$settings->product_match_field ?? 'code'] ?? null,
+            'match_field' => $settings->service_match_field ?? 'code',
+            'match_value' => $service[$settings->service_match_field ?? 'code'] ?? null,
         ]);
 
         Log::info('Service created in child account', [
@@ -277,14 +289,24 @@ class ServiceSyncService
         SyncSetting $settings
     ): ?array {
         // 1. Проверить, что поле сопоставления заполнено
-        $matchField = $settings->product_match_field ?? 'code';
-        if (empty($service[$matchField])) {
-            Log::debug('Service skipped in batch: match field is empty', [
-                'service_id' => $service['id'],
-                'match_field' => $matchField,
-                'service_name' => $service['name'] ?? 'unknown'
-            ]);
-            return null;
+        $matchField = $settings->service_match_field ?? 'code';
+        if ($matchField === 'name') {
+            if (empty($service['name'])) {
+                Log::warning('Service has empty name (required field!)', [
+                    'service_id' => $service['id']
+                ]);
+                return null;
+            }
+        } else {
+            // code, externalCode, barcode (no article field for services!)
+            if (empty($service[$matchField])) {
+                Log::debug('Service skipped in batch: match field is empty', [
+                    'service_id' => $service['id'],
+                    'match_field' => $matchField,
+                    'service_name' => $service['name'] ?? 'unknown'
+                ]);
+                return null;
+            }
         }
 
         // 2. Проверить mapping (create or update?)
