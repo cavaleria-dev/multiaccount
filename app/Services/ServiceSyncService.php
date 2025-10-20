@@ -22,19 +22,22 @@ class ServiceSyncService
     protected StandardEntitySyncService $standardEntitySync;
     protected AttributeSyncService $attributeSyncService;
     protected ProductSyncService $productSyncService;
+    protected ProductFilterService $productFilterService;
 
     public function __construct(
         MoySkladService $moySkladService,
         CustomEntitySyncService $customEntitySyncService,
         StandardEntitySyncService $standardEntitySync,
         AttributeSyncService $attributeSyncService,
-        ProductSyncService $productSyncService
+        ProductSyncService $productSyncService,
+        ProductFilterService $productFilterService
     ) {
         $this->moySkladService = $moySkladService;
         $this->customEntitySyncService = $customEntitySyncService;
         $this->standardEntitySync = $standardEntitySync;
         $this->attributeSyncService = $attributeSyncService;
         $this->productSyncService = $productSyncService;
+        $this->productFilterService = $productFilterService;
     }
 
     /**
@@ -104,6 +107,15 @@ class ServiceSyncService
                     }
                 }
                 unset($attr); // Освободить ссылку
+            }
+
+            // Проверить фильтры (используя трейт SyncHelpers)
+            if (!$this->passesFilters($service, $settings, $mainAccountId)) {
+                Log::debug('Service does not pass filters', [
+                    'service_id' => $serviceId,
+                    'child_account_id' => $childAccountId
+                ]);
+                return null;
             }
 
             // Проверить маппинг
@@ -288,7 +300,13 @@ class ServiceSyncService
         string $childAccountId,
         SyncSetting $settings
     ): ?array {
-        // 1. Проверить, что поле сопоставления заполнено
+        // 1. Проверить фильтры
+        if (!$this->passesFilters($service, $settings, $mainAccountId)) {
+            Log::debug('Service filtered out in batch', ['service_id' => $service['id']]);
+            return null;
+        }
+
+        // 2. Проверить, что поле сопоставления заполнено
         $matchField = $settings->service_match_field ?? 'code';
         if ($matchField === 'name') {
             if (empty($service['name'])) {
@@ -309,7 +327,7 @@ class ServiceSyncService
             }
         }
 
-        // 2. Проверить mapping (create or update?)
+        // 3. Проверить mapping (create or update?)
         $mapping = EntityMapping::where([
             'parent_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
@@ -317,7 +335,7 @@ class ServiceSyncService
             'parent_entity_id' => $service['id']
         ])->first();
 
-        // 3. Build base service data
+        // 4. Build base service data
         $serviceData = [
             'name' => $service['name'],
             'code' => $service['code'] ?? null,
@@ -325,7 +343,7 @@ class ServiceSyncService
             'description' => $service['description'] ?? null,
         ];
 
-        // 3. Если обновление - добавить meta
+        // 5. Если обновление - добавить meta
         if ($mapping) {
             $serviceData['meta'] = [
                 'href' => config('moysklad.api_url') . "/entity/service/{$mapping->child_entity_id}",
@@ -334,7 +352,7 @@ class ServiceSyncService
             ];
         }
 
-        // 4. Sync Attributes (using cached mappings from DB)
+        // 6. Sync Attributes (using cached mappings from DB)
         if (isset($service['attributes']) && !empty($service['attributes'])) {
             $syncedAttributes = [];
 
@@ -385,7 +403,7 @@ class ServiceSyncService
             }
         }
 
-        // 5. Sync Prices (using existing trait method)
+        // 7. Sync Prices (using existing trait method)
         $prices = $this->syncPrices(
             $mainAccountId,
             $childAccountId,
@@ -401,10 +419,10 @@ class ServiceSyncService
             $serviceData['buyPrice'] = $prices['buyPrice'];
         }
 
-        // 6. Add VAT and tax fields (using ProductSyncService method)
+        // 8. Add VAT and tax fields (using ProductSyncService method)
         $serviceData = $this->productSyncService->addVatAndTaxFields($serviceData, $service, $settings);
 
-        // 7. Store original ID for mapping after batch POST
+        // 9. Store original ID for mapping after batch POST
         $serviceData['_original_id'] = $service['id'];
         $serviceData['_is_update'] = $mapping ? true : false;
         $serviceData['_child_entity_id'] = $mapping ? $mapping->child_entity_id : null;
