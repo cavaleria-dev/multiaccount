@@ -98,16 +98,13 @@ class SyncActionsController extends Controller
                 );
             }
 
-            // Синхронизировать услуги (service) - постранично
+            // Синхронизировать услуги (service) - ПАКЕТНО с batch POST
             if ($syncSettings->sync_services ?? false) {
-                $tasksCreated += $this->syncEntityType(
+                $tasksCreated += $this->createBatchServiceTasks(
                     $moysklad,
                     $mainAccount->access_token,
-                    'service',
                     $mainAccountId,
-                    $accountId,
-                    $syncSettings,
-                    $filterService
+                    $accountId
                 );
             }
 
@@ -424,6 +421,87 @@ class SyncActionsController extends Controller
             'total_products' => $totalProducts,
             'batch_tasks_created' => $tasksCreated,
             'products_per_task_avg' => $totalProducts > 0 ? round($totalProducts / max($tasksCreated, 1), 2) : 0
+        ]);
+
+        return $tasksCreated;
+    }
+
+    /**
+     * Создать пакетные задачи синхронизации услуг (по 100 услуг)
+     *
+     * Загружает услуги постранично с expand и сохраняет preloaded данные в payload.
+     * Batch POST выполняется в ProcessSyncQueueJob::processBatchServiceSync().
+     *
+     * @param MoySkladService $moysklad
+     * @param string $token Access token главного аккаунта
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $accountId UUID дочернего аккаунта
+     * @return int Количество созданных задач
+     */
+    private function createBatchServiceTasks(
+        MoySkladService $moysklad,
+        string $token,
+        string $mainAccountId,
+        string $accountId
+    ): int {
+        $tasksCreated = 0;
+        $offset = 0;
+        $limit = 100; // Batch size: 100 services per task
+        $totalServices = 0;
+
+        Log::info('Starting batch service sync (loading in batches of 100)');
+
+        do {
+            // Загрузить страницу услуг с expand
+            $params = [
+                'limit' => $limit,
+                'offset' => $offset,
+                'expand' => 'attributes,uom'
+            ];
+
+            $response = $moysklad->setAccessToken($token)
+                ->get('/entity/service', $params);
+
+            $services = $response['data']['rows'] ?? [];
+            $pageCount = count($services);
+            $totalServices += $pageCount;
+
+            if (!empty($services)) {
+                // Создать batch задачу для этой страницы
+                SyncQueue::create([
+                    'account_id' => $accountId,
+                    'entity_type' => 'batch_services',
+                    'entity_id' => null, // Not used for batch
+                    'operation' => 'batch_sync',
+                    'priority' => 10, // High priority (manual sync)
+                    'scheduled_at' => now(),
+                    'status' => 'pending',
+                    'attempts' => 0,
+                    'payload' => [
+                        'main_account_id' => $mainAccountId,
+                        'services' => $services // Preloaded data
+                    ]
+                ]);
+
+                $tasksCreated++;
+            }
+
+            Log::debug("Loaded service batch", [
+                'offset' => $offset,
+                'page_size' => $pageCount,
+                'batch_tasks_created' => $tasksCreated
+            ]);
+
+            $offset += $limit;
+
+        } while ($pageCount === $limit);
+
+        Log::info('Batch service tasks created', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $accountId,
+            'total_services' => $totalServices,
+            'batch_tasks_created' => $tasksCreated,
+            'services_per_task_avg' => $totalServices > 0 ? round($totalServices / max($tasksCreated, 1), 2) : 0
         ]);
 
         return $tasksCreated;

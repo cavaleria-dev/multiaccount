@@ -102,7 +102,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                 ]);
 
                 // Записать статистику
-                if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'batch_products', 'bundle', 'service'])) {
+                if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'batch_products', 'bundle', 'service', 'batch_services'])) {
                     $payload = $task->payload;
                     if (isset($payload['main_account_id'])) {
                         $statisticsService->recordSync(
@@ -161,7 +161,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                     ]);
 
                     // Записать статистику о неудаче
-                    if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'batch_products', 'bundle', 'service'])) {
+                    if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'batch_products', 'bundle', 'service', 'batch_services'])) {
                         $payload = $task->payload;
                         if (isset($payload['main_account_id'])) {
                             $statisticsService->recordSync(
@@ -225,6 +225,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             'batch_products' => $this->processBatchProductSync($task, $payload, $productSyncService),
             'bundle' => $this->processBundleSync($task, $payload, $productSyncService),
             'service' => $this->processServiceSync($task, $payload, $serviceSyncService),
+            'batch_services' => $this->processBatchServiceSync($task, $payload, $serviceSyncService),
             'customerorder' => $this->processCustomerOrderSync($task, $payload, $customerOrderSyncService),
             'retaildemand' => $this->processRetailDemandSync($task, $payload, $retailDemandSyncService),
             'purchaseorder' => $this->processPurchaseOrderSync($task, $payload, $purchaseOrderSyncService),
@@ -613,6 +614,199 @@ class ProcessSyncQueueJob implements ShouldQueue
             Log::error('Batch product sync failed completely', [
                 'task_id' => $task->id,
                 'products_count' => count($products),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Обработать пакетную синхронизацию услуг (batch POST)
+     *
+     * Получает готовые услуги из payload, подготавливает их (используя только кеш),
+     * отправляет batch POST в МойСклад и создает mappings.
+     */
+    protected function processBatchServiceSync(SyncQueue $task, array $payload, ServiceSyncService $serviceSyncService): void
+    {
+        // Проверить что payload содержит необходимые данные
+        if (empty($payload) || !isset($payload['main_account_id'])) {
+            Log::warning('Batch service task skipped: missing main_account_id in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'payload_keys' => array_keys($payload)
+            ]);
+            throw new \Exception('Invalid payload: missing main_account_id');
+        }
+
+        if (!isset($payload['services']) || empty($payload['services'])) {
+            Log::warning('Batch service task skipped: missing services in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'payload_keys' => array_keys($payload)
+            ]);
+            throw new \Exception('Invalid payload: missing services array');
+        }
+
+        $mainAccountId = $payload['main_account_id'];
+        $childAccountId = $task->account_id;
+        $services = $payload['services'];
+
+        try {
+            // Получить настройки синхронизации
+            $syncSettings = \App\Models\SyncSetting::where('account_id', $childAccountId)->first();
+
+            if (!$syncSettings) {
+                throw new \Exception("Sync settings not found for child account {$childAccountId}");
+            }
+
+            Log::info('Batch service sync started', [
+                'task_id' => $task->id,
+                'services_count' => count($services),
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId
+            ]);
+
+            // Подготовить услуги для batch POST (используя только кеш)
+            $preparedServices = [];
+
+            foreach ($services as $service) {
+                $prepared = $serviceSyncService->prepareServiceForBatch(
+                    $service,
+                    $mainAccountId,
+                    $childAccountId,
+                    $syncSettings
+                );
+
+                if ($prepared) {
+                    $preparedServices[] = $prepared;
+                }
+            }
+
+            if (empty($preparedServices)) {
+                Log::info('All services skipped in batch', [
+                    'task_id' => $task->id,
+                    'total_services' => count($services)
+                ]);
+                return;
+            }
+
+            Log::info('Services prepared for batch POST', [
+                'task_id' => $task->id,
+                'prepared_count' => count($preparedServices)
+            ]);
+
+            // Получить child account для access token
+            $childAccount = \App\Models\Account::where('account_id', $childAccountId)->firstOrFail();
+            $moysklad = app(\App\Services\MoySkladService::class);
+
+            // Отправить batch POST
+            $response = $moysklad
+                ->setAccessToken($childAccount->access_token)
+                ->batchCreateServices($preparedServices);
+
+            $createdServices = $response['data'] ?? [];
+
+            Log::info('Batch POST completed', [
+                'task_id' => $task->id,
+                'sent_count' => count($preparedServices),
+                'received_count' => count($createdServices)
+            ]);
+
+            // Создать mappings для успешно созданных/обновленных услуг
+            $mappingCount = 0;
+            $failedCount = 0;
+
+            foreach ($createdServices as $index => $createdService) {
+                try {
+                    // Получить оригинальный ID из метаданных
+                    $originalId = $preparedServices[$index]['_original_id'] ?? null;
+                    $isUpdate = $preparedServices[$index]['_is_update'] ?? false;
+
+                    if (!$originalId) {
+                        Log::warning('Cannot create mapping: missing _original_id', [
+                            'task_id' => $task->id,
+                            'index' => $index,
+                            'child_service_id' => $createdService['id'] ?? 'unknown'
+                        ]);
+                        $failedCount++;
+                        continue;
+                    }
+
+                    // Создать или обновить mapping
+                    \App\Models\EntityMapping::updateOrCreate(
+                        [
+                            'parent_account_id' => $mainAccountId,
+                            'child_account_id' => $childAccountId,
+                            'entity_type' => 'service',
+                            'parent_entity_id' => $originalId
+                        ],
+                        [
+                            'child_entity_id' => $createdService['id'],
+                            'sync_direction' => 'main_to_child',
+                            'match_field' => $syncSettings->product_match_field ?? 'code',
+                            'match_value' => $createdService['code'] ?? $createdService['name']
+                        ]
+                    );
+
+                    $mappingCount++;
+
+                } catch (\Exception $e) {
+                    $failedCount++;
+
+                    // Получить оригинальный ID
+                    $originalId = $preparedServices[$index]['_original_id'] ?? null;
+
+                    Log::error('Failed to create mapping in batch', [
+                        'task_id' => $task->id,
+                        'index' => $index,
+                        'original_id' => $originalId,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    // Создать индивидуальную retry задачу для упавшей услуги
+                    if ($originalId) {
+                        SyncQueue::create([
+                            'account_id' => $childAccountId,
+                            'entity_type' => 'service',  // Индивидуальная синхронизация (НЕ batch)
+                            'entity_id' => $originalId,   // Конкретная упавшая услуга
+                            'operation' => 'update',
+                            'priority' => 5,              // Средний приоритет для retry
+                            'scheduled_at' => now()->addMinutes(5),  // Задержка 5 минут
+                            'status' => 'pending',
+                            'attempts' => 0,
+                            'payload' => [
+                                'main_account_id' => $mainAccountId,
+                                'batch_retry' => true  // Отметка что это retry из batch
+                            ]
+                        ]);
+
+                        Log::info('Created individual retry task for failed service', [
+                            'original_task_id' => $task->id,
+                            'service_id' => $originalId
+                        ]);
+                    }
+                }
+            }
+
+            Log::info('Batch service sync completed', [
+                'task_id' => $task->id,
+                'total_services' => count($services),
+                'prepared_count' => count($preparedServices),
+                'created_count' => count($createdServices),
+                'mappings_created' => $mappingCount,
+                'failed_mappings' => $failedCount
+            ]);
+
+            // Если более 50% упали - выбросить исключение для retry всей задачи
+            if ($failedCount > count($preparedServices) / 2) {
+                throw new \Exception("Batch sync failed: {$failedCount} of " . count($preparedServices) . " services failed");
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Batch service sync failed completely', [
+                'task_id' => $task->id,
+                'services_count' => count($services),
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
