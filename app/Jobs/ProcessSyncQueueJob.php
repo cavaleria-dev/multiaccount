@@ -342,7 +342,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             $response = $moysklad
                 ->setAccessToken($mainAccount->access_token)
                 ->get('/entity/variant', [
-                    'filter' => "product=https://api.moysklad.ru/api/remap/1.2/entity/product/{$productId}",
+                    'filter' => "productid={$productId}",
                     'expand' => 'product.salePrices,characteristics,packs.uom',
                     'limit' => 1000
                 ]);
@@ -691,9 +691,22 @@ class ProcessSyncQueueJob implements ShouldQueue
                 return;
             }
 
+            // Логировать служебные поля для диагностики
+            $updateCount = 0;
+            $createCount = 0;
+            foreach ($preparedServices as $service) {
+                if ($service['_is_update'] ?? false) {
+                    $updateCount++;
+                } else {
+                    $createCount++;
+                }
+            }
+
             Log::info('Services prepared for batch POST', [
                 'task_id' => $task->id,
-                'prepared_count' => count($preparedServices)
+                'prepared_count' => count($preparedServices),
+                'update_count' => $updateCount,
+                'create_count' => $createCount
             ]);
 
             // Получить child account для access token

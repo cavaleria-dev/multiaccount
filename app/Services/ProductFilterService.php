@@ -46,9 +46,9 @@ class ProductFilterService
             return null;
         }
 
-        // Объединить через ; и urlencode
+        // Объединить через ; (HTTP client закодирует автоматически)
         $filterString = implode(';', $apiConditions);
-        return urlencode($filterString);
+        return $filterString;
     }
 
     /**
@@ -172,8 +172,8 @@ class ProductFilterService
      */
     protected function buildStringApiCondition(string $url, string $operator, mixed $value): ?string
     {
-        // Экранировать ; в значении
-        $escapedValue = str_replace(';', '\\;', (string)$value);
+        // Значение без экранирования (HTTP client обработает encoding)
+        $escapedValue = (string)$value;
 
         return match($operator) {
             'equals' => "{$url}={$escapedValue}",

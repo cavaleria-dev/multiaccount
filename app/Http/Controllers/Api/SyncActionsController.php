@@ -396,7 +396,7 @@ class SyncActionsController extends Controller
             'child_account_id' => $accountId,
             'api_filter_enabled' => $apiFilterString !== null,
             'client_filter_enabled' => $needsClientFilter,
-            'api_filter_preview' => $apiFilterString ? substr(urldecode($apiFilterString), 0, 200) . '...' : null
+            'api_filter_preview' => $apiFilterString ? substr($apiFilterString, 0, 200) . '...' : null
         ]);
 
         do {
