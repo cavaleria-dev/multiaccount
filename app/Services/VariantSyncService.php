@@ -53,7 +53,7 @@ class VariantSyncService
             $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
             $variantResult = $this->moySkladService
                 ->setAccessToken($mainAccount->access_token)
-                ->get("entity/variant/{$variantId}", ['expand' => 'product,characteristics,packs.uom']);
+                ->get("entity/variant/{$variantId}", ['expand' => 'product.salePrices,characteristics,packs.uom']);
 
             $variant = $variantResult['data'];
 
@@ -118,6 +118,81 @@ class VariantSyncService
                 'variant_id' => $variantId,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Синхронизировать variant с уже загруженными данными (без GET запроса)
+     *
+     * Используется для пакетной синхронизации, когда variant уже загружен
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param array $variant Уже загруженные данные variant (с expand)
+     * @return array|null Созданный/обновленный variant
+     */
+    public function syncVariantData(string $mainAccountId, string $childAccountId, array $variant): ?array
+    {
+        try {
+            // Получить настройки синхронизации
+            $settings = SyncSetting::where('account_id', $childAccountId)->first();
+
+            if (!$settings || !$settings->sync_variants) {
+                Log::debug('Variant sync is disabled', ['child_account_id' => $childAccountId]);
+                return null;
+            }
+
+            $variantId = $variant['id'];
+
+            // Variants сопоставляются через родительский товар (product mapping)
+            // Проверка match field НЕ нужна
+
+            // Проверить есть ли товар-родитель в дочернем аккаунте
+            $productId = $this->extractEntityId($variant['product']['meta']['href'] ?? '');
+            if (!$productId) {
+                Log::warning('Cannot extract product ID from variant', ['variant_id' => $variantId]);
+                return null;
+            }
+
+            $productMapping = EntityMapping::where('parent_account_id', $mainAccountId)
+                ->where('child_account_id', $childAccountId)
+                ->where('parent_entity_id', $productId)
+                ->where('entity_type', 'product')
+                ->first();
+
+            if (!$productMapping) {
+                Log::warning('Parent product not found in child account, skipping variant', [
+                    'product_id' => $productId,
+                    'variant_id' => $variantId
+                ]);
+                return null;
+            }
+
+            // Проверить маппинг модификации
+            $variantMapping = EntityMapping::where('parent_account_id', $mainAccountId)
+                ->where('child_account_id', $childAccountId)
+                ->where('parent_entity_id', $variantId)
+                ->where('entity_type', 'variant')
+                ->first();
+
+            $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
+
+            if ($variantMapping) {
+                // Модификация уже существует, обновляем
+                return $this->updateVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $variantMapping, $settings);
+            } else {
+                // Создаем новую модификацию
+                return $this->createVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $settings);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Failed to sync variant data', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'variant_id' => $variant['id'] ?? 'unknown',
+                'error' => $e->getMessage()
             ]);
             throw $e;
         }
@@ -485,5 +560,73 @@ class VariantSyncService
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Проверить, отличаются ли цены variant от parent product
+     *
+     * @param array $variant Данные variant из main аккаунта
+     * @param array $parentProduct Данные parent product из main аккаунта
+     * @return bool true если цены отличаются (variant имеет собственные цены)
+     */
+    protected function variantHasCustomPrices(array $variant, array $parentProduct): bool
+    {
+        $variantPrices = $variant['salePrices'] ?? [];
+        $productPrices = $parentProduct['salePrices'] ?? [];
+
+        // Если количество цен разное - точно отличаются
+        if (count($variantPrices) !== count($productPrices)) {
+            return true;
+        }
+
+        // Если обе пустые - нет собственных цен
+        if (empty($variantPrices) && empty($productPrices)) {
+            return false;
+        }
+
+        // Сравнить каждую цену по priceType ID и value
+        foreach ($variantPrices as $variantPrice) {
+            $priceTypeId = $this->extractEntityId($variantPrice['priceType']['meta']['href'] ?? '');
+            if (!$priceTypeId) {
+                continue;
+            }
+
+            $variantValue = $variantPrice['value'] ?? 0;
+
+            // Найти соответствующую цену в product
+            $matchingProductPrice = null;
+            foreach ($productPrices as $productPrice) {
+                $productPriceTypeId = $this->extractEntityId($productPrice['priceType']['meta']['href'] ?? '');
+                if ($productPriceTypeId === $priceTypeId) {
+                    $matchingProductPrice = $productPrice;
+                    break;
+                }
+            }
+
+            // Если не нашли соответствующую цену или значения отличаются
+            if (!$matchingProductPrice || ($matchingProductPrice['value'] ?? 0) !== $variantValue) {
+                return true; // Цены отличаются
+            }
+        }
+
+        // Также проверить buyPrice
+        $variantBuyPrice = $variant['buyPrice']['value'] ?? null;
+        $productBuyPrice = $parentProduct['buyPrice']['value'] ?? null;
+
+        // Если оба null - одинаковые
+        if ($variantBuyPrice === null && $productBuyPrice === null) {
+            // Продолжаем проверку
+        }
+        // Если один null, другой нет - отличаются
+        elseif ($variantBuyPrice === null || $productBuyPrice === null) {
+            return true;
+        }
+        // Если оба не null - сравниваем значения
+        elseif ($variantBuyPrice !== $productBuyPrice) {
+            return true;
+        }
+
+        // Цены идентичны - variant наследует от product
+        return false;
     }
 }
