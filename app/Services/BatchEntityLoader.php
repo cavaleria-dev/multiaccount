@@ -250,8 +250,14 @@ class BatchEntityLoader
     ): array {
         $config = EntityConfig::get($entityType);
 
+        // Определить endpoint и фильтр
+        $useAssortment = $config['use_assortment_for_filters'] ?? false;
+        $endpoint = $useAssortment ? '/entity/assortment' : $config['endpoint'];
+
         // Построить API фильтр
-        $apiFilterString = $this->filterService->buildApiFilter($filters, $mainAccountId, $attributesMetadata);
+        $apiFilterString = $useAssortment
+            ? $this->filterService->buildAssortmentApiFilter($filters, $entityType, $mainAccountId, $attributesMetadata)
+            : $this->filterService->buildApiFilter($filters, $mainAccountId, $attributesMetadata);
 
         if ($apiFilterString === null) {
             // Не должно произойти (determineStrategy проверил), но на всякий случай
@@ -265,7 +271,7 @@ class BatchEntityLoader
         $totalLoaded = 0;
 
         // Построить полный URL для диагностики
-        $fullUrlPreview = config('moysklad.api_url') . $config['endpoint'] .
+        $fullUrlPreview = config('moysklad.api_url') . $endpoint .
             '?filter=' . urlencode($apiFilterString) .
             '&expand=' . urlencode($config['expand']) .
             '&limit=100&offset=0';
@@ -273,6 +279,8 @@ class BatchEntityLoader
         Log::info("Loading entities with single API filter", [
             'entity_type' => $entityType,
             'main_account_id' => $mainAccountId,
+            'use_assortment' => $useAssortment,
+            'endpoint' => $endpoint,
             'api_filter_string' => $apiFilterString,  // Не закодированная строка
             'full_url_preview' => $fullUrlPreview  // Полный URL (первая страница)
         ]);
@@ -288,7 +296,7 @@ class BatchEntityLoader
             try {
                 $response = $this->moySkladService
                     ->setAccessToken($accessToken)
-                    ->get($config['endpoint'], $params);
+                    ->get($endpoint, $params);
 
                 $rows = $response['data']['rows'] ?? [];
                 $pageCount = count($rows);
@@ -348,6 +356,10 @@ class BatchEntityLoader
     ): array {
         $config = EntityConfig::get($entityType);
 
+        // Определить endpoint
+        $useAssortment = $config['use_assortment_for_filters'] ?? false;
+        $endpoint = $useAssortment ? '/entity/assortment' : $config['endpoint'];
+
         // Конвертировать из UI формата если нужно
         if (isset($filters['groups'])) {
             $filters = $this->filterService->convertFromUiFormat($filters, $mainAccountId, $attributesMetadata);
@@ -368,6 +380,8 @@ class BatchEntityLoader
         Log::info("Loading entities with multiple API filters (OR logic)", [
             'entity_type' => $entityType,
             'main_account_id' => $mainAccountId,
+            'use_assortment' => $useAssortment,
+            'endpoint' => $endpoint,
             'groups_count' => count($groups)
         ]);
 
@@ -379,7 +393,10 @@ class BatchEntityLoader
                 'conditions' => $group['conditions'] ?? []
             ];
 
-            $apiFilterString = $this->filterService->buildApiFilter($groupFilter, $mainAccountId, $attributesMetadata);
+            // Построить API фильтр (с или без assortment)
+            $apiFilterString = $useAssortment
+                ? $this->filterService->buildAssortmentApiFilter($groupFilter, $entityType, $mainAccountId, $attributesMetadata)
+                : $this->filterService->buildApiFilter($groupFilter, $mainAccountId, $attributesMetadata);
 
             if ($apiFilterString === null) {
                 Log::warning("Failed to build API filter for group, skipping", [
@@ -389,7 +406,7 @@ class BatchEntityLoader
             }
 
             // Построить полный URL для диагностики
-            $fullUrlPreview = config('moysklad.api_url') . $config['endpoint'] .
+            $fullUrlPreview = config('moysklad.api_url') . $endpoint .
                 '?filter=' . urlencode($apiFilterString) .
                 '&expand=' . urlencode($config['expand']) .
                 '&limit=100&offset=0';
@@ -417,7 +434,7 @@ class BatchEntityLoader
                 try {
                     $response = $this->moySkladService
                         ->setAccessToken($accessToken)
-                        ->get($config['endpoint'], $params);
+                        ->get($endpoint, $params);
 
                     $rows = $response['data']['rows'] ?? [];
                     $pageCount = count($rows);

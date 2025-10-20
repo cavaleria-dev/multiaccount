@@ -23,6 +23,8 @@ class EntityConfig
             'batch_entity_type' => 'batch_products',
             'filter_metadata_type' => 'product',
             'supports_filters' => true,
+            'use_assortment_for_filters' => true,  // Использовать /entity/assortment для фильтрации
+            'assortment_type' => 'product',        // Тип для параметра type=
             'match_field_setting' => 'product_match_field',
             'default_match_field' => 'code',
             'has_match_field_check' => false,
@@ -34,6 +36,8 @@ class EntityConfig
             'batch_entity_type' => 'batch_services',
             'filter_metadata_type' => 'service',
             'supports_filters' => true,
+            'use_assortment_for_filters' => true,  // Использовать /entity/assortment для фильтрации
+            'assortment_type' => 'service',        // Тип для параметра type=
             'match_field_setting' => 'service_match_field',
             'default_match_field' => 'code',
             'has_match_field_check' => true,  // Услуги требуют проверку match_field
@@ -45,6 +49,8 @@ class EntityConfig
             'batch_entity_type' => 'batch_bundles',
             'filter_metadata_type' => 'product',  // Bundles используют product metadata
             'supports_filters' => true,
+            'use_assortment_for_filters' => true,  // Использовать /entity/assortment для фильтрации
+            'assortment_type' => 'bundle',         // Тип для параметра type=
             'match_field_setting' => 'product_match_field',
             'default_match_field' => 'code',
             'has_match_field_check' => false,
@@ -56,6 +62,7 @@ class EntityConfig
             'batch_entity_type' => 'batch_variants',
             'filter_metadata_type' => 'product',  // Variants используют product metadata
             'supports_filters' => false,  // Variants не фильтруются напрямую (группируются по product)
+            'use_assortment_for_filters' => false,  // Variants не используют assortment
             'group_by' => 'product_id',  // Группировка по родительскому товару
             'match_field_setting' => 'product_match_field',
             'default_match_field' => 'code',
@@ -186,5 +193,27 @@ class EntityConfig
     public static function getDefaultMatchField(string $entityType): string
     {
         return self::get($entityType)['default_match_field'] ?? 'code';
+    }
+
+    /**
+     * Проверить использует ли сущность assortment для фильтрации
+     *
+     * @param string $entityType Тип сущности
+     * @return bool
+     */
+    public static function useAssortmentForFilters(string $entityType): bool
+    {
+        return self::get($entityType)['use_assortment_for_filters'] ?? false;
+    }
+
+    /**
+     * Получить значение параметра type для assortment endpoint
+     *
+     * @param string $entityType Тип сущности
+     * @return string
+     */
+    public static function getAssortmentType(string $entityType): string
+    {
+        return self::get($entityType)['assortment_type'] ?? $entityType;
     }
 }

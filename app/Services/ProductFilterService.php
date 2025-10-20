@@ -1063,4 +1063,37 @@ class ProductFilterService
 
         return "{$customEntityHref}/{$elementId}";
     }
+
+    /**
+     * Построить строку фильтра для /entity/assortment endpoint
+     *
+     * Конвертирует фильтры в МойСклад query string для assortment endpoint.
+     * Автоматически добавляет фильтр по типу сущности (type=service|product|bundle).
+     *
+     * @param array|null $filters Массив фильтров (из sync_settings.product_filters)
+     * @param string $entityType Тип сущности (product, service, bundle, variant)
+     * @param string $mainAccountId UUID главного аккаунта (для построения href)
+     * @param array|null $attributesMetadata Метаданные атрибутов с customEntityMeta
+     * @return string|null Строка для параметра filter (urlencoded) или null
+     */
+    public function buildAssortmentApiFilter(
+        ?array $filters,
+        string $entityType,
+        string $mainAccountId,
+        ?array $attributesMetadata = null
+    ): ?string {
+        // Получить тип для assortment параметра type=
+        $assortmentType = EntityConfig::getAssortmentType($entityType);
+
+        // Построить базовый фильтр для обычного endpoint
+        $baseFilter = $this->buildApiFilter($filters, $mainAccountId, $attributesMetadata);
+
+        // Если базовый фильтр не построился - вернуть только type
+        if (!$baseFilter) {
+            return "type={$assortmentType}";
+        }
+
+        // Добавить фильтр по типу к базовому
+        return "type={$assortmentType};{$baseFilter}";
+    }
 }
