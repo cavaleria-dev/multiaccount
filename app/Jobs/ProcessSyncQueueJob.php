@@ -559,12 +559,39 @@ class ProcessSyncQueueJob implements ShouldQueue
 
                 } catch (\Exception $e) {
                     $failedCount++;
+
+                    // Получить оригинальный ID
+                    $originalId = $preparedProducts[$index]['_original_id'] ?? null;
+
                     Log::error('Failed to create mapping in batch', [
                         'task_id' => $task->id,
                         'index' => $index,
-                        'original_id' => $originalId ?? 'unknown',
+                        'original_id' => $originalId,
                         'error' => $e->getMessage()
                     ]);
+
+                    // Создать индивидуальную retry задачу для упавшего товара
+                    if ($originalId) {
+                        SyncQueue::create([
+                            'account_id' => $childAccountId,
+                            'entity_type' => 'product',  // Индивидуальная синхронизация (НЕ batch)
+                            'entity_id' => $originalId,   // Конкретный упавший товар
+                            'operation' => 'update',
+                            'priority' => 5,              // Средний приоритет для retry
+                            'scheduled_at' => now()->addMinutes(5),  // Задержка 5 минут
+                            'status' => 'pending',
+                            'attempts' => 0,
+                            'payload' => [
+                                'main_account_id' => $mainAccountId,
+                                'batch_retry' => true  // Отметка что это retry из batch
+                            ]
+                        ]);
+
+                        Log::info('Created individual retry task for failed product', [
+                            'original_task_id' => $task->id,
+                            'product_id' => $originalId
+                        ]);
+                    }
                 }
             }
 

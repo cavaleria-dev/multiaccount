@@ -356,6 +356,42 @@ class MoySkladService
         return $this->post('entity/product', $products);
     }
 
+    /**
+     * Batch создание/обновление услуг
+     *
+     * МойСклад поддерживает массовое создание/обновление услуг.
+     * Лимиты: max 1000 элементов в массиве, max 20 Mb в запросе
+     *
+     * @param array $services Массив услуг (рекомендуется до 100 за раз)
+     * @return array Response с массивом созданных/обновленных услуг
+     * @throws \InvalidArgumentException Если массив пустой или превышает лимит
+     */
+    public function batchCreateServices(array $services): array
+    {
+        if (empty($services)) {
+            throw new \InvalidArgumentException('Services array cannot be empty');
+        }
+
+        if (count($services) > 1000) {
+            throw new \InvalidArgumentException('МойСклад limit: max 1000 services per batch (got ' . count($services) . ')');
+        }
+
+        // Проверить примерный размер запроса
+        $estimatedSize = strlen(json_encode($services));
+        $estimatedSizeMb = round($estimatedSize / (1024 * 1024), 2);
+
+        if ($estimatedSize > 20 * 1024 * 1024) {
+            throw new \InvalidArgumentException("Request size ({$estimatedSizeMb}MB) exceeds МойСклад limit (20MB)");
+        }
+
+        Log::info('Batch creating services', [
+            'count' => count($services),
+            'estimated_size_mb' => $estimatedSizeMb
+        ]);
+
+        return $this->post('entity/service', $services);
+    }
+
     // ============ Методы для работы с заказами ============
 
     /**
