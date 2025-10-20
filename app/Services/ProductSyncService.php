@@ -927,11 +927,9 @@ class ProductSyncService
      */
     public function syncVariant(string $mainAccountId, string $childAccountId, string $variantId): ?array
     {
+        // Lazy resolve из контейнера если не установлен
         if (!$this->variantSyncService) {
-            Log::warning('VariantSyncService not injected, skipping variant sync', [
-                'variant_id' => $variantId
-            ]);
-            return null;
+            $this->variantSyncService = app(\App\Services\VariantSyncService::class);
         }
 
         return $this->variantSyncService->syncVariant($mainAccountId, $childAccountId, $variantId);
@@ -942,11 +940,9 @@ class ProductSyncService
      */
     public function archiveVariant(string $mainAccountId, string $variantId): int
     {
+        // Lazy resolve из контейнера если не установлен
         if (!$this->variantSyncService) {
-            Log::warning('VariantSyncService not injected, skipping variant archive', [
-                'variant_id' => $variantId
-            ]);
-            return 0;
+            $this->variantSyncService = app(\App\Services\VariantSyncService::class);
         }
 
         return $this->variantSyncService->archiveVariant($mainAccountId, $variantId);
@@ -957,11 +953,9 @@ class ProductSyncService
      */
     public function syncBundle(string $mainAccountId, string $childAccountId, string $bundleId): ?array
     {
+        // Lazy resolve из контейнера если не установлен
         if (!$this->bundleSyncService) {
-            Log::warning('BundleSyncService not injected, skipping bundle sync', [
-                'bundle_id' => $bundleId
-            ]);
-            return null;
+            $this->bundleSyncService = app(\App\Services\BundleSyncService::class);
         }
 
         return $this->bundleSyncService->syncBundle($mainAccountId, $childAccountId, $bundleId);
@@ -972,11 +966,9 @@ class ProductSyncService
      */
     public function archiveBundle(string $mainAccountId, string $bundleId): int
     {
+        // Lazy resolve из контейнера если не установлен
         if (!$this->bundleSyncService) {
-            Log::warning('BundleSyncService not injected, skipping bundle archive', [
-                'bundle_id' => $bundleId
-            ]);
-            return 0;
+            $this->bundleSyncService = app(\App\Services\BundleSyncService::class);
         }
 
         return $this->bundleSyncService->archiveBundle($mainAccountId, $bundleId);
