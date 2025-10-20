@@ -510,6 +510,127 @@ class ServiceSyncService
     }
 
     /**
+     * Подготовить услугу для batch создания/обновления
+     *
+     * Использует предварительно закешированные mappings для зависимостей (БЕЗ GET запросов).
+     * Вызывается из ProcessSyncQueueJob::processBatchServiceSync() после пре-кеширования.
+     *
+     * @param array $service Услуга из main аккаунта (с expand)
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param SyncSetting $settings Настройки синхронизации
+     * @return array|null Подготовленная услуга для batch POST или null если skip
+     */
+    public function prepareServiceForBatch(
+        array $service,
+        string $mainAccountId,
+        string $childAccountId,
+        SyncSetting $settings
+    ): ?array {
+        // 1. Проверить mapping (create or update?)
+        $mapping = EntityMapping::where([
+            'parent_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'entity_type' => 'service',
+            'parent_entity_id' => $service['id']
+        ])->first();
+
+        // 2. Build base service data
+        $serviceData = [
+            'name' => $service['name'],
+            'code' => $service['code'] ?? null,
+            'externalCode' => $service['externalCode'] ?? null,
+            'description' => $service['description'] ?? null,
+        ];
+
+        // 3. Если обновление - добавить meta
+        if ($mapping) {
+            $serviceData['meta'] = [
+                'href' => config('moysklad.api_url') . "/entity/service/{$mapping->child_entity_id}",
+                'type' => 'service',
+                'mediaType' => 'application/json'
+            ];
+        }
+
+        // 4. Sync Attributes (using cached mappings from DB)
+        if (isset($service['attributes']) && !empty($service['attributes'])) {
+            $syncedAttributes = [];
+
+            foreach ($service['attributes'] as $attribute) {
+                $attributeId = $attribute['id'] ?? null;
+                $attributeName = $attribute['name'] ?? null;
+
+                if (!$attributeId || !$attributeName) {
+                    continue;
+                }
+
+                // Найти CACHED маппинг
+                $mapping = \App\Models\AttributeMapping::where([
+                    'parent_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => 'service',
+                    'parent_attribute_id' => $attributeId
+                ])->first();
+
+                if (!$mapping) {
+                    continue;
+                }
+
+                // Подготовить значение
+                $value = $attribute['value'] ?? null;
+
+                // Для customentity - синхронизировать значение (элемент справочника)
+                if ($attribute['type'] === 'customentity' && $value) {
+                    $value = $this->customEntitySyncService->syncAttributeValue(
+                        $mainAccountId,
+                        $childAccountId,
+                        $value
+                    );
+                }
+
+                $syncedAttributes[] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/service/metadata/attributes/{$mapping->child_attribute_id}",
+                        'type' => 'attributemetadata',
+                        'mediaType' => 'application/json'
+                    ],
+                    'value' => $value
+                ];
+            }
+
+            if (!empty($syncedAttributes)) {
+                $serviceData['attributes'] = $syncedAttributes;
+            }
+        }
+
+        // 5. Sync Prices (using existing trait method)
+        $prices = $this->syncPrices(
+            $mainAccountId,
+            $childAccountId,
+            $service,
+            $settings
+        );
+
+        if (!empty($prices['salePrices'])) {
+            $serviceData['salePrices'] = $prices['salePrices'];
+        }
+
+        if (isset($prices['buyPrice'])) {
+            $serviceData['buyPrice'] = $prices['buyPrice'];
+        }
+
+        // 6. Add VAT and tax fields (using ProductSyncService method)
+        $serviceData = $this->productSyncService->addVatAndTaxFields($serviceData, $service, $settings);
+
+        // 7. Store original ID for mapping after batch POST
+        $serviceData['_original_id'] = $service['id'];
+        $serviceData['_is_update'] = $mapping ? true : false;
+        $serviceData['_child_entity_id'] = $mapping ? $mapping->child_entity_id : null;
+
+        return $serviceData;
+    }
+
+    /**
      * Архивировать услугу в дочерних аккаунтах
      */
     public function archiveService(string $mainAccountId, string $serviceId): int
