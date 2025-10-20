@@ -236,16 +236,60 @@ class VariantSyncService
             );
         }
 
-        // Синхронизировать цены (используя трейт SyncHelpers)
-        $prices = $this->syncPrices(
-            $mainAccountId,
-            $childAccountId,
-            $variant,
-            $settings
-        );
-        $variantData['salePrices'] = $prices['salePrices'];
-        if (isset($prices['buyPrice'])) {
-            $variantData['buyPrice'] = $prices['buyPrice'];
+        // Проверить, имеет ли variant собственные цены (отличные от parent product)
+        $mainProduct = $variant['product'] ?? null;
+        $hasCustomPrices = false;
+
+        if ($mainProduct && isset($mainProduct['salePrices'])) {
+            $hasCustomPrices = $this->variantHasCustomPrices($variant, $mainProduct);
+        } else {
+            // Если parent product не expand-нут - безопасный fallback (синхронизируем цены)
+            $hasCustomPrices = true;
+            Log::warning('Parent product not expanded in variant, assuming custom prices', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id']
+            ]);
+        }
+
+        Log::debug('Variant custom prices check (create)', [
+            'child_account_id' => $childAccountId,
+            'main_variant_id' => $variant['id'],
+            'has_custom_prices' => $hasCustomPrices,
+            'variant_prices_count' => count($variant['salePrices'] ?? []),
+            'product_prices_count' => count($mainProduct['salePrices'] ?? [])
+        ]);
+
+        // Синхронизировать цены ТОЛЬКО если variant имеет собственные цены
+        if ($hasCustomPrices) {
+            // Цены (используя трейт SyncHelpers)
+            $prices = $this->syncPrices(
+                $mainAccountId,
+                $childAccountId,
+                $variant,
+                $settings
+            );
+
+            Log::debug('Variant prices synced (custom prices detected, create)', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id'],
+                'main_sale_prices_count' => count($variant['salePrices'] ?? []),
+                'synced_sale_prices_count' => count($prices['salePrices']),
+                'has_buy_price' => isset($prices['buyPrice']),
+                'price_mappings_enabled' => !empty($settings->price_mappings)
+            ]);
+
+            $variantData['salePrices'] = $prices['salePrices'];
+            if (isset($prices['buyPrice'])) {
+                $variantData['buyPrice'] = $prices['buyPrice'];
+            }
+        } else {
+            // Variant наследует цены от product - НЕ отправляем salePrices/buyPrice
+            Log::debug('Variant created without custom prices (inherits from product)', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id'],
+                'variant_prices_match_product' => true
+            ]);
+            // НЕ добавляем salePrices и buyPrice в $variantData
         }
 
         // Синхронизировать упаковки (если есть)
@@ -323,35 +367,70 @@ class VariantSyncService
             );
         }
 
-        // Цены (используя трейт SyncHelpers)
-        $prices = $this->syncPrices(
-            $mainAccountId,
-            $childAccountId,
-            $variant,
-            $settings
-        );
+        // Проверить, имеет ли variant собственные цены (отличные от parent product)
+        $mainProduct = $variant['product'] ?? null;
+        $hasCustomPrices = false;
 
-        // Логировать синхронизированные цены для отладки
-        Log::debug('Variant prices synced', [
+        if ($mainProduct && isset($mainProduct['salePrices'])) {
+            $hasCustomPrices = $this->variantHasCustomPrices($variant, $mainProduct);
+        } else {
+            // Если parent product не expand-нут - безопасный fallback (синхронизируем цены)
+            $hasCustomPrices = true;
+            Log::warning('Parent product not expanded in variant, assuming custom prices', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id']
+            ]);
+        }
+
+        Log::debug('Variant custom prices check', [
             'child_account_id' => $childAccountId,
             'main_variant_id' => $variant['id'],
             'child_variant_id' => $variantMapping->child_entity_id,
-            'main_sale_prices_count' => count($variant['salePrices'] ?? []),
-            'synced_sale_prices_count' => count($prices['salePrices']),
-            'has_buy_price' => isset($prices['buyPrice']),
-            'synced_sale_prices' => $prices['salePrices'],
-            'price_mappings_enabled' => !empty($settings->price_mappings)
+            'has_custom_prices' => $hasCustomPrices,
+            'variant_prices_count' => count($variant['salePrices'] ?? []),
+            'product_prices_count' => count($mainProduct['salePrices'] ?? [])
         ]);
 
-        // Если salePrices пустой - НЕ отправляем (МойСклад оставит как есть)
-        // Пустой массив может быть интерпретирован как "удалить все цены"
-        if (!empty($prices['salePrices'])) {
-            $variantData['salePrices'] = $prices['salePrices'];
-        }
+        // Синхронизировать цены ТОЛЬКО если variant имеет собственные цены
+        if ($hasCustomPrices) {
+            // Цены (используя трейт SyncHelpers)
+            $prices = $this->syncPrices(
+                $mainAccountId,
+                $childAccountId,
+                $variant,
+                $settings
+            );
 
-        // Если buyPrice есть - отправляем
-        if (isset($prices['buyPrice'])) {
-            $variantData['buyPrice'] = $prices['buyPrice'];
+            // Логировать синхронизированные цены для отладки
+            Log::debug('Variant prices synced (custom prices detected)', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id'],
+                'child_variant_id' => $variantMapping->child_entity_id,
+                'main_sale_prices_count' => count($variant['salePrices'] ?? []),
+                'synced_sale_prices_count' => count($prices['salePrices']),
+                'has_buy_price' => isset($prices['buyPrice']),
+                'synced_sale_prices' => $prices['salePrices'],
+                'price_mappings_enabled' => !empty($settings->price_mappings)
+            ]);
+
+            // Если salePrices пустой - НЕ отправляем (МойСклад оставит как есть)
+            if (!empty($prices['salePrices'])) {
+                $variantData['salePrices'] = $prices['salePrices'];
+            }
+
+            // Если buyPrice есть - отправляем
+            if (isset($prices['buyPrice'])) {
+                $variantData['buyPrice'] = $prices['buyPrice'];
+            }
+        } else {
+            // Variant наследует цены от product - НЕ отправляем salePrices/buyPrice
+            Log::debug('Variant prices skipped (inherits from product)', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id'],
+                'child_variant_id' => $variantMapping->child_entity_id,
+                'variant_prices_match_product' => true
+            ]);
+            // НЕ добавляем salePrices и buyPrice в $variantData
         }
 
         // Синхронизировать упаковки (если есть)
