@@ -53,8 +53,7 @@ class SyncActionsController extends Controller
             return response()->json(['error' => 'Main account not found'], 404);
         }
 
-        $moysklad = app(MoySkladService::class);
-        $filterService = app(ProductFilterService::class);
+        $batchLoader = app(\App\Services\BatchEntityLoader::class);
 
         $tasksCreated = 0;
 
@@ -65,46 +64,46 @@ class SyncActionsController extends Controller
 
             Log::info('Dependencies pre-cached for batch sync');
 
-            // Синхронизировать товары (product) - ПАКЕТНО с batch POST
+            // Синхронизировать товары (product)
             if ($syncSettings->sync_products) {
-                $tasksCreated += $this->createBatchProductTasks(
-                    $moysklad,
-                    $mainAccount->access_token,
+                $tasksCreated += $batchLoader->loadAndCreateBatchTasks(
+                    'product',
                     $mainAccountId,
-                    $accountId
+                    $accountId,
+                    $mainAccount->access_token,
+                    $syncSettings
                 );
             }
 
-            // Синхронизировать модификации (variant) - ПАКЕТНО по товарам
+            // Синхронизировать модификации (variant)
             if ($syncSettings->sync_variants) {
                 $tasksCreated += $this->createBatchVariantTasks(
-                    $moysklad,
+                    app(MoySkladService::class),
                     $mainAccount->access_token,
                     $mainAccountId,
                     $accountId
                 );
             }
 
-            // Синхронизировать комплекты (bundle) - постранично
+            // Синхронизировать комплекты (bundle)
             if ($syncSettings->sync_bundles) {
-                $tasksCreated += $this->syncEntityType(
-                    $moysklad,
-                    $mainAccount->access_token,
+                $tasksCreated += $batchLoader->loadAndCreateBatchTasks(
                     'bundle',
                     $mainAccountId,
                     $accountId,
-                    $syncSettings,
-                    $filterService
+                    $mainAccount->access_token,
+                    $syncSettings
                 );
             }
 
-            // Синхронизировать услуги (service) - ПАКЕТНО с batch POST
+            // Синхронизировать услуги (service)
             if ($syncSettings->sync_services ?? false) {
-                $tasksCreated += $this->createBatchServiceTasks(
-                    $moysklad,
-                    $mainAccount->access_token,
+                $tasksCreated += $batchLoader->loadAndCreateBatchTasks(
+                    'service',
                     $mainAccountId,
-                    $accountId
+                    $accountId,
+                    $mainAccount->access_token,
+                    $syncSettings
                 );
             }
 
@@ -132,123 +131,6 @@ class SyncActionsController extends Controller
         }
     }
 
-    /**
-     * Синхронизировать сущности постранично (избегаем загрузки всех товаров в память)
-     *
-     * @param MoySkladService $moysklad
-     * @param string $token
-     * @param string $entityType product|bundle|service
-     * @param string $mainAccountId UUID главного аккаунта
-     * @param string $accountId UUID дочернего аккаунта
-     * @param SyncSetting $syncSettings
-     * @param ProductFilterService $filterService
-     * @return int Количество созданных задач
-     */
-    private function syncEntityType(
-        MoySkladService $moysklad,
-        string $token,
-        string $entityType,
-        string $mainAccountId,
-        string $accountId,
-        SyncSetting $syncSettings,
-        ProductFilterService $filterService
-    ): int {
-        $tasksCreated = 0;
-        $offset = 0;
-        $totalProcessed = 0;
-        $totalFiltered = 0;
-
-        // Проверить нужен ли expand для фильтров
-        $needsExpand = in_array($entityType, ['product', 'bundle'])
-            && $syncSettings->product_filters_enabled
-            && $syncSettings->product_filters;
-
-        // С expand лимит 100, без expand - 1000
-        $limit = $needsExpand ? 100 : 1000;
-
-        Log::info("Starting sync for entity type: {$entityType}", [
-            'filters_enabled' => $syncSettings->product_filters_enabled ?? false,
-            'needs_expand' => $needsExpand,
-            'limit' => $limit
-        ]);
-
-        do {
-            $pageTasksCreated = 0;
-            $pageFiltered = 0;
-
-            // Загрузить страницу
-            $params = [
-                'limit' => $limit,
-                'offset' => $offset
-            ];
-
-            // Добавить expand для полей, если нужны фильтры
-            if ($needsExpand) {
-                $params['expand'] = 'productFolder,attributes';
-            }
-
-            $response = $moysklad->setAccessToken($token)
-                ->get("/entity/{$entityType}", $params);
-
-            $entities = $response['data']['rows'] ?? [];
-            $pageCount = count($entities);
-            $totalProcessed += $pageCount;
-
-            // Создать задачи для текущей страницы
-            foreach ($entities as $entity) {
-                // Применить фильтры (только для товаров, комплектов)
-                if (in_array($entityType, ['product', 'bundle'])) {
-                    if ($syncSettings->product_filters_enabled && $syncSettings->product_filters) {
-                        if (!$filterService->passes($entity, $syncSettings->product_filters)) {
-                            $pageFiltered++;
-                            $totalFiltered++;
-                            continue; // Пропустить
-                        }
-                    }
-                }
-
-                // Создать задачу синхронизации
-                SyncQueue::create([
-                    'account_id' => $accountId,
-                    'entity_type' => $entityType,
-                    'entity_id' => $entity['id'],
-                    'operation' => 'create', // Или 'update' если проверять entity_mappings
-                    'priority' => 10, // Высокий приоритет для ручной синхронизации
-                    'scheduled_at' => now(),
-                    'status' => 'pending',
-                    'attempts' => 0,
-                    'payload' => [
-                        'main_account_id' => $mainAccountId
-                    ]
-                ]);
-
-                $pageTasksCreated++;
-                $tasksCreated++;
-            }
-
-            Log::info("Processed page for {$entityType}", [
-                'offset' => $offset,
-                'page_size' => $pageCount,
-                'tasks_created_on_page' => $pageTasksCreated,
-                'filtered_on_page' => $pageFiltered,
-                'total_processed' => $totalProcessed,
-                'total_created' => $tasksCreated,
-                'total_filtered' => $totalFiltered
-            ]);
-
-            $offset += $limit;
-
-            // Продолжать пока получаем полную страницу
-        } while ($pageCount === $limit);
-
-        Log::info("Finished sync for entity type: {$entityType}", [
-            'total_entities_processed' => $totalProcessed,
-            'total_tasks_created' => $tasksCreated,
-            'total_filtered_out' => $totalFiltered
-        ]);
-
-        return $tasksCreated;
-    }
 
     /**
      * Создать пакетные задачи синхронизации модификаций (по родительскому товару)
@@ -345,360 +227,7 @@ class SyncActionsController extends Controller
         return $tasksCreated;
     }
 
-    /**
-     * Создать пакетные задачи синхронизации товаров (по 100 товаров)
-     *
-     * Загружает товары постранично с expand и сохраняет preloaded данные в payload.
-     * Batch POST выполняется в ProcessSyncQueueJob::processBatchProductSync().
-     *
-     * Применяет фильтры через МойСклад API (если возможно) или client-side.
-     *
-     * @param MoySkladService $moysklad
-     * @param string $token Access token главного аккаунта
-     * @param string $mainAccountId UUID главного аккаунта
-     * @param string $accountId UUID дочернего аккаунта
-     * @return int Количество созданных задач
-     */
-    private function createBatchProductTasks(
-        MoySkladService $moysklad,
-        string $token,
-        string $mainAccountId,
-        string $accountId
-    ): int {
-        // Получить настройки синхронизации
-        $syncSettings = SyncSetting::where('account_id', $accountId)->first();
 
-        // Построить API фильтр
-        $filterService = app(ProductFilterService::class);
-        $apiFilterString = null;
-        $needsClientFilter = false;
-        $attributesMetadata = null;
-
-        if ($syncSettings && $syncSettings->product_filters_enabled && $syncSettings->product_filters) {
-            // Декодировать фильтры если это JSON
-            $filters = $syncSettings->product_filters;
-            if (is_string($filters)) {
-                $filters = json_decode($filters, true);
-            }
-
-            // Загрузить metadata если фильтры в UI формате (с groups)
-            if (isset($filters['groups'])) {
-                try {
-                    $attributeSyncService = app(\App\Services\AttributeSyncService::class);
-                    $attributesMetadata = $attributeSyncService->loadAttributesMetadata(
-                        $mainAccountId,
-                        'product'
-                    );
-                } catch (\Exception $e) {
-                    Log::warning('Failed to load attributes metadata for product filters', [
-                        'main_account_id' => $mainAccountId,
-                        'error' => $e->getMessage()
-                    ]);
-                }
-            }
-
-            $apiFilterString = $filterService->buildApiFilter(
-                $filters,
-                $mainAccountId,
-                $attributesMetadata
-            );
-
-            // Если API фильтр не построен (OR логика, not_in, и т.д.) → применять client-side
-            if ($apiFilterString === null) {
-                $needsClientFilter = true;
-            }
-        }
-
-        $tasksCreated = 0;
-        $offset = 0;
-        $limit = 100; // Batch size: 100 products per task
-        $totalLoaded = 0;
-        $totalFilteredClient = 0;
-
-        Log::info('Starting batch product sync', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $accountId,
-            'api_filter_enabled' => $apiFilterString !== null,
-            'client_filter_enabled' => $needsClientFilter,
-            'api_filter_preview' => $apiFilterString ? substr($apiFilterString, 0, 200) . '...' : null
-        ]);
-
-        do {
-            // Загрузить страницу товаров с expand
-            $params = [
-                'limit' => $limit,
-                'offset' => $offset,
-                'expand' => 'attributes,productFolder,uom,country,packs.uom,salePrices'
-            ];
-
-            // Добавить API фильтр если построен
-            if ($apiFilterString) {
-                $params['filter'] = $apiFilterString;
-            }
-
-            $response = $moysklad->setAccessToken($token)
-                ->get('/entity/product', $params);
-
-            $products = $response['data']['rows'] ?? [];
-            $pageCount = count($products);
-            $totalLoaded += $pageCount;
-
-            // Применить client-side фильтр если нужно
-            if ($needsClientFilter && !empty($products) && $syncSettings) {
-                $filteredProducts = [];
-                foreach ($products as $product) {
-                    if ($filterService->passes($product, $syncSettings->product_filters, $mainAccountId, $attributesMetadata)) {
-                        $filteredProducts[] = $product;
-                    } else {
-                        $totalFilteredClient++;
-                    }
-                }
-                $products = $filteredProducts;
-            }
-
-            // Создать batch задачу если есть товары
-            if (!empty($products)) {
-                SyncQueue::create([
-                    'account_id' => $accountId,
-                    'entity_type' => 'batch_products',
-                    'entity_id' => null, // Not used for batch
-                    'operation' => 'batch_sync',
-                    'priority' => 10, // High priority (manual sync)
-                    'scheduled_at' => now(),
-                    'status' => 'pending',
-                    'attempts' => 0,
-                    'payload' => [
-                        'main_account_id' => $mainAccountId,
-                        'products' => $products // Preloaded data
-                    ]
-                ]);
-
-                $tasksCreated++;
-            }
-
-            Log::debug("Loaded product batch", [
-                'offset' => $offset,
-                'page_size' => $pageCount,
-                'filtered_client' => $totalFilteredClient,
-                'in_batch' => count($products),
-                'batch_tasks_created' => $tasksCreated
-            ]);
-
-            $offset += $limit;
-
-        } while ($pageCount === $limit);
-
-        Log::info('Batch product tasks created', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $accountId,
-            'total_loaded' => $totalLoaded,
-            'total_filtered_client' => $totalFilteredClient,
-            'total_in_batches' => $totalLoaded - $totalFilteredClient,
-            'batch_tasks_created' => $tasksCreated,
-            'products_per_task_avg' => $totalLoaded > 0 ? round(($totalLoaded - $totalFilteredClient) / max($tasksCreated, 1), 2) : 0,
-            'api_filter_used' => $apiFilterString !== null
-        ]);
-
-        return $tasksCreated;
-    }
-
-    /**
-     * Создать пакетные задачи синхронизации услуг (по 100 услуг)
-     *
-     * Загружает услуги постранично с expand и сохраняет preloaded данные в payload.
-     * Batch POST выполняется в ProcessSyncQueueJob::processBatchServiceSync().
-     *
-     * @param MoySkladService $moysklad
-     * @param string $token Access token главного аккаунта
-     * @param string $mainAccountId UUID главного аккаунта
-     * @param string $accountId UUID дочернего аккаунта
-     * @return int Количество созданных задач
-     */
-    private function createBatchServiceTasks(
-        MoySkladService $moysklad,
-        string $token,
-        string $mainAccountId,
-        string $accountId
-    ): int {
-        // Получить настройки синхронизации ПЕРЕД циклом
-        $syncSettings = SyncSetting::where('account_id', $accountId)->first();
-
-        // Построить API фильтр
-        $filterService = app(ProductFilterService::class);
-        $apiFilterString = null;
-        $needsClientFilter = false;
-        $attributesMetadata = null;
-
-        if ($syncSettings && $syncSettings->product_filters_enabled && $syncSettings->product_filters) {
-            // Декодировать фильтры если это JSON
-            $filters = $syncSettings->product_filters;
-            if (is_string($filters)) {
-                $filters = json_decode($filters, true);
-            }
-
-            // Загрузить metadata если фильтры в UI формате (с groups)
-            if (isset($filters['groups'])) {
-                try {
-                    $attributeSyncService = app(\App\Services\AttributeSyncService::class);
-                    $attributesMetadata = $attributeSyncService->loadAttributesMetadata(
-                        $mainAccountId,
-                        'service' // Для услуг используем service metadata
-                    );
-                } catch (\Exception $e) {
-                    Log::warning('Failed to load attributes metadata for service filters', [
-                        'main_account_id' => $mainAccountId,
-                        'error' => $e->getMessage()
-                    ]);
-                }
-            }
-
-            $apiFilterString = $filterService->buildApiFilter(
-                $filters,
-                $mainAccountId,
-                $attributesMetadata
-            );
-
-            // Если API фильтр не построен (OR логика, not_in, и т.д.) → применять client-side
-            if ($apiFilterString === null) {
-                $needsClientFilter = true;
-            }
-        }
-
-        $tasksCreated = 0;
-        $offset = 0;
-        $limit = 100; // Batch size: 100 services per task
-        $totalLoaded = 0;
-        $totalFilteredClient = 0;
-
-        Log::info('Starting batch service sync', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $accountId,
-            'api_filter_enabled' => $apiFilterString !== null,
-            'client_filter_enabled' => $needsClientFilter,
-            'api_filter_preview' => $apiFilterString ? substr($apiFilterString, 0, 200) . '...' : null
-        ]);
-
-        do {
-            // Загрузить страницу услуг с expand
-            $params = [
-                'limit' => $limit,
-                'offset' => $offset,
-                'expand' => 'attributes,uom,salePrices'
-            ];
-
-            // Добавить API фильтр если построен
-            if ($apiFilterString) {
-                $params['filter'] = $apiFilterString;
-            }
-
-            $response = $moysklad->setAccessToken($token)
-                ->get('/entity/service', $params);
-
-            $services = $response['data']['rows'] ?? [];
-            $pageCount = count($services);
-            $totalLoaded += $pageCount;
-
-            // Применить client-side фильтр если нужно
-            if ($needsClientFilter && !empty($services) && $syncSettings) {
-                $filteredServices = [];
-                foreach ($services as $service) {
-                    if ($filterService->passes($service, $syncSettings->product_filters, $mainAccountId, $attributesMetadata)) {
-                        $filteredServices[] = $service;
-                    } else {
-                        $totalFilteredClient++;
-                    }
-                }
-                $services = $filteredServices;
-            }
-
-            // Проверить match_field для каждой услуги
-            if (!empty($services) && $syncSettings) {
-                $matchField = $syncSettings->service_match_field ?? 'code';
-                $servicesBeforeMatchCheck = count($services);
-                $matchFieldFiltered = 0;
-
-                $servicesWithMatchField = [];
-                foreach ($services as $service) {
-                    // name - обязательное поле, всегда заполнено (но проверяем на всякий случай)
-                    if ($matchField === 'name') {
-                        if (!empty($service['name'])) {
-                            $servicesWithMatchField[] = $service;
-                        } else {
-                            $matchFieldFiltered++;
-                            Log::warning('Service has empty name (required field!)', [
-                                'service_id' => $service['id'] ?? 'unknown'
-                            ]);
-                        }
-                    } else {
-                        // code, externalCode, barcode (no article field for services!)
-                        if (!empty($service[$matchField])) {
-                            $servicesWithMatchField[] = $service;
-                        } else {
-                            $matchFieldFiltered++;
-                            Log::debug('Service skipped: match field is empty', [
-                                'service_id' => $service['id'] ?? 'unknown',
-                                'match_field' => $matchField,
-                                'service_name' => $service['name'] ?? 'unknown'
-                            ]);
-                        }
-                    }
-                }
-
-                $services = $servicesWithMatchField;
-
-                if ($matchFieldFiltered > 0) {
-                    Log::info("Services filtered by match_field", [
-                        'before' => $servicesBeforeMatchCheck,
-                        'after' => count($services),
-                        'filtered_out' => $matchFieldFiltered,
-                        'match_field' => $matchField
-                    ]);
-                }
-            }
-
-            if (!empty($services)) {
-                // Создать batch задачу для этой страницы
-                SyncQueue::create([
-                    'account_id' => $accountId,
-                    'entity_type' => 'batch_services',
-                    'entity_id' => null, // Not used for batch
-                    'operation' => 'batch_sync',
-                    'priority' => 10, // High priority (manual sync)
-                    'scheduled_at' => now(),
-                    'status' => 'pending',
-                    'attempts' => 0,
-                    'payload' => [
-                        'main_account_id' => $mainAccountId,
-                        'services' => $services // Preloaded data
-                    ]
-                ]);
-
-                $tasksCreated++;
-            }
-
-            Log::debug("Loaded service batch", [
-                'offset' => $offset,
-                'page_size' => $pageCount,
-                'batch_tasks_created' => $tasksCreated
-            ]);
-
-            $offset += $limit;
-
-        } while ($pageCount === $limit);
-
-        Log::info('Batch service tasks created', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $accountId,
-            'total_loaded' => $totalLoaded,
-            'total_filtered_client' => $totalFilteredClient,
-            'total_in_batches' => $totalLoaded - $totalFilteredClient,
-            'batch_tasks_created' => $tasksCreated,
-            'services_per_task_avg' => $totalLoaded > 0 ? round(($totalLoaded - $totalFilteredClient) / max($tasksCreated, 1), 2) : 0,
-            'api_filter_used' => $apiFilterString !== null
-        ]);
-
-        return $tasksCreated;
-    }
 
     /**
      * Извлечь UUID сущности из МойСклад href
