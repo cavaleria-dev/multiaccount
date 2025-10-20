@@ -351,6 +351,8 @@ class SyncActionsController extends Controller
      * Загружает товары постранично с expand и сохраняет preloaded данные в payload.
      * Batch POST выполняется в ProcessSyncQueueJob::processBatchProductSync().
      *
+     * Применяет фильтры через МойСклад API (если возможно) или client-side.
+     *
      * @param MoySkladService $moysklad
      * @param string $token Access token главного аккаунта
      * @param string $mainAccountId UUID главного аккаунта
@@ -363,12 +365,39 @@ class SyncActionsController extends Controller
         string $mainAccountId,
         string $accountId
     ): int {
+        // Получить настройки синхронизации
+        $syncSettings = SyncSetting::where('account_id', $accountId)->first();
+
+        // Построить API фильтр
+        $filterService = app(ProductFilterService::class);
+        $apiFilterString = null;
+        $needsClientFilter = false;
+
+        if ($syncSettings && $syncSettings->product_filters_enabled && $syncSettings->product_filters) {
+            $apiFilterString = $filterService->buildApiFilter(
+                $syncSettings->product_filters,
+                $mainAccountId
+            );
+
+            // Если API фильтр не построен (OR логика, not_in, и т.д.) → применять client-side
+            if ($apiFilterString === null) {
+                $needsClientFilter = true;
+            }
+        }
+
         $tasksCreated = 0;
         $offset = 0;
         $limit = 100; // Batch size: 100 products per task
-        $totalProducts = 0;
+        $totalLoaded = 0;
+        $totalFilteredClient = 0;
 
-        Log::info('Starting batch product sync (loading in batches of 100)');
+        Log::info('Starting batch product sync', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $accountId,
+            'api_filter_enabled' => $apiFilterString !== null,
+            'client_filter_enabled' => $needsClientFilter,
+            'api_filter_preview' => $apiFilterString ? substr(urldecode($apiFilterString), 0, 200) . '...' : null
+        ]);
 
         do {
             // Загрузить страницу товаров с expand
@@ -378,15 +407,33 @@ class SyncActionsController extends Controller
                 'expand' => 'attributes,productFolder,uom,country,packs.uom'
             ];
 
+            // Добавить API фильтр если построен
+            if ($apiFilterString) {
+                $params['filter'] = $apiFilterString;
+            }
+
             $response = $moysklad->setAccessToken($token)
                 ->get('/entity/product', $params);
 
             $products = $response['data']['rows'] ?? [];
             $pageCount = count($products);
-            $totalProducts += $pageCount;
+            $totalLoaded += $pageCount;
 
+            // Применить client-side фильтр если нужно
+            if ($needsClientFilter && !empty($products) && $syncSettings) {
+                $filteredProducts = [];
+                foreach ($products as $product) {
+                    if ($filterService->passes($product, $syncSettings->product_filters)) {
+                        $filteredProducts[] = $product;
+                    } else {
+                        $totalFilteredClient++;
+                    }
+                }
+                $products = $filteredProducts;
+            }
+
+            // Создать batch задачу если есть товары
             if (!empty($products)) {
-                // Создать batch задачу для этой страницы
                 SyncQueue::create([
                     'account_id' => $accountId,
                     'entity_type' => 'batch_products',
@@ -408,6 +455,8 @@ class SyncActionsController extends Controller
             Log::debug("Loaded product batch", [
                 'offset' => $offset,
                 'page_size' => $pageCount,
+                'filtered_client' => $totalFilteredClient,
+                'in_batch' => count($products),
                 'batch_tasks_created' => $tasksCreated
             ]);
 
@@ -418,9 +467,12 @@ class SyncActionsController extends Controller
         Log::info('Batch product tasks created', [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $accountId,
-            'total_products' => $totalProducts,
+            'total_loaded' => $totalLoaded,
+            'total_filtered_client' => $totalFilteredClient,
+            'total_in_batches' => $totalLoaded - $totalFilteredClient,
             'batch_tasks_created' => $tasksCreated,
-            'products_per_task_avg' => $totalProducts > 0 ? round($totalProducts / max($tasksCreated, 1), 2) : 0
+            'products_per_task_avg' => $totalLoaded > 0 ? round(($totalLoaded - $totalFilteredClient) / max($tasksCreated, 1), 2) : 0,
+            'api_filter_used' => $apiFilterString !== null
         ]);
 
         return $tasksCreated;

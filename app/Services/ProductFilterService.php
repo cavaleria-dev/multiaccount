@@ -10,6 +10,317 @@ use Illuminate\Support\Facades\Log;
 class ProductFilterService
 {
     /**
+     * Построить строку фильтра для МойСклад API
+     *
+     * Конвертирует фильтры в МойСклад query string (urlencoded).
+     * Возвращает null если фильтр нельзя применить через API (OR логика, not_in, и т.д.).
+     *
+     * @param array|null $filters Массив фильтров (из sync_settings.product_filters)
+     * @param string $mainAccountId UUID главного аккаунта (для построения href)
+     * @return string|null Строка для параметра filter (urlencoded) или null
+     */
+    public function buildApiFilter(?array $filters, string $mainAccountId): ?string
+    {
+        // Если фильтры не заданы или отключены
+        if (!$filters || !($filters['enabled'] ?? false)) {
+            return null;
+        }
+
+        $conditions = $filters['conditions'] ?? [];
+        if (empty($conditions)) {
+            return null;
+        }
+
+        $logic = strtoupper($filters['logic'] ?? 'AND');
+
+        // OR логика НЕ поддерживается МойСклад API
+        if ($logic === 'OR') {
+            return null;
+        }
+
+        // Собрать условия для API (AND только)
+        $apiConditions = $this->buildApiConditions($conditions, $mainAccountId);
+
+        // Если не удалось построить (unsupported операторы/типы)
+        if ($apiConditions === null || empty($apiConditions)) {
+            return null;
+        }
+
+        // Объединить через ; и urlencode
+        $filterString = implode(';', $apiConditions);
+        return urlencode($filterString);
+    }
+
+    /**
+     * Построить массив API условий из фильтров
+     *
+     * @param array $conditions Массив условий
+     * @param string $mainAccountId UUID главного аккаунта
+     * @return array|null Массив строк условий или null если unsupported
+     */
+    protected function buildApiConditions(array $conditions, string $mainAccountId): ?array
+    {
+        $apiConditions = [];
+
+        foreach ($conditions as $condition) {
+            $type = $condition['type'] ?? null;
+
+            if ($type === 'folder') {
+                $folderConditions = $this->buildFolderApiConditions($condition, $mainAccountId);
+                if ($folderConditions === null) {
+                    return null; // Unsupported operator
+                }
+                $apiConditions = array_merge($apiConditions, $folderConditions);
+
+            } elseif ($type === 'attribute') {
+                $attributeCondition = $this->buildAttributeApiCondition($condition, $mainAccountId);
+                if ($attributeCondition === null) {
+                    return null; // Unsupported operator/type
+                }
+                $apiConditions[] = $attributeCondition;
+
+            } elseif ($type === 'group') {
+                $groupLogic = strtoupper($condition['logic'] ?? 'AND');
+
+                // OR в группах НЕ поддерживается
+                if ($groupLogic === 'OR') {
+                    return null;
+                }
+
+                // Рекурсивно обработать группу (AND только)
+                $groupConditions = $this->buildApiConditions($condition['conditions'] ?? [], $mainAccountId);
+                if ($groupConditions === null) {
+                    return null;
+                }
+                $apiConditions = array_merge($apiConditions, $groupConditions);
+
+            } else {
+                // Неизвестный тип
+                return null;
+            }
+        }
+
+        return $apiConditions;
+    }
+
+    /**
+     * Построить API условия для productFolder
+     *
+     * @param array $condition Условие фильтра
+     * @param string $mainAccountId UUID главного аккаунта
+     * @return array|null Массив строк условий или null
+     */
+    protected function buildFolderApiConditions(array $condition, string $mainAccountId): ?array
+    {
+        $operator = $condition['operator'] ?? 'in';
+        $filterValues = (array)($condition['value'] ?? []);
+
+        if (empty($filterValues)) {
+            return [];
+        }
+
+        // not_in НЕ поддерживается
+        if ($operator === 'not_in') {
+            return null;
+        }
+
+        // in оператор → несколько условий productFolder={id1};productFolder={id2}
+        $conditions = [];
+        foreach ($filterValues as $folderId) {
+            $href = "https://api.moysklad.ru/api/remap/1.2/entity/productfolder/{$folderId}";
+            $conditions[] = "productFolder={$href}";
+        }
+
+        return $conditions;
+    }
+
+    /**
+     * Построить API условие для attribute (доп.поле)
+     *
+     * @param array $condition Условие фильтра
+     * @param string $mainAccountId UUID главного аккаунта
+     * @return string|null Строка условия или null
+     */
+    protected function buildAttributeApiCondition(array $condition, string $mainAccountId): ?string
+    {
+        $attributeId = $condition['attribute_id'] ?? null;
+        $operator = $condition['operator'] ?? 'equals';
+        $filterValue = $condition['value'] ?? null;
+        $attributeType = $condition['attribute_type'] ?? 'string'; // Тип доп.поля
+
+        if (!$attributeId) {
+            return null;
+        }
+
+        // Построить URL доп.поля
+        $attributeUrl = "https://api.moysklad.ru/api/remap/1.2/entity/product/metadata/attributes/{$attributeId}";
+
+        // Определить API оператор по типу
+        return match($attributeType) {
+            'string', 'text', 'link' => $this->buildStringApiCondition($attributeUrl, $operator, $filterValue),
+            'long', 'double' => $this->buildNumericApiCondition($attributeUrl, $operator, $filterValue),
+            'boolean' => $this->buildBooleanApiCondition($attributeUrl, $operator, $filterValue),
+            'time' => $this->buildTimeApiCondition($attributeUrl, $operator, $filterValue),
+            'customentity' => $this->buildCustomEntityApiCondition($attributeUrl, $operator, $filterValue),
+            'file' => null, // File НЕ поддерживается
+            default => null
+        };
+    }
+
+    /**
+     * Построить API условие для строковых атрибутов
+     */
+    protected function buildStringApiCondition(string $url, string $operator, mixed $value): ?string
+    {
+        // Экранировать ; в значении
+        $escapedValue = str_replace(';', '\\;', (string)$value);
+
+        return match($operator) {
+            'equals' => "{$url}={$escapedValue}",
+            'not_equals' => "{$url}!={$escapedValue}",
+            'contains' => "{$url}~{$escapedValue}",
+            'not_contains' => "{$url}!~{$escapedValue}",
+            'starts_with' => "{$url}~={$escapedValue}",
+            'ends_with' => "{$url}=~{$escapedValue}",
+            'is_null' => "{$url}=;",
+            'is_not_null' => "{$url}!=;",
+            'in' => null, // НЕ поддерживается для строк (слишком много вариантов)
+            'not_in' => null,
+            default => null
+        };
+    }
+
+    /**
+     * Построить API условие для числовых атрибутов
+     */
+    protected function buildNumericApiCondition(string $url, string $operator, mixed $value): ?string
+    {
+        if (!is_numeric($value) && $operator !== 'is_null' && $operator !== 'is_not_null') {
+            return null;
+        }
+
+        return match($operator) {
+            'equals' => "{$url}={$value}",
+            'not_equals' => "{$url}!={$value}",
+            'greater_than' => "{$url}>{$value}",
+            'less_than' => "{$url}<{$value}",
+            'greater_or_equal' => "{$url}>={$value}",
+            'less_or_equal' => "{$url}<={$value}",
+            'is_null' => "{$url}=;",
+            'is_not_null' => "{$url}!=;",
+            'in' => null, // Можно реализовать: {url}=1;{url}=2, но сложно
+            'not_in' => null,
+            default => null
+        };
+    }
+
+    /**
+     * Построить API условие для boolean атрибутов
+     */
+    protected function buildBooleanApiCondition(string $url, string $operator, mixed $value): ?string
+    {
+        if ($operator === 'is_null') {
+            return "{$url}=;";
+        }
+
+        if ($operator === 'is_not_null') {
+            return "{$url}!=;";
+        }
+
+        // Конвертировать в true/false строку
+        $boolValue = $value ? 'true' : 'false';
+
+        return match($operator) {
+            'equals' => "{$url}={$boolValue}",
+            'not_equals' => "{$url}!={$boolValue}",
+            default => null
+        };
+    }
+
+    /**
+     * Построить API условие для time (дата/время) атрибутов
+     */
+    protected function buildTimeApiCondition(string $url, string $operator, mixed $value): ?string
+    {
+        // Конвертировать в формат МойСклад: YYYY-MM-DD HH:MM:SS
+        if (is_numeric($value)) {
+            $dateValue = date('Y-m-d H:i:s', (int)$value);
+        } elseif (is_string($value)) {
+            $timestamp = strtotime($value);
+            if ($timestamp === false) {
+                return null;
+            }
+            $dateValue = date('Y-m-d H:i:s', $timestamp);
+        } else {
+            return null;
+        }
+
+        return match($operator) {
+            'equals' => "{$url}={$dateValue}",
+            'not_equals' => "{$url}!={$dateValue}",
+            'greater_than' => "{$url}>{$dateValue}",
+            'less_than' => "{$url}<{$dateValue}",
+            'greater_or_equal' => "{$url}>={$dateValue}",
+            'less_or_equal' => "{$url}<={$dateValue}",
+            'is_null' => "{$url}=;",
+            'is_not_null' => "{$url}!=;",
+            default => null
+        };
+    }
+
+    /**
+     * Построить API условие для customentity (справочник) атрибутов
+     */
+    protected function buildCustomEntityApiCondition(string $url, string $operator, mixed $value): ?string
+    {
+        // Для справочников value может быть:
+        // 1. UUID элемента (строка)
+        // 2. Массив UUID (для in оператора)
+        // 3. Массив с meta.href
+
+        if ($operator === 'is_null') {
+            return "{$url}=;";
+        }
+
+        if ($operator === 'is_not_null') {
+            return "{$url}!=;";
+        }
+
+        // Для in оператора - value это массив
+        if ($operator === 'in' && is_array($value)) {
+            // Собрать несколько условий: {url}={href1};{url}={href2}
+            // Но нужен customEntityMeta.href для построения href элемента
+            // Без дополнительной информации сложно построить
+            return null; // Требует дополнительных данных (customEntityMeta)
+        }
+
+        // not_in НЕ поддерживается
+        if ($operator === 'not_in') {
+            return null;
+        }
+
+        // Для equals/not_equals - value это UUID элемента или href
+        if (is_string($value)) {
+            // Если это уже href
+            if (str_starts_with($value, 'https://')) {
+                $valueHref = $value;
+            } else {
+                // UUID элемента - нужен customEntityMeta.href для построения href
+                // Без дополнительной информации сложно
+                return null;
+            }
+
+            return match($operator) {
+                'equals' => "{$url}={$valueHref}",
+                'not_equals' => "{$url}!={$valueHref}",
+                default => null
+            };
+        }
+
+        return null;
+    }
+
+    /**
      * Проверить проходит ли товар фильтры
      *
      * @param array $product Данные товара из МойСклад
