@@ -59,16 +59,19 @@ class SyncActionsController extends Controller
         $tasksCreated = 0;
 
         try {
-            // Синхронизировать товары (product) - постранично
+            // ПРЕ-КЕШ ЗАВИСИМОСТЕЙ (один раз для всех типов сущностей)
+            $cacheService = app(\App\Services\DependencyCacheService::class);
+            $cacheService->cacheAll($mainAccountId, $accountId);
+
+            Log::info('Dependencies pre-cached for batch sync');
+
+            // Синхронизировать товары (product) - ПАКЕТНО с batch POST
             if ($syncSettings->sync_products) {
-                $tasksCreated += $this->syncEntityType(
+                $tasksCreated += $this->createBatchProductTasks(
                     $moysklad,
                     $mainAccount->access_token,
-                    'product',
                     $mainAccountId,
-                    $accountId,
-                    $syncSettings,
-                    $filterService
+                    $accountId
                 );
             }
 
@@ -340,6 +343,87 @@ class SyncActionsController extends Controller
             'total_variants' => $totalVariants,
             'batch_tasks_created' => $tasksCreated,
             'variants_per_task_avg' => $totalVariants > 0 ? round($totalVariants / max($tasksCreated, 1), 2) : 0
+        ]);
+
+        return $tasksCreated;
+    }
+
+    /**
+     * Создать пакетные задачи синхронизации товаров (по 100 товаров)
+     *
+     * Загружает товары постранично с expand и сохраняет preloaded данные в payload.
+     * Batch POST выполняется в ProcessSyncQueueJob::processBatchProductSync().
+     *
+     * @param MoySkladService $moysklad
+     * @param string $token Access token главного аккаунта
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $accountId UUID дочернего аккаунта
+     * @return int Количество созданных задач
+     */
+    private function createBatchProductTasks(
+        MoySkladService $moysklad,
+        string $token,
+        string $mainAccountId,
+        string $accountId
+    ): int {
+        $tasksCreated = 0;
+        $offset = 0;
+        $limit = 100; // Batch size: 100 products per task
+        $totalProducts = 0;
+
+        Log::info('Starting batch product sync (loading in batches of 100)');
+
+        do {
+            // Загрузить страницу товаров с expand
+            $params = [
+                'limit' => $limit,
+                'offset' => $offset,
+                'expand' => 'attributes,productFolder,uom,country,packs.uom'
+            ];
+
+            $response = $moysklad->setAccessToken($token)
+                ->get('/entity/product', $params);
+
+            $products = $response['data']['rows'] ?? [];
+            $pageCount = count($products);
+            $totalProducts += $pageCount;
+
+            if (!empty($products)) {
+                // Создать batch задачу для этой страницы
+                SyncQueue::create([
+                    'account_id' => $accountId,
+                    'entity_type' => 'batch_products',
+                    'entity_id' => null, // Not used for batch
+                    'operation' => 'batch_sync',
+                    'priority' => 10, // High priority (manual sync)
+                    'scheduled_at' => now(),
+                    'status' => 'pending',
+                    'attempts' => 0,
+                    'payload' => [
+                        'main_account_id' => $mainAccountId,
+                        'products' => $products // Preloaded data
+                    ]
+                ]);
+
+                $tasksCreated++;
+            }
+
+            Log::debug("Loaded product batch", [
+                'offset' => $offset,
+                'page_size' => $pageCount,
+                'batch_tasks_created' => $tasksCreated
+            ]);
+
+            $offset += $limit;
+
+        } while ($pageCount === $limit);
+
+        Log::info('Batch product tasks created', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $accountId,
+            'total_products' => $totalProducts,
+            'batch_tasks_created' => $tasksCreated,
+            'products_per_task_avg' => $totalProducts > 0 ? round($totalProducts / max($tasksCreated, 1), 2) : 0
         ]);
 
         return $tasksCreated;

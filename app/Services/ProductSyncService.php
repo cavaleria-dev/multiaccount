@@ -176,6 +176,208 @@ class ProductSyncService
     }
 
     /**
+     * Подготовить товар для batch создания/обновления
+     *
+     * Использует предварительно закешированные mappings для зависимостей (БЕЗ GET запросов).
+     * Вызывается из ProcessSyncQueueJob::processBatchProductSync() после пре-кеширования.
+     *
+     * @param array $product Товар из main аккаунта (с expand)
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param SyncSetting $settings Настройки синхронизации
+     * @return array|null Подготовленный товар для batch POST или null если skip
+     */
+    public function prepareProductForBatch(
+        array $product,
+        string $mainAccountId,
+        string $childAccountId,
+        SyncSetting $settings
+    ): ?array {
+        // 1. Проверить фильтры
+        if (!$this->passesFilters($product, $settings, $mainAccountId)) {
+            Log::debug('Product filtered out in batch', ['product_id' => $product['id']]);
+            return null;
+        }
+
+        // 2. Проверить mapping (create or update?)
+        $mapping = EntityMapping::where([
+            'parent_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'entity_type' => 'product',
+            'parent_entity_id' => $product['id']
+        ])->first();
+
+        // 3. Build base product data
+        $productData = [
+            'name' => $product['name'],
+            'code' => $product['code'] ?? null,
+            'externalCode' => $product['externalCode'] ?? null,
+            'article' => $product['article'] ?? null,
+            'description' => $product['description'] ?? null,
+        ];
+
+        // 4. Если обновление - добавить meta
+        if ($mapping) {
+            $productData['meta'] = [
+                'href' => config('moysklad.api_url') . "/entity/product/{$mapping->child_entity_id}",
+                'type' => 'product',
+                'mediaType' => 'application/json'
+            ];
+        }
+
+        // 5. Штрихкоды
+        if (isset($product['barcodes'])) {
+            $productData['barcodes'] = $product['barcodes'];
+        }
+
+        // 6. Sync UOM (using cached mapping from DB)
+        if (isset($product['uom']['id'])) {
+            $childUomId = $this->standardEntitySync->getCachedUomMapping(
+                $mainAccountId,
+                $childAccountId,
+                $product['uom']['id']
+            );
+
+            if ($childUomId) {
+                $productData['uom'] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/uom/{$childUomId}",
+                        'type' => 'uom',
+                        'mediaType' => 'application/json'
+                    ]
+                ];
+            }
+        }
+
+        // 7. Sync Country (using cached mapping from DB)
+        if (isset($product['country']['id'])) {
+            $childCountryId = $this->standardEntitySync->getCachedCountryMapping(
+                $mainAccountId,
+                $childAccountId,
+                $product['country']['id']
+            );
+
+            if ($childCountryId) {
+                $productData['country'] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/country/{$childCountryId}",
+                        'type' => 'country',
+                        'mediaType' => 'application/json'
+                    ]
+                ];
+            }
+        }
+
+        // 8. Sync ProductFolder (using cached mapping from DB)
+        if ($settings->create_product_folders && isset($product['productFolder']['id'])) {
+            $folderMapping = EntityMapping::where([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'productfolder',
+                'parent_entity_id' => $product['productFolder']['id']
+            ])->first();
+
+            if ($folderMapping) {
+                $productData['productFolder'] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$folderMapping->child_entity_id}",
+                        'type' => 'productfolder',
+                        'mediaType' => 'application/json'
+                    ]
+                ];
+            }
+        }
+
+        // 9. Sync Attributes (using cached mappings from DB)
+        if (isset($product['attributes']) && !empty($product['attributes'])) {
+            $syncedAttributes = [];
+
+            foreach ($product['attributes'] as $attribute) {
+                $attributeId = $attribute['id'] ?? null;
+                $attributeName = $attribute['name'] ?? null;
+
+                if (!$attributeId || !$attributeName) {
+                    continue;
+                }
+
+                // Найти CACHED маппинг
+                $mapping = \App\Models\AttributeMapping::where([
+                    'parent_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => 'product',
+                    'parent_attribute_id' => $attributeId
+                ])->first();
+
+                if (!$mapping) {
+                    continue;
+                }
+
+                // Подготовить значение
+                $value = $attribute['value'] ?? null;
+
+                // Для customentity - синхронизировать значение (элемент справочника)
+                if ($attribute['type'] === 'customentity' && $value) {
+                    $value = $this->customEntitySyncService->syncAttributeValue(
+                        $mainAccountId,
+                        $childAccountId,
+                        $value
+                    );
+                }
+
+                $syncedAttributes[] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/product/metadata/attributes/{$mapping->child_attribute_id}",
+                        'type' => 'attributemetadata',
+                        'mediaType' => 'application/json'
+                    ],
+                    'value' => $value
+                ];
+            }
+
+            if (!empty($syncedAttributes)) {
+                $productData['attributes'] = $syncedAttributes;
+            }
+        }
+
+        // 10. Sync Prices (using existing trait method)
+        $prices = $this->syncPrices(
+            $mainAccountId,
+            $childAccountId,
+            $product,
+            $settings
+        );
+
+        if (!empty($prices['salePrices'])) {
+            $productData['salePrices'] = $prices['salePrices'];
+        }
+
+        if (isset($prices['buyPrice'])) {
+            $productData['buyPrice'] = $prices['buyPrice'];
+        }
+
+        // 11. Sync Packs (if exists)
+        if (isset($product['packs']) && !empty($product['packs'])) {
+            $baseUomId = $product['uom']['id'] ?? null;
+            $productData['packs'] = $this->syncPacks(
+                $mainAccountId,
+                $childAccountId,
+                $product['packs'],
+                $baseUomId
+            );
+        }
+
+        // 12. Add additional fields (using existing method)
+        $productData = $this->addAdditionalFields($productData, $product, $settings);
+
+        // 13. Store original ID for mapping after batch POST
+        $productData['_original_id'] = $product['id'];
+        $productData['_is_update'] = $mapping ? true : false;
+        $productData['_child_entity_id'] = $mapping ? $mapping->child_entity_id : null;
+
+        return $productData;
+    }
+
+    /**
      * Создать товар в дочернем аккаунте
      */
     protected function createProduct(
