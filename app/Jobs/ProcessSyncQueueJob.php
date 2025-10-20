@@ -510,6 +510,13 @@ class ProcessSyncQueueJob implements ShouldQueue
             // Отправить batch POST
             $response = $moysklad
                 ->setAccessToken($childAccount->access_token)
+                ->setLogContext(
+                    accountId: $childAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $mainAccountId,
+                    entityType: 'batch_products',
+                    entityId: null  // Batch - нет конкретного ID
+                )
                 ->batchCreateProducts($preparedProducts);
 
             $createdProducts = $response['data'] ?? [];
@@ -716,6 +723,13 @@ class ProcessSyncQueueJob implements ShouldQueue
             // Отправить batch POST
             $response = $moysklad
                 ->setAccessToken($childAccount->access_token)
+                ->setLogContext(
+                    accountId: $childAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $mainAccountId,
+                    entityType: 'batch_services',
+                    entityId: null  // Batch - нет конкретного ID
+                )
                 ->batchCreateServices($preparedServices);
 
             $createdServices = $response['data'] ?? [];
