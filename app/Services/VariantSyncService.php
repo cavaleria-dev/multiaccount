@@ -57,17 +57,9 @@ class VariantSyncService
 
             $variant = $variantResult['data'];
 
-            // Проверить, что поле сопоставления заполнено
-            $matchField = $settings->product_match_field ?? 'article';
-            if (in_array($matchField, ['article', 'code', 'externalCode']) && empty($variant[$matchField])) {
-                Log::warning('Variant skipped: match field is empty', [
-                    'variant_id' => $variantId,
-                    'child_account_id' => $childAccountId,
-                    'match_field' => $matchField,
-                    'variant_name' => $variant['name'] ?? 'unknown'
-                ]);
-                return null;
-            }
+            // Variants сопоставляются через родительский товар (product mapping)
+            // Проверка match field НЕ нужна, т.к. variants не имеют поля article
+            // и уникально идентифицируются через product + characteristics
 
             // Проверить есть ли товар-родитель в дочернем аккаунте
             $productId = $this->extractEntityId($variant['product']['meta']['href'] ?? '');
