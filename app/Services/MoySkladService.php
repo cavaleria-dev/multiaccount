@@ -320,6 +320,42 @@ class MoySkladService
         return $this->put("entity/product/{$productId}", $data);
     }
 
+    /**
+     * Batch создание/обновление товаров
+     *
+     * МойСклад поддерживает массовое создание/обновление товаров.
+     * Лимиты: max 1000 элементов в массиве, max 20 Mb в запросе
+     *
+     * @param array $products Массив товаров (рекомендуется до 100 за раз)
+     * @return array Response с массивом созданных/обновленных товаров
+     * @throws \InvalidArgumentException Если массив пустой или превышает лимит
+     */
+    public function batchCreateProducts(array $products): array
+    {
+        if (empty($products)) {
+            throw new \InvalidArgumentException('Products array cannot be empty');
+        }
+
+        if (count($products) > 1000) {
+            throw new \InvalidArgumentException('МойСклад limit: max 1000 products per batch (got ' . count($products) . ')');
+        }
+
+        // Проверить примерный размер запроса
+        $estimatedSize = strlen(json_encode($products));
+        $estimatedSizeMb = round($estimatedSize / (1024 * 1024), 2);
+
+        if ($estimatedSize > 20 * 1024 * 1024) {
+            throw new \InvalidArgumentException("Request size ({$estimatedSizeMb}MB) exceeds МойСклад limit (20MB)");
+        }
+
+        Log::info('Batch creating products', [
+            'count' => count($products),
+            'estimated_size_mb' => $estimatedSizeMb
+        ]);
+
+        return $this->post('entity/product', $products);
+    }
+
     // ============ Методы для работы с заказами ============
 
     /**

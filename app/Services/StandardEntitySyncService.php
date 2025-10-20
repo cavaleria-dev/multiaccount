@@ -402,6 +402,113 @@ class StandardEntitySyncService
     }
 
     /**
+     * Получить cached UOM mapping из БД (БЕЗ GET запросов)
+     *
+     * Используется для batch синхронизации после пре-кеширования
+     *
+     * @param string $parentAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $parentUomId UUID UOM в главном аккаунте
+     * @return string|null UUID UOM в дочернем аккаунте или null если не найден
+     */
+    public function getCachedUomMapping(
+        string $parentAccountId,
+        string $childAccountId,
+        string $parentUomId
+    ): ?string {
+        // Проверить in-memory cache
+        $cacheKey = "{$parentAccountId}:{$childAccountId}:{$parentUomId}";
+
+        if (isset($this->uomCache[$cacheKey])) {
+            return $this->uomCache[$cacheKey];
+        }
+
+        // Проверить БД
+        $mapping = StandardEntityMapping::where('parent_account_id', $parentAccountId)
+            ->where('child_account_id', $childAccountId)
+            ->where('entity_type', 'uom')
+            ->where('parent_entity_id', $parentUomId)
+            ->first();
+
+        if ($mapping) {
+            $this->uomCache[$cacheKey] = $mapping->child_entity_id;
+            return $mapping->child_entity_id;
+        }
+
+        return null; // Not cached yet
+    }
+
+    /**
+     * Получить cached Country mapping из БД (БЕЗ GET запросов)
+     *
+     * @param string $parentAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $parentCountryId UUID Country в главном аккаунте
+     * @return string|null UUID Country в дочернем аккаунте или null если не найден
+     */
+    public function getCachedCountryMapping(
+        string $parentAccountId,
+        string $childAccountId,
+        string $parentCountryId
+    ): ?string {
+        // Проверить in-memory cache
+        $cacheKey = "{$parentAccountId}:{$childAccountId}:{$parentCountryId}";
+
+        if (isset($this->countryCache[$cacheKey])) {
+            return $this->countryCache[$cacheKey];
+        }
+
+        // Проверить БД
+        $mapping = StandardEntityMapping::where('parent_account_id', $parentAccountId)
+            ->where('child_account_id', $childAccountId)
+            ->where('entity_type', 'country')
+            ->where('parent_entity_id', $parentCountryId)
+            ->first();
+
+        if ($mapping) {
+            $this->countryCache[$cacheKey] = $mapping->child_entity_id;
+            return $mapping->child_entity_id;
+        }
+
+        return null; // Not cached yet
+    }
+
+    /**
+     * Получить cached Currency mapping из БД (БЕЗ GET запросов)
+     *
+     * @param string $parentAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $parentCurrencyId UUID Currency в главном аккаунте
+     * @return string|null UUID Currency в дочернем аккаунте или null если не найден
+     */
+    public function getCachedCurrencyMapping(
+        string $parentAccountId,
+        string $childAccountId,
+        string $parentCurrencyId
+    ): ?string {
+        // Проверить in-memory cache
+        $cacheKey = "{$parentAccountId}:{$childAccountId}:{$parentCurrencyId}";
+
+        if (isset($this->currencyCache[$cacheKey])) {
+            return $this->currencyCache[$cacheKey];
+        }
+
+        // Проверить БД
+        $mapping = StandardEntityMapping::where('parent_account_id', $parentAccountId)
+            ->where('child_account_id', $childAccountId)
+            ->where('entity_type', 'currency')
+            ->where('parent_entity_id' , $parentCurrencyId)
+            ->first();
+
+        if ($mapping) {
+            $this->currencyCache[$cacheKey] = $mapping->child_entity_id;
+            return $mapping->child_entity_id;
+        }
+
+        return null; // Not cached yet
+    }
+
+    /**
      * Очистка локальных кешей
      */
     public function clearCache(): void
