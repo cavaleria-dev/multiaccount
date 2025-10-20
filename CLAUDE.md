@@ -446,7 +446,7 @@ This app integrates with МойСклад (Russian inventory management system) 
 **Main Account → Child Accounts (Products):**
 - Products, variants, bundles, services, custom entities
 - Product folders (groups) - рекурсивное создание иерархии
-- Attributes, characteristics, prices, barcodes, packages
+- Attributes, characteristics, prices, barcodes, **packs (упаковки)** ⭐
 - **Queued sync via `sync_queue` table** (ProcessSyncQueueJob)
 - **Deletion/archiving**: Archived in children (NOT deleted) when deleted in main
 - **New features:**
@@ -455,6 +455,9 @@ This app integrates with МойСклад (Russian inventory management system) 
   - Product match field (code/article/externalCode/barcode)
   - Optional product folder creation
   - Visual filter constructor for selective sync
+  - **VAT & tax sync** with mode selection (from_main/preserve_child) ⭐
+  - **Additional fields sync**: weight, volume, tracking, marking, alcoholic, Uzbekistan fields ⭐
+  - **Packs (упаковки) sync**: quantity, UOM, barcodes with automatic UOM mapping ⭐
 
 **Дополнительные поля (Attributes) - Логика синхронизации:**
 
