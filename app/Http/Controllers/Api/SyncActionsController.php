@@ -404,7 +404,7 @@ class SyncActionsController extends Controller
             $params = [
                 'limit' => $limit,
                 'offset' => $offset,
-                'expand' => 'attributes,productFolder,uom,country,packs.uom'
+                'expand' => 'attributes,productFolder,uom,country,packs.uom,salePrices'
             ];
 
             // Добавить API фильтр если построен
@@ -508,7 +508,7 @@ class SyncActionsController extends Controller
             $params = [
                 'limit' => $limit,
                 'offset' => $offset,
-                'expand' => 'attributes,uom'
+                'expand' => 'attributes,uom,salePrices'
             ];
 
             $response = $moysklad->setAccessToken($token)
@@ -517,6 +517,32 @@ class SyncActionsController extends Controller
             $services = $response['data']['rows'] ?? [];
             $pageCount = count($services);
             $totalServices += $pageCount;
+
+            // Получить настройки и применить фильтры
+            $syncSettings = SyncSetting::where('account_id', $accountId)->first();
+            $totalFilteredClient = 0;
+
+            // Применить фильтры (общие product_filters)
+            if ($syncSettings && $syncSettings->product_filters_enabled && $syncSettings->product_filters) {
+                $filterService = app(ProductFilterService::class);
+                $filteredServices = [];
+
+                foreach ($services as $service) {
+                    if ($filterService->passes($service, $syncSettings->product_filters)) {
+                        $filteredServices[] = $service;
+                    } else {
+                        $totalFilteredClient++;
+                    }
+                }
+
+                $services = $filteredServices;
+
+                Log::info("Services filtered", [
+                    'before' => $pageCount,
+                    'after' => count($services),
+                    'filtered_out' => $totalFilteredClient
+                ]);
+            }
 
             if (!empty($services)) {
                 // Создать batch задачу для этой страницы
