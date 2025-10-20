@@ -570,6 +570,45 @@ class ProductSyncService
     }
 
     /**
+     * Добавить только НДС и налогообложение (для bundles и services)
+     *
+     * Упрощенная версия addAdditionalFields() без физ.характеристик и маркировки
+     * Публичный метод, используется в BundleSyncService и ServiceSyncService
+     *
+     * @param array $data Данные для API (bundle/service)
+     * @param array $source Источник данных из main аккаунта
+     * @param SyncSetting $settings Настройки синхронизации
+     * @return array Данные с добавленными полями НДС
+     */
+    public function addVatAndTaxFields(array $data, array $source, SyncSetting $settings): array
+    {
+        // НДС и налогообложение (с учетом настроек)
+        if ($settings->sync_vat && $settings->vat_sync_mode === 'from_main') {
+            if (isset($source['vat'])) {
+                $data['vat'] = $source['vat'];
+            }
+            if (isset($source['vatEnabled'])) {
+                $data['vatEnabled'] = $source['vatEnabled'];
+            }
+            if (isset($source['useParentVat'])) {
+                $data['useParentVat'] = $source['useParentVat'];
+            }
+        }
+
+        // Система налогообложения
+        if (isset($source['taxSystem'])) {
+            $data['taxSystem'] = $source['taxSystem'];
+        }
+
+        // Признак предмета расчета
+        if (isset($source['paymentItemType'])) {
+            $data['paymentItemType'] = $source['paymentItemType'];
+        }
+
+        return $data;
+    }
+
+    /**
      * Добавить дополнительные поля для синхронизации
      *
      * Добавляет НДС, физические характеристики, маркировку и т.д.

@@ -166,6 +166,9 @@ class BundleSyncService
             );
         }
 
+        // Добавить НДС и налогообложение
+        $bundleData = $this->productSyncService->addVatAndTaxFields($bundleData, $bundle, $settings);
+
         // Создать комплект
         $newBundleResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
@@ -222,6 +225,9 @@ class BundleSyncService
                 $bundle['components']
             );
         }
+
+        // Добавить НДС и налогообложение
+        $bundleData = $this->productSyncService->addVatAndTaxFields($bundleData, $bundle, $settings);
 
         // Обновить комплект
         $updatedBundleResult = $this->moySkladService

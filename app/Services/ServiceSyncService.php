@@ -21,17 +21,20 @@ class ServiceSyncService
     protected CustomEntitySyncService $customEntitySyncService;
     protected StandardEntitySyncService $standardEntitySync;
     protected AttributeSyncService $attributeSyncService;
+    protected ProductSyncService $productSyncService;
 
     public function __construct(
         MoySkladService $moySkladService,
         CustomEntitySyncService $customEntitySyncService,
         StandardEntitySyncService $standardEntitySync,
-        AttributeSyncService $attributeSyncService
+        AttributeSyncService $attributeSyncService,
+        ProductSyncService $productSyncService
     ) {
         $this->moySkladService = $moySkladService;
         $this->customEntitySyncService = $customEntitySyncService;
         $this->standardEntitySync = $standardEntitySync;
         $this->attributeSyncService = $attributeSyncService;
+        $this->productSyncService = $productSyncService;
     }
 
     /**
@@ -162,6 +165,9 @@ class ServiceSyncService
             $serviceData['buyPrice'] = $prices['buyPrice'];
         }
 
+        // Добавить НДС и налогообложение
+        $serviceData = $this->productSyncService->addVatAndTaxFields($serviceData, $service, $settings);
+
         // Создать услугу
         $newServiceResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
@@ -232,6 +238,9 @@ class ServiceSyncService
         if (isset($prices['buyPrice'])) {
             $serviceData['buyPrice'] = $prices['buyPrice'];
         }
+
+        // Добавить НДС и налогообложение
+        $serviceData = $this->productSyncService->addVatAndTaxFields($serviceData, $service, $settings);
 
         // Обновить услугу
         $updatedServiceResult = $this->moySkladService
