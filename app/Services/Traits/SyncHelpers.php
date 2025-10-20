@@ -411,9 +411,11 @@ trait SyncHelpers
     }
 
     /**
-     * Проверить проходит ли сущность (product/bundle) фильтры
+     * Проверить проходит ли сущность (product/bundle/service) фильтры
      *
-     * Требуется наличие: protected ProductFilterService $productFilterService
+     * Требуется наличие:
+     * - protected ProductFilterService $productFilterService
+     * - protected AttributeSyncService $attributeSyncService (для загрузки metadata)
      */
     protected function passesFilters(array $entity, SyncSetting $settings, string $mainAccountId): bool
     {
@@ -435,8 +437,42 @@ trait SyncHelpers
             $filters = json_decode($filters, true);
         }
 
-        // Применить фильтры
-        return $this->productFilterService->passes($entity, $filters);
+        // Определить тип сущности для загрузки metadata
+        $entityType = 'product'; // по умолчанию product
+        if (isset($entity['meta']['type'])) {
+            $type = $entity['meta']['type'];
+            // variant тоже использует product metadata
+            // bundle тоже использует product metadata
+            // service использует service metadata
+            if ($type === 'service') {
+                $entityType = 'service';
+            }
+        }
+
+        // Загрузить metadata атрибутов если фильтры в UI формате (с groups)
+        $attributesMetadata = null;
+        if (isset($filters['groups'])) {
+            try {
+                // attributeSyncService должен быть доступен в классе
+                if (isset($this->attributeSyncService)) {
+                    $attributesMetadata = $this->attributeSyncService->loadAttributesMetadata(
+                        $mainAccountId,
+                        $entityType
+                    );
+                }
+            } catch (\Exception $e) {
+                // Если не удалось загрузить metadata - продолжить без неё
+                // Фильтрация будет работать по UUID вместо href
+                Log::warning('Failed to load attributes metadata for filters', [
+                    'main_account_id' => $mainAccountId,
+                    'entity_type' => $entityType,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        // Применить фильтры с metadata
+        return $this->productFilterService->passes($entity, $filters, $mainAccountId, $attributesMetadata);
     }
 
 }

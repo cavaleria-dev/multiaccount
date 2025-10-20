@@ -17,12 +17,23 @@ class ProductFilterService
      *
      * @param array|null $filters Массив фильтров (из sync_settings.product_filters)
      * @param string $mainAccountId UUID главного аккаунта (для построения href)
+     * @param array|null $attributesMetadata Метаданные атрибутов с customEntityMeta
      * @return string|null Строка для параметра filter (urlencoded) или null
      */
-    public function buildApiFilter(?array $filters, string $mainAccountId): ?string
+    public function buildApiFilter(?array $filters, string $mainAccountId, ?array $attributesMetadata = null): ?string
     {
-        // Если фильтры не заданы или отключены
-        if (!$filters || !($filters['enabled'] ?? false)) {
+        // Если фильтры не заданы
+        if (!$filters) {
+            return null;
+        }
+
+        // Автоматическая конвертация из UI формата
+        if (isset($filters['groups'])) {
+            $filters = $this->convertFromUiFormat($filters, $mainAccountId, $attributesMetadata);
+        }
+
+        // Если фильтры отключены
+        if (!($filters['enabled'] ?? false)) {
             return null;
         }
 
@@ -270,14 +281,12 @@ class ProductFilterService
 
     /**
      * Построить API условие для customentity (справочник) атрибутов
+     *
+     * После конвертации из UI формата value уже содержит полный href.
+     * Но для обратной совместимости поддерживаем и UUID (возвращаем null, т.к. без metadata не построить href).
      */
     protected function buildCustomEntityApiCondition(string $url, string $operator, mixed $value): ?string
     {
-        // Для справочников value может быть:
-        // 1. UUID элемента (строка)
-        // 2. Массив UUID (для in оператора)
-        // 3. Массив с meta.href
-
         if ($operator === 'is_null') {
             return "{$url}=;";
         }
@@ -288,10 +297,27 @@ class ProductFilterService
 
         // Для in оператора - value это массив
         if ($operator === 'in' && is_array($value)) {
-            // Собрать несколько условий: {url}={href1};{url}={href2}
-            // Но нужен customEntityMeta.href для построения href элемента
-            // Без дополнительной информации сложно построить
-            return null; // Требует дополнительных данных (customEntityMeta)
+            // После конвертации из UI формата каждый элемент это полный href
+            $conditions = [];
+            foreach ($value as $item) {
+                if (!is_string($item)) {
+                    continue;
+                }
+
+                // Если это href - использовать
+                if (str_starts_with($item, 'https://')) {
+                    $conditions[] = "{$url}={$item}";
+                }
+                // Если UUID - не можем построить href без metadata
+            }
+
+            // Если не удалось построить ни одного условия
+            if (empty($conditions)) {
+                return null;
+            }
+
+            // Вернуть несколько условий объединенных через ;
+            return implode(';', $conditions);
         }
 
         // not_in НЕ поддерживается
@@ -299,22 +325,22 @@ class ProductFilterService
             return null;
         }
 
-        // Для equals/not_equals - value это UUID элемента или href
+        // Для equals/not_equals - value это полный href элемента (после конвертации) или UUID (без конвертации)
         if (is_string($value)) {
-            // Если это уже href
+            // Если это уже href - использовать
             if (str_starts_with($value, 'https://')) {
                 $valueHref = $value;
+
+                return match($operator) {
+                    'equals' => "{$url}={$valueHref}",
+                    'not_equals' => "{$url}!={$valueHref}",
+                    default => null
+                };
             } else {
-                // UUID элемента - нужен customEntityMeta.href для построения href
-                // Без дополнительной информации сложно
+                // UUID элемента - не можем построить href без metadata
+                // Вернуть null → API фильтр не построится → будет client-side фильтрация
                 return null;
             }
-
-            return match($operator) {
-                'equals' => "{$url}={$valueHref}",
-                'not_equals' => "{$url}!={$valueHref}",
-                default => null
-            };
         }
 
         return null;
@@ -325,12 +351,24 @@ class ProductFilterService
      *
      * @param array $product Данные товара из МойСклад
      * @param array|null $filters Конфигурация фильтров
+     * @param string|null $mainAccountId UUID главного аккаунта (для конвертации UI формата)
+     * @param array|null $attributesMetadata Метаданные атрибутов с customEntityMeta
      * @return bool
      */
-    public function passes(array $product, ?array $filters): bool
+    public function passes(array $product, ?array $filters, ?string $mainAccountId = null, ?array $attributesMetadata = null): bool
     {
-        // Если фильтры не заданы или отключены
-        if (!$filters || !($filters['enabled'] ?? false)) {
+        // Если фильтры не заданы
+        if (!$filters) {
+            return true;
+        }
+
+        // Автоматическая конвертация из UI формата
+        if (isset($filters['groups']) && $mainAccountId) {
+            $filters = $this->convertFromUiFormat($filters, $mainAccountId, $attributesMetadata);
+        }
+
+        // Если фильтры отключены
+        if (!($filters['enabled'] ?? false)) {
             return true;
         }
 
@@ -688,19 +726,68 @@ class ProductFilterService
 
     /**
      * Сравнить значения справочника (customentity)
+     *
+     * Поддерживает сравнение:
+     * - UUID с UUID
+     * - UUID с href (извлекает UUID из href)
+     * - href с href
+     *
+     * После конвертации из UI формата filterValue содержит либо:
+     * - Полный href элемента (если metadata была передана)
+     * - UUID элемента (если metadata не была передана, сохранен в _element_id)
      */
     protected function compareCustomEntityValues(mixed $actualValue, mixed $filterValue, string $operator): bool
     {
-        // Значения уже должны быть ID элементов справочника
+        // actualValue - это UUID элемента (извлеченный из product.attributes[].value)
+        // filterValue - это либо href (после конвертации), либо UUID
+
+        // Нормализовать filterValue (извлечь UUID если это href)
+        $filterUuid = $this->extractUuidFromValue($filterValue);
+
+        // Для in/not_in оператора - filterValue это массив
+        if ($operator === 'in' || $operator === 'not_in') {
+            if (!is_array($filterValue)) {
+                return false;
+            }
+
+            // Нормализовать каждый элемент массива
+            $filterUuids = array_map(fn($val) => $this->extractUuidFromValue($val), $filterValue);
+
+            return match($operator) {
+                'in' => in_array($actualValue, $filterUuids),
+                'not_in' => !in_array($actualValue, $filterUuids),
+                default => false
+            };
+        }
+
         return match($operator) {
-            'equals' => $actualValue === $filterValue,
-            'not_equals' => $actualValue !== $filterValue,
-            'in' => is_array($filterValue) && in_array($actualValue, $filterValue),
-            'not_in' => is_array($filterValue) && !in_array($actualValue, $filterValue),
+            'equals' => $actualValue === $filterUuid,
+            'not_equals' => $actualValue !== $filterUuid,
             'is_null' => $actualValue === null,
             'is_not_null' => $actualValue !== null,
             default => false
         };
+    }
+
+    /**
+     * Извлечь UUID из значения (поддерживает UUID и href)
+     *
+     * @param mixed $value UUID или href
+     * @return string|null UUID элемента
+     */
+    protected function extractUuidFromValue(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        // Если это href - извлечь UUID
+        if (str_starts_with($value, 'https://')) {
+            return $this->extractIdFromHref($value);
+        }
+
+        // Иначе это уже UUID
+        return $value;
     }
 
     /**
@@ -817,5 +904,163 @@ class ProductFilterService
         }
 
         return $errors;
+    }
+
+    /**
+     * Конвертировать фильтры из UI формата в ProductFilterService формат
+     *
+     * @param array $uiFilters Фильтры в UI формате {groups: [...]}
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param array|null $attributesMetadata Метаданные атрибутов с customEntityMeta
+     * @return array Фильтры в ProductFilterService формате
+     */
+    public function convertFromUiFormat(array $uiFilters, string $mainAccountId, ?array $attributesMetadata = null): array
+    {
+        // Если уже в правильном формате (есть enabled и conditions)
+        if (isset($uiFilters['enabled']) && isset($uiFilters['conditions'])) {
+            return $uiFilters;
+        }
+
+        // Если нет groups - пустой фильтр
+        if (!isset($uiFilters['groups']) || empty($uiFilters['groups'])) {
+            return [
+                'enabled' => false,
+                'mode' => 'whitelist',
+                'logic' => 'OR',
+                'conditions' => []
+            ];
+        }
+
+        $groups = $uiFilters['groups'];
+        $convertedConditions = [];
+
+        foreach ($groups as $group) {
+            $groupConditions = [];
+
+            foreach ($group['conditions'] as $condition) {
+                $converted = $this->convertUiCondition($condition, $mainAccountId, $attributesMetadata);
+                if ($converted) {
+                    $groupConditions[] = $converted;
+                }
+            }
+
+            // Добавить группу с логикой AND (внутри группы)
+            if (!empty($groupConditions)) {
+                $convertedConditions[] = [
+                    'type' => 'group',
+                    'logic' => 'AND',
+                    'conditions' => $groupConditions
+                ];
+            }
+        }
+
+        return [
+            'enabled' => true,
+            'mode' => 'whitelist',
+            'logic' => 'OR',  // Между группами
+            'conditions' => $convertedConditions
+        ];
+    }
+
+    /**
+     * Конвертировать одно условие из UI формата
+     *
+     * @param array $condition Условие из UI
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param array|null $attributesMetadata Метаданные атрибутов
+     * @return array|null Сконвертированное условие или null
+     */
+    protected function convertUiCondition(array $condition, string $mainAccountId, ?array $attributesMetadata): ?array
+    {
+        $type = $condition['type'] ?? null;
+
+        // Folder condition
+        if ($type === 'folder') {
+            return [
+                'type' => 'folder',
+                'operator' => 'in',
+                'value' => $condition['folder_ids'] ?? []
+            ];
+        }
+
+        // Attribute flag (boolean) condition
+        if ($type === 'attribute_flag') {
+            return [
+                'type' => 'attribute',
+                'attribute_id' => $condition['attribute_id'] ?? null,
+                'attribute_type' => 'boolean',
+                'operator' => 'equals',
+                'value' => $condition['value'] ?? false
+            ];
+        }
+
+        // Attribute customentity condition
+        if ($type === 'attribute_customentity') {
+            $attributeId = $condition['attribute_id'] ?? null;
+            $elementId = $condition['value'] ?? null;  // UUID элемента
+
+            if (!$attributeId || !$elementId) {
+                return null;
+            }
+
+            // Построить полный href элемента справочника
+            $elementHref = $this->buildCustomEntityElementHref(
+                $attributeId,
+                $elementId,
+                $attributesMetadata
+            );
+
+            return [
+                'type' => 'attribute',
+                'attribute_id' => $attributeId,
+                'attribute_type' => 'customentity',
+                'operator' => 'equals',
+                'value' => $elementHref,  // Полный href (или UUID если не удалось построить)
+                '_element_id' => $elementId  // Сохранить UUID для client-side
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * Построить полный href элемента справочника
+     *
+     * @param string $attributeId UUID атрибута
+     * @param string $elementId UUID элемента справочника
+     * @param array|null $attributesMetadata Метаданные атрибутов
+     * @return string Полный href элемента или UUID если не удалось построить
+     */
+    protected function buildCustomEntityElementHref(
+        string $attributeId,
+        string $elementId,
+        ?array $attributesMetadata
+    ): string {
+        // Если метаданные не переданы - вернуть UUID (для client-side)
+        if (!$attributesMetadata) {
+            return $elementId;
+        }
+
+        // Найти атрибут в метаданных
+        $attributeMeta = null;
+        foreach ($attributesMetadata as $attr) {
+            if ($attr['id'] === $attributeId) {
+                $attributeMeta = $attr;
+                break;
+            }
+        }
+
+        // Если атрибут не найден или нет customEntityMeta - вернуть UUID
+        if (!$attributeMeta || !isset($attributeMeta['customEntityMeta']['href'])) {
+            return $elementId;
+        }
+
+        // Построить полный href: customEntityMeta.href + / + elementId
+        $customEntityHref = $attributeMeta['customEntityMeta']['href'];
+
+        // Убрать trailing slash если есть
+        $customEntityHref = rtrim($customEntityHref, '/');
+
+        return "{$customEntityHref}/{$elementId}";
     }
 }

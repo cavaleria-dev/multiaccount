@@ -372,11 +372,35 @@ class SyncActionsController extends Controller
         $filterService = app(ProductFilterService::class);
         $apiFilterString = null;
         $needsClientFilter = false;
+        $attributesMetadata = null;
 
         if ($syncSettings && $syncSettings->product_filters_enabled && $syncSettings->product_filters) {
+            // Декодировать фильтры если это JSON
+            $filters = $syncSettings->product_filters;
+            if (is_string($filters)) {
+                $filters = json_decode($filters, true);
+            }
+
+            // Загрузить metadata если фильтры в UI формате (с groups)
+            if (isset($filters['groups'])) {
+                try {
+                    $attributeSyncService = app(\App\Services\AttributeSyncService::class);
+                    $attributesMetadata = $attributeSyncService->loadAttributesMetadata(
+                        $mainAccountId,
+                        'product'
+                    );
+                } catch (\Exception $e) {
+                    Log::warning('Failed to load attributes metadata for product filters', [
+                        'main_account_id' => $mainAccountId,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
             $apiFilterString = $filterService->buildApiFilter(
-                $syncSettings->product_filters,
-                $mainAccountId
+                $filters,
+                $mainAccountId,
+                $attributesMetadata
             );
 
             // Если API фильтр не построен (OR логика, not_in, и т.д.) → применять client-side
@@ -423,7 +447,7 @@ class SyncActionsController extends Controller
             if ($needsClientFilter && !empty($products) && $syncSettings) {
                 $filteredProducts = [];
                 foreach ($products as $product) {
-                    if ($filterService->passes($product, $syncSettings->product_filters)) {
+                    if ($filterService->passes($product, $syncSettings->product_filters, $mainAccountId, $attributesMetadata)) {
                         $filteredProducts[] = $product;
                     } else {
                         $totalFilteredClient++;
@@ -503,11 +527,35 @@ class SyncActionsController extends Controller
         $filterService = app(ProductFilterService::class);
         $apiFilterString = null;
         $needsClientFilter = false;
+        $attributesMetadata = null;
 
         if ($syncSettings && $syncSettings->product_filters_enabled && $syncSettings->product_filters) {
+            // Декодировать фильтры если это JSON
+            $filters = $syncSettings->product_filters;
+            if (is_string($filters)) {
+                $filters = json_decode($filters, true);
+            }
+
+            // Загрузить metadata если фильтры в UI формате (с groups)
+            if (isset($filters['groups'])) {
+                try {
+                    $attributeSyncService = app(\App\Services\AttributeSyncService::class);
+                    $attributesMetadata = $attributeSyncService->loadAttributesMetadata(
+                        $mainAccountId,
+                        'service' // Для услуг используем service metadata
+                    );
+                } catch (\Exception $e) {
+                    Log::warning('Failed to load attributes metadata for service filters', [
+                        'main_account_id' => $mainAccountId,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
             $apiFilterString = $filterService->buildApiFilter(
-                $syncSettings->product_filters,
-                $mainAccountId
+                $filters,
+                $mainAccountId,
+                $attributesMetadata
             );
 
             // Если API фильтр не построен (OR логика, not_in, и т.д.) → применять client-side
@@ -554,7 +602,7 @@ class SyncActionsController extends Controller
             if ($needsClientFilter && !empty($services) && $syncSettings) {
                 $filteredServices = [];
                 foreach ($services as $service) {
-                    if ($filterService->passes($service, $syncSettings->product_filters)) {
+                    if ($filterService->passes($service, $syncSettings->product_filters, $mainAccountId, $attributesMetadata)) {
                         $filteredServices[] = $service;
                     } else {
                         $totalFilteredClient++;
