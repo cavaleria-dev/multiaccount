@@ -199,6 +199,17 @@ class ProductSyncService
             return null;
         }
 
+        // 1.5. Проверить, что поле сопоставления заполнено
+        $matchField = $settings->product_match_field ?? 'article';
+        if (empty($product[$matchField])) {
+            Log::debug('Product skipped in batch: match field is empty', [
+                'product_id' => $product['id'],
+                'match_field' => $matchField,
+                'product_name' => $product['name'] ?? 'unknown'
+            ]);
+            return null;
+        }
+
         // 2. Проверить mapping (create or update?)
         $mapping = EntityMapping::where([
             'parent_account_id' => $mainAccountId,

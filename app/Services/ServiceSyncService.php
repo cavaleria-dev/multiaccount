@@ -257,257 +257,6 @@ class ServiceSyncService
         return $updatedServiceResult['data'];
     }
 
-    /**
-     * Синхронизировать цены включая закупочную
-     */
-    protected function syncPrices(
-        string $mainAccountId,
-        string $childAccountId,
-        array $service,
-        SyncSetting $settings
-    ): array {
-        $salePrices = [];
-        $buyPrice = null;
-        $mainSalePrices = $service['salePrices'] ?? [];
-        $mainBuyPrice = $service['buyPrice'] ?? null;
-
-        $priceMappings = $settings->price_mappings;
-        $useMappings = !empty($priceMappings) && is_array($priceMappings);
-
-        // Обработать закупочную цену (buyPrice)
-        if ($mainBuyPrice && isset($mainBuyPrice['value'])) {
-            $buyPriceMapped = false;
-
-            if ($useMappings) {
-                foreach ($priceMappings as $mapping) {
-                    if (($mapping['main_price_type_id'] ?? null) === 'buyPrice') {
-                        $childPriceTypeId = $mapping['child_price_type_id'] ?? null;
-
-                        // buyPrice → buyPrice
-                        if ($childPriceTypeId === 'buyPrice') {
-                            $buyPrice = [
-                                'value' => $mainBuyPrice['value'],
-                                'currency' => [
-                                    'meta' => [
-                                        'href' => $mainBuyPrice['currency']['meta']['href'] ?? config('moysklad.api_url') . '/entity/currency/00000000-0000-0000-0000-000000000001',
-                                        'type' => 'currency',
-                                        'mediaType' => 'application/json'
-                                    ]
-                                ]
-                            ];
-                            $buyPriceMapped = true;
-                        }
-                        // buyPrice → salePrice (в определенный тип цены)
-                        else {
-                            $salePrices[] = [
-                                'value' => $mainBuyPrice['value'],
-                                'priceType' => [
-                                    'meta' => [
-                                        'href' => config('moysklad.api_url') . "/context/companysettings/pricetype/{$childPriceTypeId}",
-                                        'type' => 'pricetype',
-                                        'mediaType' => 'application/json'
-                                    ]
-                                ]
-                            ];
-                            $buyPriceMapped = true;
-                        }
-                        break;
-                    }
-                }
-            }
-
-            // Если маппинг не используется или buyPrice не замаплен - копировать как есть
-            if (!$buyPriceMapped) {
-                $buyPrice = [
-                    'value' => $mainBuyPrice['value'],
-                    'currency' => [
-                        'meta' => [
-                            'href' => $mainBuyPrice['currency']['meta']['href'] ?? config('moysklad.api_url') . '/entity/currency/00000000-0000-0000-0000-000000000001',
-                            'type' => 'currency',
-                            'mediaType' => 'application/json'
-                        ]
-                    ]
-                ];
-            }
-        }
-
-        // Обработать типы цен (salePrices)
-        foreach ($mainSalePrices as $priceInfo) {
-            $priceTypeHref = $priceInfo['priceType']['meta']['href'] ?? null;
-
-            if (!$priceTypeHref) {
-                continue;
-            }
-
-            $mainPriceTypeId = $this->extractEntityId($priceTypeHref);
-
-            if (!$mainPriceTypeId) {
-                continue;
-            }
-
-            $childPriceTypeId = null;
-
-            if ($useMappings) {
-                $allowed = false;
-                foreach ($priceMappings as $mapping) {
-                    if (($mapping['main_price_type_id'] ?? null) === $mainPriceTypeId) {
-                        $childPriceTypeId = $mapping['child_price_type_id'] ?? null;
-                        $allowed = true;
-                        break;
-                    }
-                }
-
-                if (!$allowed) {
-                    continue;
-                }
-
-                // salePrice → buyPrice
-                if ($childPriceTypeId === 'buyPrice') {
-                    $buyPrice = [
-                        'value' => $priceInfo['value'] ?? 0,
-                        'currency' => [
-                            'meta' => [
-                                'href' => config('moysklad.api_url') . '/entity/currency/00000000-0000-0000-0000-000000000001',
-                                'type' => 'currency',
-                                'mediaType' => 'application/json'
-                            ]
-                        ]
-                    ];
-                    continue;
-                }
-            }
-
-            if ($childPriceTypeId) {
-                $salePrices[] = [
-                    'value' => $priceInfo['value'] ?? 0,
-                    'priceType' => [
-                        'meta' => [
-                            'href' => config('moysklad.api_url') . "/context/companysettings/pricetype/{$childPriceTypeId}",
-                            'type' => 'pricetype',
-                            'mediaType' => 'application/json'
-                        ]
-                    ]
-                ];
-            } else {
-                $priceTypeName = $priceInfo['priceType']['name'] ?? null;
-
-                if (!$priceTypeName) {
-                    continue;
-                }
-
-                $priceTypeMapping = $this->getOrCreatePriceType($mainAccountId, $childAccountId, $priceTypeName);
-
-                if ($priceTypeMapping) {
-                    $salePrices[] = [
-                        'value' => $priceInfo['value'] ?? 0,
-                        'priceType' => [
-                            'meta' => [
-                                'href' => config('moysklad.api_url') . "/context/companysettings/pricetype/{$priceTypeMapping->child_price_type_id}",
-                                'type' => 'pricetype',
-                                'mediaType' => 'application/json'
-                            ]
-                        ]
-                    ];
-                }
-            }
-        }
-
-        $result = ['salePrices' => $salePrices];
-        if ($buyPrice !== null) {
-            $result['buyPrice'] = $buyPrice;
-        }
-
-        return $result;
-    }
-
-    /**
-     * Получить или создать тип цены
-     */
-    protected function getOrCreatePriceType(string $mainAccountId, string $childAccountId, string $priceTypeName): ?PriceTypeMapping
-    {
-        $mapping = PriceTypeMapping::where('parent_account_id', $mainAccountId)
-            ->where('child_account_id', $childAccountId)
-            ->where('price_type_name', $priceTypeName)
-            ->first();
-
-        if ($mapping) {
-            return $mapping;
-        }
-
-        $settings = SyncSetting::where('account_id', $childAccountId)->first();
-
-        if (!$settings || !$settings->auto_create_price_types) {
-            return null;
-        }
-
-        try {
-            $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
-            $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
-
-            $mainPriceTypesResult = $this->moySkladService
-                ->setAccessToken($mainAccount->access_token)
-                ->get('context/companysettings');
-
-            $mainPriceTypes = $mainPriceTypesResult['data']['priceTypes'] ?? [];
-            $mainPriceType = null;
-
-            foreach ($mainPriceTypes as $pt) {
-                if ($pt['name'] === $priceTypeName) {
-                    $mainPriceType = $pt;
-                    break;
-                }
-            }
-
-            if (!$mainPriceType) {
-                return null;
-            }
-
-            $childPriceTypesResult = $this->moySkladService
-                ->setAccessToken($childAccount->access_token)
-                ->post('context/companysettings/pricetype', ['name' => $priceTypeName]);
-
-            $childPriceType = $childPriceTypesResult['data'];
-
-            $mapping = PriceTypeMapping::create([
-                'parent_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'parent_price_type_id' => $mainPriceType['id'],
-                'child_price_type_id' => $childPriceType['id'],
-                'price_type_name' => $priceTypeName,
-                'auto_created' => true,
-            ]);
-
-            Log::info('Price type created in child account for service', [
-                'main_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'price_type_name' => $priceTypeName
-            ]);
-
-            return $mapping;
-
-        } catch (\Exception $e) {
-            Log::error('Failed to create price type in child account for service', [
-                'main_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'price_type_name' => $priceTypeName,
-                'error' => $e->getMessage()
-            ]);
-            return null;
-        }
-    }
-
-    /**
-     * Извлечь ID сущности из href
-     */
-    protected function extractEntityId(string $href): ?string
-    {
-        if (empty($href)) {
-            return null;
-        }
-
-        $parts = explode('/', $href);
-        return end($parts) ?: null;
-    }
 
     /**
      * Подготовить услугу для batch создания/обновления
@@ -527,7 +276,18 @@ class ServiceSyncService
         string $childAccountId,
         SyncSetting $settings
     ): ?array {
-        // 1. Проверить mapping (create or update?)
+        // 1. Проверить, что поле сопоставления заполнено
+        $matchField = $settings->product_match_field ?? 'code';
+        if (empty($service[$matchField])) {
+            Log::debug('Service skipped in batch: match field is empty', [
+                'service_id' => $service['id'],
+                'match_field' => $matchField,
+                'service_name' => $service['name'] ?? 'unknown'
+            ]);
+            return null;
+        }
+
+        // 2. Проверить mapping (create or update?)
         $mapping = EntityMapping::where([
             'parent_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
@@ -535,7 +295,7 @@ class ServiceSyncService
             'parent_entity_id' => $service['id']
         ])->first();
 
-        // 2. Build base service data
+        // 3. Build base service data
         $serviceData = [
             'name' => $service['name'],
             'code' => $service['code'] ?? null,
