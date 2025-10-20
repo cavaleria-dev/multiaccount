@@ -527,11 +527,129 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'received_count' => count($createdProducts)
             ]);
 
-            // Создать mappings для успешно созданных/обновленных товаров
+            // Разделить успешные результаты от ошибок
+            $successfulResults = [];
+            $errorResults = [];
+
+            foreach ($createdProducts as $index => $result) {
+                // МойСклад возвращает mixed array: успехи {"id": "xxx"} и ошибки {"errors": [...]}
+                if (isset($result['errors']) && is_array($result['errors'])) {
+                    $errorResults[$index] = $result;
+                } else {
+                    $successfulResults[$index] = $result;
+                }
+            }
+
+            Log::info('Batch POST results separated', [
+                'task_id' => $task->id,
+                'successful_count' => count($successfulResults),
+                'error_count' => count($errorResults)
+            ]);
+
+            // Обработать ошибки (код 1021 - сущность не найдена)
+            $deletedMappingsCount = 0;
+            $retryTasksCount = 0;
+
+            foreach ($errorResults as $index => $errorResult) {
+                $originalId = $preparedProducts[$index]['_original_id'] ?? null;
+
+                if (!$originalId) {
+                    Log::warning('Error result without _original_id', [
+                        'task_id' => $task->id,
+                        'index' => $index,
+                        'errors' => $errorResult['errors']
+                    ]);
+                    continue;
+                }
+
+                // Извлечь код ошибки (проверяем первую ошибку в массиве)
+                $firstError = $errorResult['errors'][0] ?? null;
+                $errorCode = $firstError['code'] ?? null;
+                $errorMessage = $firstError['error'] ?? 'Unknown error';
+
+                Log::error('Batch POST error for product', [
+                    'task_id' => $task->id,
+                    'index' => $index,
+                    'original_id' => $originalId,
+                    'error_code' => $errorCode,
+                    'error_message' => $errorMessage
+                ]);
+
+                // Код 1021 = "Объект не найден" - означает товар удален в child account
+                if ($errorCode === 1021) {
+                    // Удалить stale mapping
+                    $deleted = \App\Models\EntityMapping::where([
+                        'parent_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'entity_type' => 'product',
+                        'parent_entity_id' => $originalId
+                    ])->delete();
+
+                    if ($deleted > 0) {
+                        $deletedMappingsCount++;
+                        Log::info('Deleted stale product mapping (entity not found in child)', [
+                            'task_id' => $task->id,
+                            'original_id' => $originalId,
+                            'error_code' => $errorCode
+                        ]);
+                    }
+
+                    // Создать retry задачу с операцией CREATE (не UPDATE)
+                    SyncQueue::create([
+                        'account_id' => $childAccountId,
+                        'entity_type' => 'product',
+                        'entity_id' => $originalId,
+                        'operation' => 'create',  // ВАЖНО: CREATE, не update
+                        'priority' => 5,
+                        'scheduled_at' => now()->addMinutes(5),
+                        'status' => 'pending',
+                        'attempts' => 0,
+                        'payload' => [
+                            'main_account_id' => $mainAccountId,
+                            'batch_retry' => true,
+                            'retry_reason' => 'entity_deleted_in_child'
+                        ]
+                    ]);
+
+                    $retryTasksCount++;
+
+                    Log::info('Created retry task as CREATE for deleted product', [
+                        'original_task_id' => $task->id,
+                        'product_id' => $originalId
+                    ]);
+                } else {
+                    // Другие ошибки - создать retry как UPDATE
+                    SyncQueue::create([
+                        'account_id' => $childAccountId,
+                        'entity_type' => 'product',
+                        'entity_id' => $originalId,
+                        'operation' => 'update',
+                        'priority' => 5,
+                        'scheduled_at' => now()->addMinutes(5),
+                        'status' => 'pending',
+                        'attempts' => 0,
+                        'payload' => [
+                            'main_account_id' => $mainAccountId,
+                            'batch_retry' => true,
+                            'error_code' => $errorCode
+                        ]
+                    ]);
+
+                    $retryTasksCount++;
+
+                    Log::info('Created retry task for batch error', [
+                        'original_task_id' => $task->id,
+                        'product_id' => $originalId,
+                        'error_code' => $errorCode
+                    ]);
+                }
+            }
+
+            // Создать mappings ТОЛЬКО для успешных результатов
             $mappingCount = 0;
             $failedCount = 0;
 
-            foreach ($createdProducts as $index => $createdProduct) {
+            foreach ($successfulResults as $index => $createdProduct) {
                 try {
                     // Получить оригинальный ID из метаданных
                     $originalId = $preparedProducts[$index]['_original_id'] ?? null;
@@ -582,16 +700,17 @@ class ProcessSyncQueueJob implements ShouldQueue
                     if ($originalId) {
                         SyncQueue::create([
                             'account_id' => $childAccountId,
-                            'entity_type' => 'product',  // Индивидуальная синхронизация (НЕ batch)
-                            'entity_id' => $originalId,   // Конкретный упавший товар
+                            'entity_type' => 'product',
+                            'entity_id' => $originalId,
                             'operation' => 'update',
-                            'priority' => 5,              // Средний приоритет для retry
-                            'scheduled_at' => now()->addMinutes(5),  // Задержка 5 минут
+                            'priority' => 5,
+                            'scheduled_at' => now()->addMinutes(5),
                             'status' => 'pending',
                             'attempts' => 0,
                             'payload' => [
                                 'main_account_id' => $mainAccountId,
-                                'batch_retry' => true  // Отметка что это retry из batch
+                                'batch_retry' => true,
+                                'retry_reason' => 'mapping_creation_failed'
                             ]
                         ]);
 
@@ -607,9 +726,12 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'task_id' => $task->id,
                 'total_products' => count($products),
                 'prepared_count' => count($preparedProducts),
-                'created_count' => count($createdProducts),
+                'successful_results' => count($successfulResults),
+                'error_results' => count($errorResults),
                 'mappings_created' => $mappingCount,
-                'failed_mappings' => $failedCount
+                'failed_mappings' => $failedCount,
+                'deleted_stale_mappings' => $deletedMappingsCount,
+                'retry_tasks_created' => $retryTasksCount
             ]);
 
             // Если более 50% упали - выбросить исключение для retry всей задачи
@@ -740,11 +862,129 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'received_count' => count($createdServices)
             ]);
 
-            // Создать mappings для успешно созданных/обновленных услуг
+            // Разделить успешные результаты от ошибок
+            $successfulResults = [];
+            $errorResults = [];
+
+            foreach ($createdServices as $index => $result) {
+                // МойСклад возвращает mixed array: успехи {"id": "xxx"} и ошибки {"errors": [...]}
+                if (isset($result['errors']) && is_array($result['errors'])) {
+                    $errorResults[$index] = $result;
+                } else {
+                    $successfulResults[$index] = $result;
+                }
+            }
+
+            Log::info('Batch POST results separated', [
+                'task_id' => $task->id,
+                'successful_count' => count($successfulResults),
+                'error_count' => count($errorResults)
+            ]);
+
+            // Обработать ошибки (код 1021 - сущность не найдена)
+            $deletedMappingsCount = 0;
+            $retryTasksCount = 0;
+
+            foreach ($errorResults as $index => $errorResult) {
+                $originalId = $preparedServices[$index]['_original_id'] ?? null;
+
+                if (!$originalId) {
+                    Log::warning('Error result without _original_id', [
+                        'task_id' => $task->id,
+                        'index' => $index,
+                        'errors' => $errorResult['errors']
+                    ]);
+                    continue;
+                }
+
+                // Извлечь код ошибки (проверяем первую ошибку в массиве)
+                $firstError = $errorResult['errors'][0] ?? null;
+                $errorCode = $firstError['code'] ?? null;
+                $errorMessage = $firstError['error'] ?? 'Unknown error';
+
+                Log::error('Batch POST error for service', [
+                    'task_id' => $task->id,
+                    'index' => $index,
+                    'original_id' => $originalId,
+                    'error_code' => $errorCode,
+                    'error_message' => $errorMessage
+                ]);
+
+                // Код 1021 = "Объект не найден" - означает услуга удалена в child account
+                if ($errorCode === 1021) {
+                    // Удалить stale mapping
+                    $deleted = \App\Models\EntityMapping::where([
+                        'parent_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'entity_type' => 'service',
+                        'parent_entity_id' => $originalId
+                    ])->delete();
+
+                    if ($deleted > 0) {
+                        $deletedMappingsCount++;
+                        Log::info('Deleted stale service mapping (entity not found in child)', [
+                            'task_id' => $task->id,
+                            'original_id' => $originalId,
+                            'error_code' => $errorCode
+                        ]);
+                    }
+
+                    // Создать retry задачу с операцией CREATE (не UPDATE)
+                    SyncQueue::create([
+                        'account_id' => $childAccountId,
+                        'entity_type' => 'service',
+                        'entity_id' => $originalId,
+                        'operation' => 'create',  // ВАЖНО: CREATE, не update
+                        'priority' => 5,
+                        'scheduled_at' => now()->addMinutes(5),
+                        'status' => 'pending',
+                        'attempts' => 0,
+                        'payload' => [
+                            'main_account_id' => $mainAccountId,
+                            'batch_retry' => true,
+                            'retry_reason' => 'entity_deleted_in_child'
+                        ]
+                    ]);
+
+                    $retryTasksCount++;
+
+                    Log::info('Created retry task as CREATE for deleted service', [
+                        'original_task_id' => $task->id,
+                        'service_id' => $originalId
+                    ]);
+                } else {
+                    // Другие ошибки - создать retry как UPDATE
+                    SyncQueue::create([
+                        'account_id' => $childAccountId,
+                        'entity_type' => 'service',
+                        'entity_id' => $originalId,
+                        'operation' => 'update',
+                        'priority' => 5,
+                        'scheduled_at' => now()->addMinutes(5),
+                        'status' => 'pending',
+                        'attempts' => 0,
+                        'payload' => [
+                            'main_account_id' => $mainAccountId,
+                            'batch_retry' => true,
+                            'error_code' => $errorCode
+                        ]
+                    ]);
+
+                    $retryTasksCount++;
+
+                    Log::info('Created retry task for batch error', [
+                        'original_task_id' => $task->id,
+                        'service_id' => $originalId,
+                        'error_code' => $errorCode
+                    ]);
+                }
+            }
+
+            // Создать mappings ТОЛЬКО для успешных результатов
             $mappingCount = 0;
             $failedCount = 0;
 
-            foreach ($createdServices as $index => $createdService) {
+            foreach ($successfulResults as $index => $createdService) {
                 try {
                     // Получить оригинальный ID из метаданных
                     $originalId = $preparedServices[$index]['_original_id'] ?? null;
@@ -771,7 +1011,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                         [
                             'child_entity_id' => $createdService['id'],
                             'sync_direction' => 'main_to_child',
-                            'match_field' => $syncSettings->product_match_field ?? 'code',
+                            'match_field' => $syncSettings->service_match_field ?? 'code',
                             'match_value' => $createdService['code'] ?? $createdService['name']
                         ]
                     );
@@ -795,16 +1035,17 @@ class ProcessSyncQueueJob implements ShouldQueue
                     if ($originalId) {
                         SyncQueue::create([
                             'account_id' => $childAccountId,
-                            'entity_type' => 'service',  // Индивидуальная синхронизация (НЕ batch)
-                            'entity_id' => $originalId,   // Конкретная упавшая услуга
+                            'entity_type' => 'service',
+                            'entity_id' => $originalId,
                             'operation' => 'update',
-                            'priority' => 5,              // Средний приоритет для retry
-                            'scheduled_at' => now()->addMinutes(5),  // Задержка 5 минут
+                            'priority' => 5,
+                            'scheduled_at' => now()->addMinutes(5),
                             'status' => 'pending',
                             'attempts' => 0,
                             'payload' => [
                                 'main_account_id' => $mainAccountId,
-                                'batch_retry' => true  // Отметка что это retry из batch
+                                'batch_retry' => true,
+                                'retry_reason' => 'mapping_creation_failed'
                             ]
                         ]);
 
@@ -820,9 +1061,12 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'task_id' => $task->id,
                 'total_services' => count($services),
                 'prepared_count' => count($preparedServices),
-                'created_count' => count($createdServices),
+                'successful_results' => count($successfulResults),
+                'error_results' => count($errorResults),
                 'mappings_created' => $mappingCount,
-                'failed_mappings' => $failedCount
+                'failed_mappings' => $failedCount,
+                'deleted_stale_mappings' => $deletedMappingsCount,
+                'retry_tasks_created' => $retryTasksCount
             ]);
 
             // Если более 50% упали - выбросить исключение для retry всей задачи
