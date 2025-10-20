@@ -44,7 +44,7 @@ class VariantSyncService
             // Получить настройки синхронизации
             $settings = SyncSetting::where('account_id', $childAccountId)->first();
 
-            if (!$settings || !$settings->sync_products) {
+            if (!$settings || !$settings->sync_variants) {
                 Log::debug('Variant sync is disabled', ['child_account_id' => $childAccountId]);
                 return null;
             }

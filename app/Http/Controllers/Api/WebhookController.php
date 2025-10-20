@@ -76,6 +76,10 @@ class WebhookController extends Controller
                 $this->handleProductEvent($action, $event, $accountId);
                 break;
 
+            case 'variant':
+                $this->handleVariantEvent($action, $event, $accountId);
+                break;
+
             case 'service':
                 $this->handleServiceEvent($action, $event, $accountId);
                 break;
@@ -113,6 +117,85 @@ class WebhookController extends Controller
         if ($action === 'DELETE') {
             Log::info('Товар удален', [
                 'productId' => $event['meta']['href'] ?? null
+            ]);
+        }
+    }
+
+    /**
+     * Обработка события модификации
+     */
+    private function handleVariantEvent(string $action, array $event, ?string $accountId): void
+    {
+        $variantId = $this->extractEntityId($event['meta']['href'] ?? '');
+
+        if (!$variantId || !$accountId) {
+            Log::warning('Cannot extract variant ID or account ID from webhook', ['event' => $event]);
+            return;
+        }
+
+        if ($action === 'CREATE' || $action === 'UPDATE') {
+            Log::info('Variant modified via webhook', [
+                'action' => $action,
+                'variant_id' => $variantId,
+                'account_id' => $accountId
+            ]);
+
+            // Создать задачи синхронизации для всех дочерних аккаунтов
+            $childAccounts = DB::table('child_accounts')
+                ->where('parent_account_id', $accountId)
+                ->where('status', 'active')
+                ->get();
+
+            foreach ($childAccounts as $child) {
+                \App\Models\SyncQueue::create([
+                    'account_id' => $child->child_account_id,
+                    'entity_type' => 'variant',
+                    'entity_id' => $variantId,
+                    'operation' => 'create',
+                    'priority' => 5, // Средний приоритет для webhooks
+                    'scheduled_at' => now(),
+                    'status' => 'pending',
+                    'attempts' => 0,
+                    'payload' => [
+                        'main_account_id' => $accountId
+                    ]
+                ]);
+            }
+
+            Log::info('Variant sync tasks created from webhook', [
+                'variant_id' => $variantId,
+                'tasks_created' => $childAccounts->count()
+            ]);
+        }
+
+        if ($action === 'DELETE') {
+            Log::info('Variant deleted via webhook', ['variant_id' => $variantId]);
+
+            // Архивировать variant во всех дочерних аккаунтах
+            $childAccounts = DB::table('child_accounts')
+                ->where('parent_account_id', $accountId)
+                ->where('status', 'active')
+                ->get();
+
+            foreach ($childAccounts as $child) {
+                \App\Models\SyncQueue::create([
+                    'account_id' => $child->child_account_id,
+                    'entity_type' => 'variant',
+                    'entity_id' => $variantId,
+                    'operation' => 'delete',
+                    'priority' => 5,
+                    'scheduled_at' => now(),
+                    'status' => 'pending',
+                    'attempts' => 0,
+                    'payload' => [
+                        'main_account_id' => $accountId
+                    ]
+                ]);
+            }
+
+            Log::info('Variant archive tasks created from webhook', [
+                'variant_id' => $variantId,
+                'tasks_created' => $childAccounts->count()
             ]);
         }
     }
@@ -166,5 +249,18 @@ class WebhookController extends Controller
                 'demandId' => $event['meta']['href'] ?? null
             ]);
         }
+    }
+
+    /**
+     * Извлечь ID сущности из href
+     */
+    private function extractEntityId(?string $href): ?string
+    {
+        if (empty($href)) {
+            return null;
+        }
+
+        $parts = explode('/', $href);
+        return end($parts) ?: null;
     }
 }

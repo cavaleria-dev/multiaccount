@@ -72,6 +72,19 @@ class SyncActionsController extends Controller
                 );
             }
 
+            // Синхронизировать модификации (variant) - постранично
+            if ($syncSettings->sync_variants) {
+                $tasksCreated += $this->syncEntityType(
+                    $moysklad,
+                    $mainAccount->access_token,
+                    'variant',
+                    $mainAccountId,
+                    $accountId,
+                    $syncSettings,
+                    $filterService
+                );
+            }
+
             // Синхронизировать комплекты (bundle) - постранично
             if ($syncSettings->sync_bundles) {
                 $tasksCreated += $this->syncEntityType(
