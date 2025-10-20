@@ -79,6 +79,9 @@ class SyncSetting extends Model
         'target_objects_meta',
         'product_filters',
         'product_filters_enabled',
+        // VAT sync settings
+        'sync_vat',
+        'vat_sync_mode',
     ];
 
     /**
@@ -118,6 +121,7 @@ class SyncSetting extends Model
         'target_objects_meta' => 'array',
         'product_filters' => 'array',
         'product_filters_enabled' => 'boolean',
+        'sync_vat' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

@@ -181,6 +181,10 @@ class VariantSyncService
             $variantData['buyPrice'] = $prices['buyPrice'];
         }
 
+        // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
+        // Используем метод из ProductSyncService через композицию
+        $variantData = $this->productSyncService->addAdditionalFields($variantData, $variant, $settings);
+
         // Создать модификацию
         $newVariantResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
@@ -251,6 +255,10 @@ class VariantSyncService
         if (isset($prices['buyPrice'])) {
             $variantData['buyPrice'] = $prices['buyPrice'];
         }
+
+        // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
+        // Используем метод из ProductSyncService через композицию
+        $variantData = $this->productSyncService->addAdditionalFields($variantData, $variant, $settings);
 
         // Обновить модификацию
         $updatedVariantResult = $this->moySkladService

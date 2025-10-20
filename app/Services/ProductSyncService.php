@@ -290,6 +290,9 @@ class ProductSyncService
             $this->standardEntitySync->syncVat($mainAccountId, $childAccountId, $product['vat']);
         }
 
+        // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
+        $productData = $this->addAdditionalFields($productData, $product, $settings);
+
         // Создать товар
         Log::channel('sync')->info('Creating product in child account - REQUEST', [
             'main_account_id' => $mainAccountId,
@@ -450,6 +453,9 @@ class ProductSyncService
             $this->standardEntitySync->syncVat($mainAccountId, $childAccountId, $product['vat']);
         }
 
+        // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
+        $productData = $this->addAdditionalFields($productData, $product, $settings);
+
         // Обновить товар
         Log::channel('sync')->info('Updating product in child account - REQUEST', [
             'main_account_id' => $mainAccountId,
@@ -561,6 +567,189 @@ class ProductSyncService
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Добавить дополнительные поля для синхронизации
+     *
+     * Добавляет НДС, физические характеристики, маркировку и т.д.
+     * Публичный метод, используется также в VariantSyncService
+     *
+     * @param array $productData Данные для API (будут изменены)
+     * @param array $source Источник данных (product/variant из main аккаунта)
+     * @param SyncSetting $settings Настройки синхронизации
+     * @return array Данные с добавленными полями
+     */
+    public function addAdditionalFields(array $productData, array $source, SyncSetting $settings): array
+    {
+        // НДС и налогообложение (с учетом настроек)
+        if ($settings->sync_vat && $settings->vat_sync_mode === 'from_main') {
+            if (isset($source['vat'])) {
+                $productData['vat'] = $source['vat'];
+            }
+            if (isset($source['vatEnabled'])) {
+                $productData['vatEnabled'] = $source['vatEnabled'];
+            }
+            if (isset($source['useParentVat'])) {
+                $productData['useParentVat'] = $source['useParentVat'];
+            }
+        }
+
+        // Система налогообложения
+        if (isset($source['taxSystem'])) {
+            $productData['taxSystem'] = $source['taxSystem'];
+        }
+
+        // Физические характеристики
+        if (isset($source['weight'])) {
+            $productData['weight'] = $source['weight'];
+        }
+        if (isset($source['volume'])) {
+            $productData['volume'] = $source['volume'];
+        }
+
+        // Особенности учета
+        if (isset($source['weighed'])) {
+            $productData['weighed'] = $source['weighed'];
+        }
+        if (isset($source['onTap'])) {
+            $productData['onTap'] = $source['onTap'];
+        }
+
+        // Маркировка
+        if (isset($source['trackingType'])) {
+            $productData['trackingType'] = $source['trackingType'];
+        }
+        if (isset($source['ppeType'])) {
+            $productData['ppeType'] = $source['ppeType'];
+        }
+        if (isset($source['partialDisposal'])) {
+            $productData['partialDisposal'] = $source['partialDisposal'];
+        }
+        if (isset($source['tnved'])) {
+            $productData['tnved'] = $source['tnved'];
+        }
+
+        // Признак предмета расчета
+        if (isset($source['paymentItemType'])) {
+            $productData['paymentItemType'] = $source['paymentItemType'];
+        }
+
+        // Алкогольная продукция
+        if (isset($source['alcoholic'])) {
+            $productData['alcoholic'] = $source['alcoholic'];
+        }
+
+        // Узбекистан: маркировка
+        if (isset($source['mod__marking__uz'])) {
+            $productData['mod__marking__uz'] = $source['mod__marking__uz'];
+        }
+
+        // Узбекистан: ТАСНИФ
+        if (isset($source['mod__tasnif__uz'])) {
+            $productData['mod__tasnif__uz'] = $source['mod__tasnif__uz'];
+        }
+
+        // Валидация несовместимых признаков
+        return $this->validateProductFlags($productData);
+    }
+
+    /**
+     * Валидировать и очистить несовместимые признаки товара
+     *
+     * МойСклад API имеет ограничения на сочетания признаков:
+     * - weighed не сочетается с: onTap, isSerialTrackable, ppeType, alcoholic
+     * - onTap не сочетается с: weighed, isSerialTrackable, ppeType
+     * - isSerialTrackable не сочетается с: weighed, alcoholic, ppeType, trackingType, onTap
+     * - ppeType не сочетается с: weighed, isSerialTrackable, alcoholic, trackingType, onTap
+     * - alcoholic не сочетается с: weighed, isSerialTrackable, ppeType
+     *
+     * @param array $productData Данные товара для отправки в API
+     * @return array Очищенные данные товара
+     */
+    protected function validateProductFlags(array $productData): array
+    {
+        // weighed не сочетается с: onTap, isSerialTrackable, ppeType, alcoholic
+        // Маркировка весовых товаров только для MILK
+        if (!empty($productData['weighed'])) {
+            unset($productData['onTap']);
+            unset($productData['isSerialTrackable']);
+            unset($productData['ppeType']);
+            unset($productData['alcoholic']);
+
+            if (isset($productData['trackingType']) && $productData['trackingType'] !== 'MILK') {
+                unset($productData['trackingType']);
+            }
+
+            Log::debug('Product is weighed, removed incompatible flags', [
+                'removed' => ['onTap', 'isSerialTrackable', 'ppeType', 'alcoholic']
+            ]);
+        }
+
+        // onTap не сочетается с: weighed, isSerialTrackable, ppeType
+        // Маркировка разливных товаров только для MILK, PERFUMERY
+        if (!empty($productData['onTap'])) {
+            unset($productData['weighed']);
+            unset($productData['isSerialTrackable']);
+            unset($productData['ppeType']);
+
+            if (isset($productData['trackingType']) &&
+                !in_array($productData['trackingType'], ['MILK', 'PERFUMERY'])) {
+                unset($productData['trackingType']);
+            }
+
+            Log::debug('Product is onTap, removed incompatible flags', [
+                'removed' => ['weighed', 'isSerialTrackable', 'ppeType']
+            ]);
+        }
+
+        // isSerialTrackable не сочетается с: weighed, alcoholic, ppeType, trackingType, onTap
+        if (!empty($productData['isSerialTrackable'])) {
+            unset($productData['weighed']);
+            unset($productData['alcoholic']);
+            unset($productData['ppeType']);
+            unset($productData['trackingType']);
+            unset($productData['onTap']);
+
+            Log::debug('Product is isSerialTrackable, removed incompatible flags', [
+                'removed' => ['weighed', 'alcoholic', 'ppeType', 'trackingType', 'onTap']
+            ]);
+        }
+
+        // ppeType не сочетается с: weighed, isSerialTrackable, alcoholic, trackingType, onTap
+        if (!empty($productData['ppeType'])) {
+            unset($productData['weighed']);
+            unset($productData['isSerialTrackable']);
+            unset($productData['alcoholic']);
+            unset($productData['trackingType']);
+            unset($productData['onTap']);
+
+            Log::debug('Product has ppeType, removed incompatible flags', [
+                'removed' => ['weighed', 'isSerialTrackable', 'alcoholic', 'trackingType', 'onTap']
+            ]);
+        }
+
+        // alcoholic не сочетается с: weighed, isSerialTrackable, ppeType
+        // Если trackingType не BEER_ALCOHOL или NOT_TRACKED - удалить alcoholic
+        if (!empty($productData['alcoholic'])) {
+            unset($productData['weighed']);
+            unset($productData['isSerialTrackable']);
+            unset($productData['ppeType']);
+
+            if (isset($productData['trackingType']) &&
+                !in_array($productData['trackingType'], ['BEER_ALCOHOL', 'NOT_TRACKED'])) {
+                unset($productData['alcoholic']);
+                Log::debug('Removed alcoholic due to incompatible trackingType', [
+                    'tracking_type' => $productData['trackingType']
+                ]);
+            } else {
+                Log::debug('Product is alcoholic, removed incompatible flags', [
+                    'removed' => ['weighed', 'isSerialTrackable', 'ppeType']
+                ]);
+            }
+        }
+
+        return $productData;
     }
 
     /**
