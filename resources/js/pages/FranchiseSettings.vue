@@ -165,6 +165,12 @@
       <!-- Автосоздание объектов -->
       <AutoCreateSection v-model:settings="settings" />
 
+      <!-- НДС и налогообложение -->
+      <VatSyncSection
+        :settings="settings"
+        @update:settings="handleVatSettingsUpdate"
+      />
+
       <!-- Кнопки -->
       <div class="flex justify-between items-center">
         <button
@@ -253,6 +259,7 @@ import PriceMappingsSection from '../components/franchise-settings/PriceMappings
 import ProductFiltersSection from '../components/franchise-settings/ProductFiltersSection.vue'
 import DocumentSyncSection from '../components/franchise-settings/DocumentSyncSection.vue'
 import AutoCreateSection from '../components/franchise-settings/AutoCreateSection.vue'
+import VatSyncSection from '../components/franchise-settings/VatSyncSection.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -342,6 +349,8 @@ const settings = ref({
   sync_images: true,
   sync_images_all: false,
   sync_prices: true,
+  sync_vat: false,
+  vat_sync_mode: 'preserve_child',
   sync_customer_orders: false,
   sync_retail_demands: false,
   sync_purchase_orders: false,
@@ -737,6 +746,12 @@ const handlePurchaseOrderStateCreated = async (data) => {
   } finally {
     createPurchaseOrderStateModalRef.value?.setLoading(false)
   }
+}
+
+// VAT settings update handler
+const handleVatSettingsUpdate = (vatSettings) => {
+  settings.value.sync_vat = vatSettings.sync_vat
+  settings.value.vat_sync_mode = vatSettings.vat_sync_mode
 }
 
 // Sync all products action
