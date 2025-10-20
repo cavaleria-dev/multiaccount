@@ -1298,6 +1298,8 @@ class ProcessSyncQueueJob implements ShouldQueue
 
         // Создать индивидуальные retry задачи для ВСЕХ сущностей
         $createdRetryTasks = 0;
+        $deletedMappingsCount = 0;
+
         foreach ($entities as $entity) {
             $entityId = $entity['id'] ?? null;
 
@@ -1309,13 +1311,26 @@ class ProcessSyncQueueJob implements ShouldQueue
                 continue;
             }
 
+            // Удалить stale mapping (если существует)
+            $deleted = \App\Models\EntityMapping::where([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $task->account_id,
+                'entity_type' => $entityTypeSingular,
+                'parent_entity_id' => $entityId
+            ])->delete();
+
+            if ($deleted > 0) {
+                $deletedMappingsCount++;
+            }
+
+            // Создать retry задачу с операцией CREATE (не UPDATE)
             SyncQueue::create([
                 'account_id' => $task->account_id,
                 'entity_type' => $entityTypeSingular,  // 'service' или 'product'
                 'entity_id' => $entityId,
-                'operation' => 'update',  // Попробуем update (ServiceSyncService создаст если не найдет)
+                'operation' => 'create',  // ⭐ CREATE (не update) - маппинг удален, создаем заново
                 'priority' => 5,
-                'scheduled_at' => now()->addMinute(),  // ⭐ 1 минута вместо 5
+                'scheduled_at' => now()->addMinute(),  // 1 минута
                 'status' => 'pending',
                 'attempts' => 0,
                 'payload' => [
@@ -1333,6 +1348,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             'original_task_id' => $task->id,
             'entity_type' => $task->entity_type,
             'entities_count' => count($entities),
+            'deleted_stale_mappings' => $deletedMappingsCount,
             'retry_tasks_created' => $createdRetryTasks
         ]);
 

@@ -496,12 +496,39 @@ class SyncActionsController extends Controller
         string $mainAccountId,
         string $accountId
     ): int {
+        // Получить настройки синхронизации ПЕРЕД циклом
+        $syncSettings = SyncSetting::where('account_id', $accountId)->first();
+
+        // Построить API фильтр
+        $filterService = app(ProductFilterService::class);
+        $apiFilterString = null;
+        $needsClientFilter = false;
+
+        if ($syncSettings && $syncSettings->product_filters_enabled && $syncSettings->product_filters) {
+            $apiFilterString = $filterService->buildApiFilter(
+                $syncSettings->product_filters,
+                $mainAccountId
+            );
+
+            // Если API фильтр не построен (OR логика, not_in, и т.д.) → применять client-side
+            if ($apiFilterString === null) {
+                $needsClientFilter = true;
+            }
+        }
+
         $tasksCreated = 0;
         $offset = 0;
         $limit = 100; // Batch size: 100 services per task
-        $totalServices = 0;
+        $totalLoaded = 0;
+        $totalFilteredClient = 0;
 
-        Log::info('Starting batch service sync (loading in batches of 100)');
+        Log::info('Starting batch service sync', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $accountId,
+            'api_filter_enabled' => $apiFilterString !== null,
+            'client_filter_enabled' => $needsClientFilter,
+            'api_filter_preview' => $apiFilterString ? substr($apiFilterString, 0, 200) . '...' : null
+        ]);
 
         do {
             // Загрузить страницу услуг с expand
@@ -511,22 +538,21 @@ class SyncActionsController extends Controller
                 'expand' => 'attributes,uom,salePrices'
             ];
 
+            // Добавить API фильтр если построен
+            if ($apiFilterString) {
+                $params['filter'] = $apiFilterString;
+            }
+
             $response = $moysklad->setAccessToken($token)
                 ->get('/entity/service', $params);
 
             $services = $response['data']['rows'] ?? [];
             $pageCount = count($services);
-            $totalServices += $pageCount;
+            $totalLoaded += $pageCount;
 
-            // Получить настройки и применить фильтры
-            $syncSettings = SyncSetting::where('account_id', $accountId)->first();
-            $totalFilteredClient = 0;
-
-            // Применить фильтры (общие product_filters)
-            if ($syncSettings && $syncSettings->product_filters_enabled && $syncSettings->product_filters) {
-                $filterService = app(ProductFilterService::class);
+            // Применить client-side фильтр если нужно
+            if ($needsClientFilter && !empty($services) && $syncSettings) {
                 $filteredServices = [];
-
                 foreach ($services as $service) {
                     if ($filterService->passes($service, $syncSettings->product_filters)) {
                         $filteredServices[] = $service;
@@ -534,14 +560,7 @@ class SyncActionsController extends Controller
                         $totalFilteredClient++;
                     }
                 }
-
                 $services = $filteredServices;
-
-                Log::info("Services filtered", [
-                    'before' => $pageCount,
-                    'after' => count($services),
-                    'filtered_out' => $totalFilteredClient
-                ]);
             }
 
             // Проверить match_field для каждой услуги
@@ -622,9 +641,12 @@ class SyncActionsController extends Controller
         Log::info('Batch service tasks created', [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $accountId,
-            'total_services' => $totalServices,
+            'total_loaded' => $totalLoaded,
+            'total_filtered_client' => $totalFilteredClient,
+            'total_in_batches' => $totalLoaded - $totalFilteredClient,
             'batch_tasks_created' => $tasksCreated,
-            'services_per_task_avg' => $totalServices > 0 ? round($totalServices / max($tasksCreated, 1), 2) : 0
+            'services_per_task_avg' => $totalLoaded > 0 ? round(($totalLoaded - $totalFilteredClient) / max($tasksCreated, 1), 2) : 0,
+            'api_filter_used' => $apiFilterString !== null
         ]);
 
         return $tasksCreated;
