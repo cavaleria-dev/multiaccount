@@ -334,11 +334,7 @@ class VariantSyncService
 
             if ($charMapping) {
                 $syncedCharacteristics[] = [
-                    'meta' => [
-                        'href' => config('moysklad.api_url') . "/entity/variant/metadata/characteristics/{$charMapping->child_characteristic_id}",
-                        'type' => 'attributemetadata',
-                        'mediaType' => 'application/json'
-                    ],
+                    'id' => $charMapping->child_characteristic_id,
                     'value' => $charValue
                 ];
             }
