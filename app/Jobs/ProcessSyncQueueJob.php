@@ -150,6 +150,13 @@ class ProcessSyncQueueJob implements ShouldQueue
                 // Ловим и Exception, и Error (включая TypeError)
                 $task->increment('attempts');
 
+                // Специальная обработка для batch задач (batch_services, batch_products)
+                // Если batch POST упал целиком → создать индивидуальные retry задачи для всех сущностей
+                if (in_array($task->entity_type, ['batch_services', 'batch_products'])) {
+                    $this->handleBatchTaskFailure($task, $e, $statisticsService);
+                    continue; // Переходим к следующей задаче
+                }
+
                 // Проверить, стоит ли повторять задачу
                 $shouldRetry = $this->isRetryableError($e->getMessage());
 
@@ -1227,6 +1234,124 @@ class ProcessSyncQueueJob implements ShouldQueue
             ->first();
 
         return $link?->parent_account_id;
+    }
+
+    /**
+     * Обработать полное падение batch задачи
+     *
+     * Когда batch POST запрос падает целиком (404, 500, etc.),
+     * создаём индивидуальные retry задачи для ВСЕХ сущностей из payload.
+     * Это позволяет не потерять сущности и попытаться синхронизировать их по одной.
+     */
+    protected function handleBatchTaskFailure(
+        SyncQueue $task,
+        \Throwable $e,
+        SyncStatisticsService $statisticsService
+    ): void {
+        $payload = $task->payload ?? [];
+
+        Log::error('Batch task failed completely, creating individual retry tasks', [
+            'task_id' => $task->id,
+            'entity_type' => $task->entity_type,
+            'attempts' => $task->attempts,
+            'error' => $e->getMessage()
+        ]);
+
+        // Извлечь сущности из payload
+        $entities = [];
+        $entityTypeSingular = '';
+
+        if ($task->entity_type === 'batch_services') {
+            $entities = $payload['services'] ?? [];
+            $entityTypeSingular = 'service';
+        } elseif ($task->entity_type === 'batch_products') {
+            $entities = $payload['products'] ?? [];
+            $entityTypeSingular = 'product';
+        }
+
+        if (empty($entities)) {
+            Log::warning('Batch task has no entities in payload', [
+                'task_id' => $task->id,
+                'payload_keys' => array_keys($payload)
+            ]);
+
+            // Пометить как failed если нет данных
+            $task->update([
+                'status' => 'failed',
+                'error' => $e->getMessage()
+            ]);
+            return;
+        }
+
+        $mainAccountId = $payload['main_account_id'] ?? null;
+        if (!$mainAccountId) {
+            Log::warning('Batch task missing main_account_id', [
+                'task_id' => $task->id
+            ]);
+
+            $task->update([
+                'status' => 'failed',
+                'error' => 'Missing main_account_id in payload'
+            ]);
+            return;
+        }
+
+        // Создать индивидуальные retry задачи для ВСЕХ сущностей
+        $createdRetryTasks = 0;
+        foreach ($entities as $entity) {
+            $entityId = $entity['id'] ?? null;
+
+            if (!$entityId) {
+                Log::warning('Entity missing id, skipping', [
+                    'task_id' => $task->id,
+                    'entity_name' => $entity['name'] ?? 'unknown'
+                ]);
+                continue;
+            }
+
+            SyncQueue::create([
+                'account_id' => $task->account_id,
+                'entity_type' => $entityTypeSingular,  // 'service' или 'product'
+                'entity_id' => $entityId,
+                'operation' => 'update',  // Попробуем update (ServiceSyncService создаст если не найдет)
+                'priority' => 5,
+                'scheduled_at' => now()->addMinute(),  // ⭐ 1 минута вместо 5
+                'status' => 'pending',
+                'attempts' => 0,
+                'payload' => [
+                    'main_account_id' => $mainAccountId,
+                    'batch_retry' => true,
+                    'original_batch_task_id' => $task->id,
+                    'batch_failure_reason' => substr($e->getMessage(), 0, 200)
+                ]
+            ]);
+
+            $createdRetryTasks++;
+        }
+
+        Log::info('Created individual retry tasks for failed batch', [
+            'original_task_id' => $task->id,
+            'entity_type' => $task->entity_type,
+            'entities_count' => count($entities),
+            'retry_tasks_created' => $createdRetryTasks
+        ]);
+
+        // Пометить batch задачу как failed (уже создали retry задачи)
+        $task->update([
+            'status' => 'failed',
+            'error' => $e->getMessage()
+        ]);
+
+        // Записать статистику о неудаче (batch упал, но retry задачи созданы)
+        if (isset($payload['main_account_id'])) {
+            $statisticsService->recordSync(
+                $payload['main_account_id'],
+                $task->account_id,
+                'product',
+                false,
+                0
+            );
+        }
     }
 
     /**
