@@ -24,7 +24,7 @@
 - `StandardEntitySyncService` - Standard references sync (uom, currency, country, vat)
 - `BatchSyncService` - Batch sync with queues
 - `WebhookService` - Webhook management
-- `ProductFilterService` - Apply visual filters to products
+- `ProductFilterService` - Apply visual filters to products and services (universal)
 - `RateLimitHandler` - API rate limit handling (45 req/sec burst, exponential backoff)
 
 **Shared Code** (`app/Services/Traits/`):
@@ -51,10 +51,10 @@
 | Service | Entity Types | Dependencies | Methods |
 |---------|-------------|--------------|---------|
 | `ProductFolderSyncService` | productfolder | None | `syncProductFolder()` (recursive) |
-| `ProductSyncService` | product | ProductFolderSyncService | `syncProduct()`, `archiveProduct()` |
+| `ProductSyncService` | product | ProductFolderSyncService, **ProductFilterService** | `syncProduct()`, `archiveProduct()` |
 | `VariantSyncService` | variant | ProductSyncService | `syncVariant()`, `syncCharacteristics()`, `archiveVariant()` |
 | `BundleSyncService` | bundle | ProductSyncService, VariantSyncService | `syncBundle()`, `syncBundleComponents()`, `archiveBundle()` |
-| `ServiceSyncService` | service | None | `syncService()`, `archiveService()` |
+| `ServiceSyncService` | service | **ProductFilterService** | `syncService()`, `archiveService()` |
 
 **Circular Dependency Resolution:**
 
@@ -112,4 +112,69 @@ This allows existing code (ProcessSyncQueueJob, webhooks) to continue calling `P
 - **Better readability**: Smaller files, clearer responsibilities
 - **Proper sync order**: Can ensure ProductFolder → Product → Variant → Bundle
 - **Maintainability**: Changes to variant logic don't affect product logic
+
+### Product Filter Service
+
+**Purpose:** Universal filter service for entities with `attributes` and `productFolder` fields.
+
+**Used by:**
+- `ProductSyncService` - Filter products before sync
+- `ServiceSyncService` - Filter services before sync (since 2025-10-20)
+
+**Key features:**
+- ✅ **Universal for products AND services** - Both have `attributes` and can have `productFolder`
+- ✅ **Filter by attributes** - All attribute types (string, long, double, boolean, time, customentity)
+- ✅ **Filter by folders** - productFolder/productGroup filtering
+- ✅ **Complex logic** - AND/OR operators, nested groups, whitelist/blacklist modes
+- ✅ **Performance** - Filters applied BEFORE API calls (saves requests, time, DB space)
+
+**Integration points:**
+
+1. **In `syncService()` / `syncProduct()`** - Individual entity sync:
+   ```php
+   // After loading entity data, before checking mapping
+   if (!$this->passesFilters($service, $settings, $mainAccountId)) {
+       Log::debug('Service does not pass filters', [...]);
+       return null; // Skip sync
+   }
+   ```
+
+2. **In `prepareServiceForBatch()` / `prepareProductForBatch()`** - Batch preparation:
+   ```php
+   // At the beginning of method, before any processing
+   if (!$this->passesFilters($service, $settings, $mainAccountId)) {
+       Log::debug('Service filtered out in batch', [...]);
+       return null; // Exclude from batch
+   }
+   ```
+
+3. **SyncHelpers trait** - Shared method for all sync services:
+   ```php
+   protected function passesFilters(array $entity, SyncSetting $settings, string $mainAccountId): bool
+   {
+       if (!$settings->product_filters_enabled) {
+           return true; // Filters disabled
+       }
+
+       $filters = $settings->product_filters;
+       if (!$filters) {
+           return true; // No filters configured
+       }
+
+       return $this->productFilterService->passes($entity, $filters);
+   }
+   ```
+
+**Why ProductFilterService works for services:**
+- Services in МойСклад have `attributes` (additional fields) - same structure as products
+- Services can be in `productFolder` (groups) - same as products
+- All filter operators (equals, contains, in, greater_than, etc.) are type-agnostic
+- Filter logic (AND/OR, whitelist/blacklist) doesn't depend on entity type
+
+**Configuration:**
+- Stored in `sync_settings.product_filters` (JSON)
+- Enabled via `sync_settings.product_filters_enabled` (boolean)
+- Same filters apply to both products and services per child account
+
+**See also:** [Product Filters Documentation](../docs/PRODUCT_FILTERS.md)
 
