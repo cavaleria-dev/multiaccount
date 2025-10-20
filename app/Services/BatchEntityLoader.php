@@ -264,10 +264,17 @@ class BatchEntityLoader
         $limit = 100;
         $totalLoaded = 0;
 
+        // Построить полный URL для диагностики
+        $fullUrlPreview = config('moysklad.api_url') . $config['endpoint'] .
+            '?filter=' . urlencode($apiFilterString) .
+            '&expand=' . urlencode($config['expand']) .
+            '&limit=100&offset=0';
+
         Log::info("Loading entities with single API filter", [
             'entity_type' => $entityType,
             'main_account_id' => $mainAccountId,
-            'api_filter_preview' => substr($apiFilterString, 0, 200) . '...'
+            'api_filter_string' => $apiFilterString,  // Не закодированная строка
+            'full_url_preview' => $fullUrlPreview  // Полный URL (первая страница)
         ]);
 
         do {
@@ -278,17 +285,37 @@ class BatchEntityLoader
                 'filter' => $apiFilterString
             ];
 
-            $response = $this->moySkladService
-                ->setAccessToken($accessToken)
-                ->get($config['endpoint'], $params);
+            try {
+                $response = $this->moySkladService
+                    ->setAccessToken($accessToken)
+                    ->get($config['endpoint'], $params);
 
-            $rows = $response['data']['rows'] ?? [];
-            $pageCount = count($rows);
-            $totalLoaded += $pageCount;
+                $rows = $response['data']['rows'] ?? [];
+                $pageCount = count($rows);
+                $totalLoaded += $pageCount;
 
-            $entities = array_merge($entities, $rows);
+                $entities = array_merge($entities, $rows);
 
-            $offset += $limit;
+                $offset += $limit;
+
+            } catch (\Exception $e) {
+                $errorMessage = $e->getMessage();
+
+                // Проверить ошибку 412 Precondition Failed (code 1034 - неизвестное поле фильтрации)
+                if (str_contains($errorMessage, '412') || str_contains($errorMessage, '1034') || str_contains($errorMessage, 'Precondition Failed')) {
+                    Log::warning("API filter failed with 412/1034, fallback to client-side filtering", [
+                        'entity_type' => $entityType,
+                        'api_filter_string' => $apiFilterString,
+                        'error' => $errorMessage
+                    ]);
+
+                    // Fallback на client-side фильтрацию
+                    return $this->loadAllAndFilterClientSide($entityType, $mainAccountId, $accessToken, $filters, $attributesMetadata);
+                }
+
+                // Для других ошибок - пробросить дальше
+                throw $e;
+            }
 
         } while ($pageCount === $limit);
 
@@ -361,6 +388,19 @@ class BatchEntityLoader
                 continue;
             }
 
+            // Построить полный URL для диагностики
+            $fullUrlPreview = config('moysklad.api_url') . $config['endpoint'] .
+                '?filter=' . urlencode($apiFilterString) .
+                '&expand=' . urlencode($config['expand']) .
+                '&limit=100&offset=0';
+
+            Log::info("Loading group with API filter", [
+                'entity_type' => $entityType,
+                'group_index' => $groupIndex,
+                'api_filter_string' => $apiFilterString,  // Не закодированная строка
+                'full_url_preview' => $fullUrlPreview  // Полный URL (первая страница)
+            ]);
+
             // Загрузить сущности с этим фильтром
             $offset = 0;
             $limit = 100;
@@ -374,21 +414,42 @@ class BatchEntityLoader
                     'filter' => $apiFilterString
                 ];
 
-                $response = $this->moySkladService
-                    ->setAccessToken($accessToken)
-                    ->get($config['endpoint'], $params);
+                try {
+                    $response = $this->moySkladService
+                        ->setAccessToken($accessToken)
+                        ->get($config['endpoint'], $params);
 
-                $rows = $response['data']['rows'] ?? [];
-                $pageCount = count($rows);
-                $groupLoaded += $pageCount;
-                $totalApiRequests++;
+                    $rows = $response['data']['rows'] ?? [];
+                    $pageCount = count($rows);
+                    $groupLoaded += $pageCount;
+                    $totalApiRequests++;
 
-                // Дедупликация по entity_id
-                foreach ($rows as $entity) {
-                    $uniqueEntities[$entity['id']] = $entity;
+                    // Дедупликация по entity_id
+                    foreach ($rows as $entity) {
+                        $uniqueEntities[$entity['id']] = $entity;
+                    }
+
+                    $offset += $limit;
+
+                } catch (\Exception $e) {
+                    $errorMessage = $e->getMessage();
+
+                    // Проверить ошибку 412 Precondition Failed (code 1034 - неизвестное поле фильтрации)
+                    if (str_contains($errorMessage, '412') || str_contains($errorMessage, '1034') || str_contains($errorMessage, 'Precondition Failed')) {
+                        Log::warning("API filter failed with 412/1034 for group, fallback to client-side for ALL groups", [
+                            'entity_type' => $entityType,
+                            'group_index' => $groupIndex,
+                            'api_filter_string' => $apiFilterString,
+                            'error' => $errorMessage
+                        ]);
+
+                        // Fallback на client-side для ВСЕГО фильтра (не можем продолжить с API фильтрами)
+                        return $this->loadAllAndFilterClientSide($entityType, $mainAccountId, $accessToken, $filters, $attributesMetadata);
+                    }
+
+                    // Для других ошибок - пробросить дальше
+                    throw $e;
                 }
-
-                $offset += $limit;
 
             } while ($pageCount === $limit);
 

@@ -117,6 +117,23 @@ class MoySkladService
         $url = $this->apiUrl . '/' . ltrim($endpoint, '/');
         $startTime = microtime(true);
 
+        // Построить полный URL с query параметрами для логирования
+        $fullUrl = $url;
+        if (!empty($params) && $method === 'GET') {
+            $fullUrl .= '?' . http_build_query($params);
+        }
+
+        // Подробное логирование ПЕРЕД отправкой запроса
+        Log::info('МойСклад API Request', [
+            'method' => $method,
+            'endpoint' => $endpoint,
+            'full_url' => $fullUrl,
+            'params' => $params,
+            'data_size' => !empty($data) ? strlen(json_encode($data)) : 0,
+            'has_filter' => isset($params['filter']),
+            'filter_preview' => isset($params['filter']) ? substr($params['filter'], 0, 500) : null
+        ]);
+
         $headers = [
             'Authorization' => 'Bearer ' . $this->accessToken,
             'Accept-Encoding' => 'gzip',
