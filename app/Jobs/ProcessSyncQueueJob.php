@@ -102,7 +102,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                 ]);
 
                 // Записать статистику
-                if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'bundle', 'service'])) {
+                if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'batch_products', 'bundle', 'service'])) {
                     $payload = $task->payload;
                     if (isset($payload['main_account_id'])) {
                         $statisticsService->recordSync(
@@ -161,7 +161,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                     ]);
 
                     // Записать статистику о неудаче
-                    if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'bundle', 'service'])) {
+                    if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'batch_products', 'bundle', 'service'])) {
                         $payload = $task->payload;
                         if (isset($payload['main_account_id'])) {
                             $statisticsService->recordSync(
@@ -222,6 +222,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             'product' => $this->processProductSync($task, $payload, $productSyncService),
             'variant' => $this->processVariantSync($task, $payload, $productSyncService),
             'product_variants' => $this->processBatchVariantSync($task, $payload, $productSyncService),
+            'batch_products' => $this->processBatchProductSync($task, $payload, $productSyncService),
             'bundle' => $this->processBundleSync($task, $payload, $productSyncService),
             'service' => $this->processServiceSync($task, $payload, $serviceSyncService),
             'customerorder' => $this->processCustomerOrderSync($task, $payload, $customerOrderSyncService),
@@ -416,6 +417,177 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'task_id' => $task->id,
                 'product_id' => $productId,
                 'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Обработать пакетную синхронизацию товаров (batch POST)
+     *
+     * Получает готовые товары из payload, подготавливает их (используя только кеш),
+     * отправляет batch POST в МойСклад и создает mappings.
+     */
+    protected function processBatchProductSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
+    {
+        // Проверить что payload содержит необходимые данные
+        if (empty($payload) || !isset($payload['main_account_id'])) {
+            Log::warning('Batch product task skipped: missing main_account_id in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'payload_keys' => array_keys($payload)
+            ]);
+            throw new \Exception('Invalid payload: missing main_account_id');
+        }
+
+        if (!isset($payload['products']) || empty($payload['products'])) {
+            Log::warning('Batch product task skipped: missing products in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'payload_keys' => array_keys($payload)
+            ]);
+            throw new \Exception('Invalid payload: missing products array');
+        }
+
+        $mainAccountId = $payload['main_account_id'];
+        $childAccountId = $task->account_id;
+        $products = $payload['products'];
+
+        try {
+            // Получить настройки синхронизации
+            $syncSettings = \App\Models\SyncSetting::where('account_id', $childAccountId)->first();
+
+            if (!$syncSettings) {
+                throw new \Exception("Sync settings not found for child account {$childAccountId}");
+            }
+
+            Log::info('Batch product sync started', [
+                'task_id' => $task->id,
+                'products_count' => count($products),
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId
+            ]);
+
+            // Подготовить товары для batch POST (используя только кеш)
+            $preparedProducts = [];
+            $skippedCount = 0;
+
+            foreach ($products as $product) {
+                $prepared = $productSyncService->prepareProductForBatch(
+                    $product,
+                    $mainAccountId,
+                    $childAccountId,
+                    $syncSettings
+                );
+
+                if ($prepared) {
+                    $preparedProducts[] = $prepared;
+                } else {
+                    $skippedCount++; // Filtered out
+                }
+            }
+
+            if (empty($preparedProducts)) {
+                Log::info('All products filtered out in batch', [
+                    'task_id' => $task->id,
+                    'total_products' => count($products),
+                    'skipped' => $skippedCount
+                ]);
+                return;
+            }
+
+            Log::info('Products prepared for batch POST', [
+                'task_id' => $task->id,
+                'prepared_count' => count($preparedProducts),
+                'skipped_count' => $skippedCount
+            ]);
+
+            // Получить child account для access token
+            $childAccount = \App\Models\Account::where('account_id', $childAccountId)->firstOrFail();
+            $moysklad = app(\App\Services\MoySkladService::class);
+
+            // Отправить batch POST
+            $response = $moysklad
+                ->setAccessToken($childAccount->access_token)
+                ->batchCreateProducts($preparedProducts);
+
+            $createdProducts = $response['data'] ?? [];
+
+            Log::info('Batch POST completed', [
+                'task_id' => $task->id,
+                'sent_count' => count($preparedProducts),
+                'received_count' => count($createdProducts)
+            ]);
+
+            // Создать mappings для успешно созданных/обновленных товаров
+            $mappingCount = 0;
+            $failedCount = 0;
+
+            foreach ($createdProducts as $index => $createdProduct) {
+                try {
+                    // Получить оригинальный ID из метаданных
+                    $originalId = $preparedProducts[$index]['_original_id'] ?? null;
+                    $isUpdate = $preparedProducts[$index]['_is_update'] ?? false;
+
+                    if (!$originalId) {
+                        Log::warning('Cannot create mapping: missing _original_id', [
+                            'task_id' => $task->id,
+                            'index' => $index,
+                            'child_product_id' => $createdProduct['id'] ?? 'unknown'
+                        ]);
+                        $failedCount++;
+                        continue;
+                    }
+
+                    // Создать или обновить mapping
+                    \App\Models\EntityMapping::updateOrCreate(
+                        [
+                            'parent_account_id' => $mainAccountId,
+                            'child_account_id' => $childAccountId,
+                            'entity_type' => 'product',
+                            'parent_entity_id' => $originalId
+                        ],
+                        [
+                            'child_entity_id' => $createdProduct['id'],
+                            'sync_direction' => 'main_to_child',
+                            'match_field' => $syncSettings->product_match_field ?? 'code',
+                            'match_value' => $createdProduct['code'] ?? $createdProduct['name']
+                        ]
+                    );
+
+                    $mappingCount++;
+
+                } catch (\Exception $e) {
+                    $failedCount++;
+                    Log::error('Failed to create mapping in batch', [
+                        'task_id' => $task->id,
+                        'index' => $index,
+                        'original_id' => $originalId ?? 'unknown',
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            Log::info('Batch product sync completed', [
+                'task_id' => $task->id,
+                'total_products' => count($products),
+                'prepared_count' => count($preparedProducts),
+                'created_count' => count($createdProducts),
+                'mappings_created' => $mappingCount,
+                'failed_mappings' => $failedCount
+            ]);
+
+            // Если более 50% упали - выбросить исключение для retry всей задачи
+            if ($failedCount > count($preparedProducts) / 2) {
+                throw new \Exception("Batch sync failed: {$failedCount} of " . count($preparedProducts) . " products failed");
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Batch product sync failed completely', [
+                'task_id' => $task->id,
+                'products_count' => count($products),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
             ]);
             throw $e;
         }
