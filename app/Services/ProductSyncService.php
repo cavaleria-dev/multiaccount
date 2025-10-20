@@ -89,7 +89,7 @@ class ProductSyncService
                     entityType: 'product',
                     entityId: $productId
                 )
-                ->get("entity/product/{$productId}", ['expand' => 'attributes,productFolder,uom,country']);
+                ->get("entity/product/{$productId}", ['expand' => 'attributes,productFolder,uom,country,packs.uom']);
 
             $product = $productResult['data'];
 
@@ -290,6 +290,17 @@ class ProductSyncService
             $this->standardEntitySync->syncVat($mainAccountId, $childAccountId, $product['vat']);
         }
 
+        // Синхронизировать упаковки
+        if (isset($product['packs']) && !empty($product['packs'])) {
+            $baseUomId = $this->extractEntityId($product['uom']['meta']['href'] ?? '');
+            $productData['packs'] = $this->syncPacks(
+                $mainAccountId,
+                $childAccountId,
+                $product['packs'],
+                $baseUomId
+            );
+        }
+
         // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
         $productData = $this->addAdditionalFields($productData, $product, $settings);
 
@@ -451,6 +462,17 @@ class ProductSyncService
         // VAT (ставка НДС) - просто сохранить маппинг для отслеживания
         if (isset($product['vat'])) {
             $this->standardEntitySync->syncVat($mainAccountId, $childAccountId, $product['vat']);
+        }
+
+        // Синхронизировать упаковки
+        if (isset($product['packs']) && !empty($product['packs'])) {
+            $baseUomId = $this->extractEntityId($product['uom']['meta']['href'] ?? '');
+            $productData['packs'] = $this->syncPacks(
+                $mainAccountId,
+                $childAccountId,
+                $product['packs'],
+                $baseUomId
+            );
         }
 
         // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
@@ -789,6 +811,110 @@ class ProductSyncService
         }
 
         return $productData;
+    }
+
+    /**
+     * Синхронизировать упаковки товара
+     *
+     * Упаковки - вложенная коллекция с единицами измерения и штрихкодами.
+     * Публичный метод, используется также в VariantSyncService.
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param array $packs Массив упаковок из main аккаунта
+     * @param string|null $baseUomId UUID базовой единицы измерения товара (для валидации)
+     * @return array Массив синхронизированных упаковок
+     */
+    public function syncPacks(string $mainAccountId, string $childAccountId, array $packs, ?string $baseUomId = null): array
+    {
+        $syncedPacks = [];
+
+        foreach ($packs as $pack) {
+            try {
+                // Извлечь UOM упаковки
+                $packUomHref = $pack['uom']['meta']['href'] ?? null;
+                if (!$packUomHref) {
+                    Log::warning('Pack skipped: UOM href missing', [
+                        'pack' => $pack
+                    ]);
+                    continue;
+                }
+
+                $packUomId = $this->extractEntityId($packUomHref);
+                if (!$packUomId) {
+                    Log::warning('Pack skipped: cannot extract UOM ID', [
+                        'uom_href' => $packUomHref
+                    ]);
+                    continue;
+                }
+
+                // Проверка: UOM упаковки НЕ МОЖЕТ совпадать с базовым UOM товара
+                if ($baseUomId && $packUomId === $baseUomId) {
+                    Log::warning('Pack skipped: UOM matches base product UOM (not allowed)', [
+                        'pack_uom_id' => $packUomId,
+                        'base_uom_id' => $baseUomId,
+                        'quantity' => $pack['quantity'] ?? null
+                    ]);
+                    continue;
+                }
+
+                // Синхронизировать UOM упаковки через StandardEntitySyncService
+                $childPackUomId = $this->standardEntitySync->syncUom(
+                    $mainAccountId,
+                    $childAccountId,
+                    $packUomId
+                );
+
+                if (!$childPackUomId) {
+                    Log::warning('Pack skipped: UOM sync failed', [
+                        'pack_uom_id' => $packUomId,
+                        'quantity' => $pack['quantity'] ?? null
+                    ]);
+                    continue;
+                }
+
+                // Построить упаковку для child аккаунта
+                $syncedPack = [
+                    'quantity' => $pack['quantity'],
+                    'uom' => [
+                        'meta' => [
+                            'href' => config('moysklad.api_url') . "/entity/uom/{$childPackUomId}",
+                            'type' => 'uom',
+                            'mediaType' => 'application/json'
+                        ]
+                    ]
+                ];
+
+                // Копировать штрихкоды (если есть)
+                if (isset($pack['barcodes']) && !empty($pack['barcodes'])) {
+                    $syncedPack['barcodes'] = $pack['barcodes'];
+                }
+
+                $syncedPacks[] = $syncedPack;
+
+                Log::debug('Pack synced successfully', [
+                    'quantity' => $pack['quantity'],
+                    'main_uom_id' => $packUomId,
+                    'child_uom_id' => $childPackUomId,
+                    'barcodes_count' => isset($pack['barcodes']) ? count($pack['barcodes']) : 0
+                ]);
+
+            } catch (\Exception $e) {
+                Log::error('Failed to sync pack', [
+                    'pack' => $pack,
+                    'error' => $e->getMessage()
+                ]);
+                // Продолжить для остальных упаковок
+            }
+        }
+
+        Log::info('Packs sync completed', [
+            'total_packs' => count($packs),
+            'synced_packs' => count($syncedPacks),
+            'skipped_packs' => count($packs) - count($syncedPacks)
+        ]);
+
+        return $syncedPacks;
     }
 
     /**

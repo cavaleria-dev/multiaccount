@@ -53,7 +53,7 @@ class VariantSyncService
             $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
             $variantResult = $this->moySkladService
                 ->setAccessToken($mainAccount->access_token)
-                ->get("entity/variant/{$variantId}", ['expand' => 'product,characteristics']);
+                ->get("entity/variant/{$variantId}", ['expand' => 'product,characteristics,packs.uom']);
 
             $variant = $variantResult['data'];
 
@@ -181,6 +181,18 @@ class VariantSyncService
             $variantData['buyPrice'] = $prices['buyPrice'];
         }
 
+        // Синхронизировать упаковки (если есть)
+        // Для variant используем UOM родительского товара (product.uom)
+        if (isset($variant['packs']) && !empty($variant['packs'])) {
+            $baseUomId = $this->extractEntityId($variant['product']['uom']['meta']['href'] ?? '');
+            $variantData['packs'] = $this->productSyncService->syncPacks(
+                $mainAccountId,
+                $childAccountId,
+                $variant['packs'],
+                $baseUomId
+            );
+        }
+
         // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
         // Используем метод из ProductSyncService через композицию
         $variantData = $this->productSyncService->addAdditionalFields($variantData, $variant, $settings);
@@ -254,6 +266,18 @@ class VariantSyncService
         $variantData['salePrices'] = $prices['salePrices'];
         if (isset($prices['buyPrice'])) {
             $variantData['buyPrice'] = $prices['buyPrice'];
+        }
+
+        // Синхронизировать упаковки (если есть)
+        // Для variant используем UOM родительского товара (product.uom)
+        if (isset($variant['packs']) && !empty($variant['packs'])) {
+            $baseUomId = $this->extractEntityId($variant['product']['uom']['meta']['href'] ?? '');
+            $variantData['packs'] = $this->productSyncService->syncPacks(
+                $mainAccountId,
+                $childAccountId,
+                $variant['packs'],
+                $baseUomId
+            );
         }
 
         // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
