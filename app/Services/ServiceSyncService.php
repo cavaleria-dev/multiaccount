@@ -23,6 +23,7 @@ class ServiceSyncService
     protected AttributeSyncService $attributeSyncService;
     protected ProductSyncService $productSyncService;
     protected ProductFilterService $productFilterService;
+    protected EntityMappingService $entityMappingService;
 
     public function __construct(
         MoySkladService $moySkladService,
@@ -30,7 +31,8 @@ class ServiceSyncService
         StandardEntitySyncService $standardEntitySync,
         AttributeSyncService $attributeSyncService,
         ProductSyncService $productSyncService,
-        ProductFilterService $productFilterService
+        ProductFilterService $productFilterService,
+        EntityMappingService $entityMappingService
     ) {
         $this->moySkladService = $moySkladService;
         $this->customEntitySyncService = $customEntitySyncService;
@@ -38,6 +40,7 @@ class ServiceSyncService
         $this->attributeSyncService = $attributeSyncService;
         $this->productSyncService = $productSyncService;
         $this->productFilterService = $productFilterService;
+        $this->entityMappingService = $entityMappingService;
     }
 
     /**
@@ -199,40 +202,103 @@ class ServiceSyncService
         // Добавить НДС и налогообложение
         $serviceData = $this->productSyncService->addVatAndTaxFields($serviceData, $service, $settings);
 
-        // Создать услугу
-        $newServiceResult = $this->moySkladService
-            ->setAccessToken($childAccount->access_token)
-            ->setLogContext(
-                accountId: $mainAccountId,
-                direction: 'main_to_child',
-                relatedAccountId: $childAccountId,
-                entityType: 'service',
-                entityId: $service['id']
-            )
-            ->post('entity/service', $serviceData);
+        // Проверить существование услуги в child по match_field
+        $matchField = $settings->service_match_field ?? 'code';
+        $matchValue = $service[$matchField] ?? null;
 
-        $newService = $newServiceResult['data'];
+        if ($matchValue) {
+            Log::info('Checking if service exists in child before creating', [
+                'main_service_id' => $service['id'],
+                'service_name' => $service['name'],
+                'match_field' => $matchField,
+                'match_value' => $matchValue
+            ]);
 
-        // Сохранить маппинг
-        EntityMapping::create([
-            'parent_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'entity_type' => 'service',
-            'parent_entity_id' => $service['id'],
-            'child_entity_id' => $newService['id'],
-            'sync_direction' => 'main_to_child',
-            'match_field' => $settings->service_match_field ?? 'code',
-            'match_value' => $service[$settings->service_match_field ?? 'code'] ?? null,
-        ]);
+            // Найти или создать маппинг (БЕЗ фильтра в child!)
+            $mapping = $this->entityMappingService->findOrCreateServiceMapping(
+                $mainAccountId,
+                $childAccountId,
+                $service['id'],
+                $matchField,
+                $matchValue
+            );
 
-        Log::info('Service created in child account', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'main_service_id' => $service['id'],
-            'child_service_id' => $newService['id']
-        ]);
+            if ($mapping) {
+                // Услуга найдена в child → UPDATE вместо CREATE
+                Log::info('Service found in child - updating instead of creating', [
+                    'main_service_id' => $service['id'],
+                    'child_service_id' => $mapping->child_entity_id,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue
+                ]);
 
-        return $newService;
+                return $this->updateService(
+                    $childAccount,
+                    $mainAccountId,
+                    $childAccountId,
+                    $service,
+                    $mapping,
+                    $settings
+                );
+            }
+
+            Log::info('Service not found in child - creating new', [
+                'main_service_id' => $service['id']
+            ]);
+        }
+
+        // Услуга не найдена в child → создать новую
+        try {
+            $newServiceResult = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: 'service',
+                    entityId: $service['id']
+                )
+                ->post('entity/service', $serviceData);
+
+            $newService = $newServiceResult['data'];
+
+            // Сохранить маппинг
+            EntityMapping::create([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'service',
+                'parent_entity_id' => $service['id'],
+                'child_entity_id' => $newService['id'],
+                'sync_direction' => 'main_to_child',
+                'match_field' => $matchField,
+                'match_value' => $matchValue,
+            ]);
+
+            Log::info('Service created in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'main_service_id' => $service['id'],
+                'child_service_id' => $newService['id']
+            ]);
+
+            return $newService;
+
+        } catch (\Exception $e) {
+            // Специальная обработка ошибки 412 (уникальность)
+            if (strpos($e->getMessage(), '412') !== false || strpos($e->getMessage(), '3006') !== false) {
+                Log::error('Service creation failed with HTTP 412 - uniqueness violation', [
+                    'main_service_id' => $service['id'],
+                    'service_code' => $service['code'] ?? null,
+                    'service_name' => $service['name'] ?? null,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue,
+                    'error' => $e->getMessage(),
+                    'hint' => 'Service exists in child but was not found by match_field. Possible reasons: 1) Match field value is different, 2) API search failed, 3) Race condition'
+                ]);
+            }
+
+            throw $e;
+        }
     }
 
     /**

@@ -24,6 +24,7 @@ class BundleSyncService
     protected ProductSyncService $productSyncService;
     protected VariantSyncService $variantSyncService;
     protected AttributeSyncService $attributeSyncService;
+    protected EntityMappingService $entityMappingService;
 
     public function __construct(
         MoySkladService $moySkladService,
@@ -32,7 +33,8 @@ class BundleSyncService
         ProductFilterService $productFilterService,
         ProductSyncService $productSyncService,
         VariantSyncService $variantSyncService,
-        AttributeSyncService $attributeSyncService
+        AttributeSyncService $attributeSyncService,
+        EntityMappingService $entityMappingService
     ) {
         $this->moySkladService = $moySkladService;
         $this->customEntitySyncService = $customEntitySyncService;
@@ -41,6 +43,7 @@ class BundleSyncService
         $this->productSyncService = $productSyncService;
         $this->variantSyncService = $variantSyncService;
         $this->attributeSyncService = $attributeSyncService;
+        $this->entityMappingService = $entityMappingService;
     }
 
     /**
@@ -176,40 +179,95 @@ class BundleSyncService
         // Добавить НДС и налогообложение
         $bundleData = $this->productSyncService->addVatAndTaxFields($bundleData, $bundle, $settings);
 
-        // Создать комплект
-        $newBundleResult = $this->moySkladService
-            ->setAccessToken($childAccount->access_token)
-            ->setLogContext(
-                accountId: $mainAccountId,
-                direction: 'main_to_child',
-                relatedAccountId: $childAccountId,
-                entityType: 'bundle',
-                entityId: $bundle['id']
-            )
-            ->post('entity/bundle', $bundleData);
+        // Проверить существование комплекта в child по match_field
+        $matchField = $settings->product_match_field ?? 'article';
+        $matchValue = $bundle[$matchField] ?? null;
 
-        $newBundle = $newBundleResult['data'];
+        if ($matchValue) {
+            $mapping = $this->entityMappingService->findOrCreateBundleMapping(
+                $mainAccountId,
+                $childAccountId,
+                $bundle['id'],
+                $matchField,
+                $matchValue
+            );
 
-        // Сохранить маппинг
-        EntityMapping::create([
-            'parent_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'entity_type' => 'bundle',
-            'parent_entity_id' => $bundle['id'],
-            'child_entity_id' => $newBundle['id'],
-            'sync_direction' => 'main_to_child',
-            'match_field' => $settings->product_match_field ?? 'article',
-            'match_value' => $bundle[$settings->product_match_field ?? 'article'] ?? null,
-        ]);
+            if ($mapping) {
+                // Комплект уже существует в child → вызвать updateBundle вместо создания
+                Log::info('Bundle already exists in child - updating instead of creating', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'main_bundle_id' => $bundle['id'],
+                    'child_bundle_id' => $mapping->child_entity_id,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue
+                ]);
 
-        Log::info('Bundle created in child account', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'main_bundle_id' => $bundle['id'],
-            'child_bundle_id' => $newBundle['id']
-        ]);
+                return $this->updateBundle(
+                    $childAccount,
+                    $mainAccountId,
+                    $childAccountId,
+                    $bundle,
+                    $mapping,
+                    $settings
+                );
+            }
+        }
 
-        return $newBundle;
+        // Комплект не найден в child → создать новый
+        try {
+            $newBundleResult = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: 'bundle',
+                    entityId: $bundle['id']
+                )
+                ->post('entity/bundle', $bundleData);
+
+            $newBundle = $newBundleResult['data'];
+
+            // Сохранить маппинг
+            EntityMapping::create([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'bundle',
+                'parent_entity_id' => $bundle['id'],
+                'child_entity_id' => $newBundle['id'],
+                'sync_direction' => 'main_to_child',
+                'match_field' => $matchField,
+                'match_value' => $matchValue,
+            ]);
+
+            Log::info('Bundle created in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'main_bundle_id' => $bundle['id'],
+                'child_bundle_id' => $newBundle['id']
+            ]);
+
+            return $newBundle;
+
+        } catch (\Exception $e) {
+            // Детальное логирование HTTP 412 ошибки
+            if (strpos($e->getMessage(), '412') !== false) {
+                Log::error('Bundle creation failed with HTTP 412 - uniqueness violation', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'main_bundle_id' => $bundle['id'],
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue,
+                    'bundle_code' => $bundle['code'] ?? null,
+                    'bundle_article' => $bundle['article'] ?? null,
+                    'bundle_external_code' => $bundle['externalCode'] ?? null,
+                    'bundle_name' => $bundle['name'] ?? null,
+                    'error' => $e->getMessage()
+                ]);
+            }
+            throw $e;
+        }
     }
 
     /**

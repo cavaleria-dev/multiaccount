@@ -24,6 +24,7 @@ class ProductSyncService
     protected StandardEntitySyncService $standardEntitySync;
     protected ProductFolderSyncService $productFolderSyncService;
     protected AttributeSyncService $attributeSyncService;
+    protected EntityMappingService $entityMappingService;
     protected ?VariantSyncService $variantSyncService = null;
     protected ?BundleSyncService $bundleSyncService = null;
 
@@ -33,7 +34,8 @@ class ProductSyncService
         ProductFilterService $productFilterService,
         StandardEntitySyncService $standardEntitySync,
         ProductFolderSyncService $productFolderSyncService,
-        AttributeSyncService $attributeSyncService
+        AttributeSyncService $attributeSyncService,
+        EntityMappingService $entityMappingService
     ) {
         $this->moySkladService = $moySkladService;
         $this->customEntitySyncService = $customEntitySyncService;
@@ -41,6 +43,7 @@ class ProductSyncService
         $this->standardEntitySync = $standardEntitySync;
         $this->productFolderSyncService = $productFolderSyncService;
         $this->attributeSyncService = $attributeSyncService;
+        $this->entityMappingService = $entityMappingService;
     }
 
     /**
@@ -538,48 +541,103 @@ class ProductSyncService
         // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
         $productData = $this->addAdditionalFields($productData, $product, $settings);
 
-        // Создать товар
-        Log::channel('sync')->info('Creating product in child account - REQUEST', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'main_product_id' => $product['id'],
-            'product_data' => json_encode($productData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
-        ]);
+        // Проверить существование товара в child по match_field
+        $matchField = $settings->product_match_field ?? 'article';
+        $matchValue = $product[$matchField] ?? null;
 
-        $newProductResult = $this->moySkladService
-            ->setAccessToken($childAccount->access_token)
-            ->post('entity/product', $productData);
+        if ($matchValue) {
+            $mapping = $this->entityMappingService->findOrCreateProductMapping(
+                $mainAccountId,
+                $childAccountId,
+                $product['id'],
+                $matchField,
+                $matchValue
+            );
 
-        $newProduct = $newProductResult['data'];
+            if ($mapping) {
+                // Товар уже существует в child → вызвать updateProduct вместо создания
+                Log::info('Product already exists in child - updating instead of creating', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'main_product_id' => $product['id'],
+                    'child_product_id' => $mapping->child_entity_id,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue
+                ]);
 
-        Log::channel('sync')->info('Creating product in child account - RESPONSE', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'main_product_id' => $product['id'],
-            'child_product_id' => $newProduct['id'] ?? null,
-            'response_data' => json_encode($newProduct, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
-        ]);
+                return $this->updateProduct(
+                    $childAccount,
+                    $mainAccountId,
+                    $childAccountId,
+                    $product,
+                    $mapping,
+                    $settings
+                );
+            }
+        }
 
-        // Сохранить маппинг
-        EntityMapping::create([
-            'parent_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'entity_type' => 'product',
-            'parent_entity_id' => $product['id'],
-            'child_entity_id' => $newProduct['id'],
-            'sync_direction' => 'main_to_child',
-            'match_field' => $settings->product_match_field ?? 'article',
-            'match_value' => $product[$settings->product_match_field ?? 'article'] ?? null,
-        ]);
+        // Товар не найден в child → создать новый
+        try {
+            Log::channel('sync')->info('Creating product in child account - REQUEST', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'main_product_id' => $product['id'],
+                'product_data' => json_encode($productData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            ]);
 
-        Log::info('Product created in child account', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'main_product_id' => $product['id'],
-            'child_product_id' => $newProduct['id']
-        ]);
+            $newProductResult = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->post('entity/product', $productData);
 
-        return $newProduct;
+            $newProduct = $newProductResult['data'];
+
+            Log::channel('sync')->info('Creating product in child account - RESPONSE', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'main_product_id' => $product['id'],
+                'child_product_id' => $newProduct['id'] ?? null,
+                'response_data' => json_encode($newProduct, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            ]);
+
+            // Сохранить маппинг
+            EntityMapping::create([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'product',
+                'parent_entity_id' => $product['id'],
+                'child_entity_id' => $newProduct['id'],
+                'sync_direction' => 'main_to_child',
+                'match_field' => $matchField,
+                'match_value' => $matchValue,
+            ]);
+
+            Log::info('Product created in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'main_product_id' => $product['id'],
+                'child_product_id' => $newProduct['id']
+            ]);
+
+            return $newProduct;
+
+        } catch (\Exception $e) {
+            // Детальное логирование HTTP 412 ошибки
+            if (strpos($e->getMessage(), '412') !== false) {
+                Log::error('Product creation failed with HTTP 412 - uniqueness violation', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'main_product_id' => $product['id'],
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue,
+                    'product_code' => $product['code'] ?? null,
+                    'product_article' => $product['article'] ?? null,
+                    'product_external_code' => $product['externalCode'] ?? null,
+                    'product_name' => $product['name'] ?? null,
+                    'error' => $e->getMessage()
+                ]);
+            }
+            throw $e;
+        }
     }
 
     /**
