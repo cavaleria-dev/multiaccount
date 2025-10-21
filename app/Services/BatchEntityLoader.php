@@ -57,8 +57,8 @@ class BatchEntityLoader
                 $filters = json_decode($filters, true);
             }
 
-            // Загрузить metadata если фильтры в UI формате
-            if (isset($filters['groups'])) {
+            // Загрузить metadata если фильтры в UI формате (старом или новом)
+            if (isset($filters['groups']) || isset($filters['conditions'])) {
                 try {
                     $attributesMetadata = $this->attributeSyncService->loadAttributesMetadata(
                         $mainAccountId,

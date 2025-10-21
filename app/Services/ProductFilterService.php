@@ -909,56 +909,89 @@ class ProductFilterService
     /**
      * Конвертировать фильтры из UI формата в ProductFilterService формат
      *
-     * @param array $uiFilters Фильтры в UI формате {groups: [...]}
+     * Поддерживает два UI формата:
+     * - Новый (упрощенный): { conditions: [...] } - одна группа с AND логикой
+     * - Старый: { groups: [...] } - множественные группы с OR логикой (для обратной совместимости)
+     *
+     * @param array $uiFilters Фильтры в UI формате
      * @param string $mainAccountId UUID главного аккаунта
      * @param array|null $attributesMetadata Метаданные атрибутов с customEntityMeta
      * @return array Фильтры в ProductFilterService формате
      */
     public function convertFromUiFormat(array $uiFilters, string $mainAccountId, ?array $attributesMetadata = null): array
     {
-        // Если уже в правильном формате (есть enabled и conditions)
-        if (isset($uiFilters['enabled']) && isset($uiFilters['conditions'])) {
+        // Если уже в правильном формате (есть enabled)
+        if (isset($uiFilters['enabled'])) {
             return $uiFilters;
         }
 
-        // Если нет groups - пустой фильтр
-        if (!isset($uiFilters['groups']) || empty($uiFilters['groups'])) {
-            return [
-                'enabled' => false,
-                'mode' => 'whitelist',
-                'logic' => 'OR',
-                'conditions' => []
-            ];
-        }
+        // НОВЫЙ ФОРМАТ: { conditions: [...] } - упрощенный (одна группа AND)
+        if (isset($uiFilters['conditions']) && is_array($uiFilters['conditions'])) {
+            $convertedConditions = [];
 
-        $groups = $uiFilters['groups'];
-        $convertedConditions = [];
-
-        foreach ($groups as $group) {
-            $groupConditions = [];
-
-            foreach ($group['conditions'] as $condition) {
+            foreach ($uiFilters['conditions'] as $condition) {
                 $converted = $this->convertUiCondition($condition, $mainAccountId, $attributesMetadata);
                 if ($converted) {
-                    $groupConditions[] = $converted;
+                    $convertedConditions[] = $converted;
                 }
             }
 
-            // Добавить группу с логикой AND (внутри группы)
-            if (!empty($groupConditions)) {
-                $convertedConditions[] = [
-                    'type' => 'group',
-                    'logic' => 'AND',
-                    'conditions' => $groupConditions
-                ];
-            }
+            return [
+                'enabled' => !empty($convertedConditions),
+                'mode' => 'whitelist',
+                'logic' => 'AND',  // Все условия объединяются по И
+                'conditions' => $convertedConditions
+            ];
         }
 
+        // СТАРЫЙ ФОРМАТ: { groups: [...] } - для обратной совместимости
+        if (isset($uiFilters['groups']) && is_array($uiFilters['groups'])) {
+            if (empty($uiFilters['groups'])) {
+                return [
+                    'enabled' => false,
+                    'mode' => 'whitelist',
+                    'logic' => 'OR',
+                    'conditions' => []
+                ];
+            }
+
+            $groups = $uiFilters['groups'];
+            $convertedConditions = [];
+
+            foreach ($groups as $group) {
+                $groupConditions = [];
+
+                foreach ($group['conditions'] as $condition) {
+                    $converted = $this->convertUiCondition($condition, $mainAccountId, $attributesMetadata);
+                    if ($converted) {
+                        $groupConditions[] = $converted;
+                    }
+                }
+
+                // Добавить группу с логикой AND (внутри группы)
+                if (!empty($groupConditions)) {
+                    $convertedConditions[] = [
+                        'type' => 'group',
+                        'logic' => 'AND',
+                        'conditions' => $groupConditions
+                    ];
+                }
+            }
+
+            return [
+                'enabled' => true,
+                'mode' => 'whitelist',
+                'logic' => 'OR',  // Между группами
+                'conditions' => $convertedConditions
+            ];
+        }
+
+        // Пустой фильтр (ни conditions, ни groups)
         return [
-            'enabled' => true,
+            'enabled' => false,
             'mode' => 'whitelist',
-            'logic' => 'OR',  // Между группами
-            'conditions' => $convertedConditions
+            'logic' => 'AND',
+            'conditions' => []
         ];
     }
 
