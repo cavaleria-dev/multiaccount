@@ -102,6 +102,113 @@ class BatchEntityLoader
     }
 
     /**
+     * Загрузить сущности через /entity/assortment и создать batch задачи
+     *
+     * Универсальный метод для одновременной загрузки product/service/bundle.
+     * Использует общие фильтры (атрибуты, папки) и применяет индивидуальные
+     * match_field проверки для каждого типа.
+     *
+     * @param array $entityTypes Массив типов ['product', 'service', 'bundle']
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $accessToken Access token
+     * @param SyncSetting|null $syncSettings Настройки синхронизации
+     * @return int Общее количество созданных задач
+     * @throws \Exception
+     */
+    public function loadAndCreateAssortmentBatchTasks(
+        array $entityTypes,
+        string $mainAccountId,
+        string $childAccountId,
+        string $accessToken,
+        ?SyncSetting $syncSettings = null
+    ): int {
+        if (empty($entityTypes)) {
+            Log::warning("No entity types provided for assortment batch tasks");
+            return 0;
+        }
+
+        // 1. Подготовить фильтры (общие для всех типов)
+        $filters = null;
+        $attributesMetadata = null;
+
+        if ($syncSettings && $syncSettings->product_filters_enabled && $syncSettings->product_filters) {
+            $filters = $syncSettings->product_filters;
+            if (is_string($filters)) {
+                $filters = json_decode($filters, true);
+            }
+
+            // Загрузить metadata (product metadata общие для всех типов)
+            if (isset($filters['groups']) || isset($filters['conditions'])) {
+                try {
+                    $attributesMetadata = $this->attributeSyncService->loadAttributesMetadata(
+                        $mainAccountId,
+                        'product'  // Всегда product (общие атрибуты для product/service/bundle)
+                    );
+                } catch (\Exception $e) {
+                    Log::warning('Failed to load attributes metadata for assortment filters', [
+                        'entity_types' => $entityTypes,
+                        'main_account_id' => $mainAccountId,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+        }
+
+        // 2. Загрузить ВСЕ сущности через /entity/assortment
+        $allEntities = $this->loadFromAssortment(
+            $entityTypes,
+            $mainAccountId,
+            $childAccountId,
+            $accessToken,
+            $filters,
+            $attributesMetadata
+        );
+
+        // 3. Разделить по типам и создать задачи для каждого типа
+        $totalTasksCreated = 0;
+
+        foreach ($entityTypes as $entityType) {
+            // 3.1 Отфильтровать сущности по типу
+            $entitiesOfType = array_filter($allEntities, function($entity) use ($entityType) {
+                $metaType = $this->extractEntityTypeFromMeta($entity['meta']['type'] ?? '');
+                return $metaType === $entityType;
+            });
+
+            // Сбросить ключи массива (array_filter сохраняет ключи)
+            $entitiesOfType = array_values($entitiesOfType);
+
+            Log::debug("Entities filtered by type", [
+                'entity_type' => $entityType,
+                'count' => count($entitiesOfType)
+            ]);
+
+            // 3.2 Применить match_field фильтр (индивидуально для каждого типа)
+            $config = EntityConfig::get($entityType);
+            if ($config['has_match_field_check'] && $syncSettings) {
+                $entitiesOfType = $this->filterByMatchField($entitiesOfType, $entityType, $syncSettings);
+            }
+
+            // 3.3 Создать batch задачи для этого типа
+            $tasksCreated = $this->createBatchTasks(
+                $entitiesOfType,
+                $entityType,
+                $mainAccountId,
+                $childAccountId
+            );
+
+            $totalTasksCreated += $tasksCreated;
+        }
+
+        Log::info("Assortment batch tasks created", [
+            'entity_types' => $entityTypes,
+            'total_tasks_created' => $totalTasksCreated
+        ]);
+
+        return $totalTasksCreated;
+    }
+
+    /**
      * Определить оптимальную стратегию загрузки
      *
      * @param array|null $filters Фильтры
@@ -712,5 +819,109 @@ class BatchEntityLoader
         ]);
 
         return $tasksCreated;
+    }
+
+    /**
+     * Загрузить сущности из /entity/assortment
+     *
+     * Универсальный endpoint для загрузки product/service/bundle с общими фильтрами.
+     *
+     * @param array $entityTypes Массив типов для загрузки ['product', 'service', 'bundle']
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $accessToken Access token
+     * @param array|null $filters Фильтры (папки, атрибуты)
+     * @param array|null $attributesMetadata Метаданные атрибутов
+     * @return array Массив всех загруженных сущностей
+     */
+    protected function loadFromAssortment(
+        array $entityTypes,
+        string $mainAccountId,
+        string $childAccountId,
+        string $accessToken,
+        ?array $filters,
+        ?array $attributesMetadata
+    ): array {
+        $entities = [];
+        $offset = 0;
+        $limit = 100;
+
+        // Построить фильтр по типам: type=product;type=service;type=bundle
+        $typeFilters = array_map(fn($t) => "type=$t", $entityTypes);
+        $typeFilterString = implode(';', $typeFilters);
+
+        // Построить пользовательский API фильтр
+        $userFilterString = null;
+        if ($filters) {
+            $userFilterString = $this->filterService->buildApiFilter($filters, $mainAccountId, $attributesMetadata);
+        }
+
+        // Объединить фильтры
+        $finalFilter = $typeFilterString;
+        if ($userFilterString) {
+            $finalFilter .= ';' . $userFilterString;
+        }
+
+        Log::info("Loading assortment with combined types", [
+            'entity_types' => $entityTypes,
+            'type_filter' => $typeFilterString,
+            'user_filter' => $userFilterString,
+            'final_filter' => $finalFilter
+        ]);
+
+        do {
+            $params = [
+                'limit' => $limit,
+                'offset' => $offset,
+                'expand' => 'attributes,productFolder,uom,country,packs.uom,salePrices,components.product,components.variant',
+                'filter' => $finalFilter
+            ];
+
+            $response = $this->moySkladService
+                ->setAccessToken($accessToken)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: 'assortment',
+                    entityId: null
+                )
+                ->get('/entity/assortment', $params);
+
+            $rows = $response['data']['rows'] ?? [];
+            $pageCount = count($rows);
+
+            $entities = array_merge($entities, $rows);
+
+            $offset += $limit;
+
+        } while ($pageCount === $limit);
+
+        Log::info("Finished loading assortment", [
+            'entity_types' => $entityTypes,
+            'total_loaded' => count($entities)
+        ]);
+
+        return $entities;
+    }
+
+    /**
+     * Извлечь тип сущности из meta.type
+     *
+     * МойСклад может возвращать либо короткую форму ("product"), либо полный URL.
+     *
+     * @param string $metaType Значение meta.type
+     * @return string Тип сущности (product/service/bundle/variant)
+     */
+    protected function extractEntityTypeFromMeta(string $metaType): string
+    {
+        // Если это полный URL (https://api.moysklad.ru/api/remap/1.2/entity/product)
+        if (str_contains($metaType, '/')) {
+            $parts = explode('/', $metaType);
+            return end($parts);
+        }
+
+        // Иначе это уже короткая форма ("product")
+        return $metaType;
     }
 }

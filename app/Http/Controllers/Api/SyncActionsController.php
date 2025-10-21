@@ -64,10 +64,23 @@ class SyncActionsController extends Controller
 
             Log::info('Dependencies pre-cached for batch sync');
 
-            // Синхронизировать товары (product)
+            // УНИФИЦИРОВАННАЯ СИНХРОНИЗАЦИЯ через /entity/assortment
+            // Определить какие типы сущностей нужно синхронизировать
+            $enabledTypes = [];
             if ($syncSettings->sync_products) {
-                $tasksCreated += $batchLoader->loadAndCreateBatchTasks(
-                    'product',
+                $enabledTypes[] = 'product';
+            }
+            if ($syncSettings->sync_services ?? false) {
+                $enabledTypes[] = 'service';
+            }
+            if ($syncSettings->sync_bundles) {
+                $enabledTypes[] = 'bundle';
+            }
+
+            // Загрузить все включенные типы одним запросом через assortment
+            if (!empty($enabledTypes)) {
+                $tasksCreated += $batchLoader->loadAndCreateAssortmentBatchTasks(
+                    $enabledTypes,
                     $mainAccountId,
                     $accountId,
                     $mainAccount->access_token,
@@ -75,35 +88,14 @@ class SyncActionsController extends Controller
                 );
             }
 
-            // Синхронизировать модификации (variant)
+            // Синхронизировать модификации (variant) отдельно
+            // Variants используют другую логику (группировка по родительскому товару)
             if ($syncSettings->sync_variants) {
                 $tasksCreated += $this->createBatchVariantTasks(
                     app(MoySkladService::class),
                     $mainAccount->access_token,
                     $mainAccountId,
                     $accountId
-                );
-            }
-
-            // Синхронизировать комплекты (bundle)
-            if ($syncSettings->sync_bundles) {
-                $tasksCreated += $batchLoader->loadAndCreateBatchTasks(
-                    'bundle',
-                    $mainAccountId,
-                    $accountId,
-                    $mainAccount->access_token,
-                    $syncSettings
-                );
-            }
-
-            // Синхронизировать услуги (service)
-            if ($syncSettings->sync_services ?? false) {
-                $tasksCreated += $batchLoader->loadAndCreateBatchTasks(
-                    'service',
-                    $mainAccountId,
-                    $accountId,
-                    $mainAccount->access_token,
-                    $syncSettings
                 );
             }
 

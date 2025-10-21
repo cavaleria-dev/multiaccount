@@ -34,7 +34,7 @@ class EntityConfig
             'endpoint' => '/entity/service',
             'expand' => 'attributes,uom,salePrices',
             'batch_entity_type' => 'batch_services',
-            'filter_metadata_type' => 'service',
+            'filter_metadata_type' => 'product',  // Service использует product metadata (общие атрибуты)
             'supports_filters' => true,
             'use_assortment_for_filters' => true,  // Использовать /entity/assortment для фильтрации
             'assortment_type' => 'service',        // Тип для параметра type=
