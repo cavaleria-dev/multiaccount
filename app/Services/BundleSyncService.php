@@ -61,6 +61,13 @@ class BundleSyncService
             $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
             $bundleResult = $this->moySkladService
                 ->setAccessToken($mainAccount->access_token)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: 'bundle',
+                    entityId: $bundleId
+                )
                 ->get("entity/bundle/{$bundleId}", ['expand' => 'components.assortment']);
 
             $bundle = $bundleResult['data'];
@@ -172,6 +179,13 @@ class BundleSyncService
         // Создать комплект
         $newBundleResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
+            ->setLogContext(
+                accountId: $mainAccountId,
+                direction: 'main_to_child',
+                relatedAccountId: $childAccountId,
+                entityType: 'bundle',
+                entityId: $bundle['id']
+            )
             ->post('entity/bundle', $bundleData);
 
         $newBundle = $newBundleResult['data'];
@@ -232,6 +246,13 @@ class BundleSyncService
         // Обновить комплект
         $updatedBundleResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
+            ->setLogContext(
+                accountId: $mainAccountId,
+                direction: 'main_to_child',
+                relatedAccountId: $childAccountId,
+                entityType: 'bundle',
+                entityId: $bundle['id']
+            )
             ->put("entity/bundle/{$mapping->child_entity_id}", $bundleData);
 
         Log::info('Bundle updated in child account', [
@@ -345,6 +366,13 @@ class BundleSyncService
                     // Архивировать комплект в дочернем аккаунте
                     $this->moySkladService
                         ->setAccessToken($childAccount->access_token)
+                        ->setLogContext(
+                            accountId: $mainAccountId,
+                            direction: 'main_to_child',
+                            relatedAccountId: $mapping->child_account_id,
+                            entityType: 'bundle',
+                            entityId: $bundleId
+                        )
                         ->put("entity/bundle/{$mapping->child_entity_id}", [
                             'archived' => true
                         ]);

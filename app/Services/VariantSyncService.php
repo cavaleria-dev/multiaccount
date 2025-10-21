@@ -53,6 +53,13 @@ class VariantSyncService
             $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
             $variantResult = $this->moySkladService
                 ->setAccessToken($mainAccount->access_token)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: 'variant',
+                    entityId: $variantId
+                )
                 ->get("entity/variant/{$variantId}", ['expand' => 'product.salePrices,characteristics,packs.uom']);
 
             $variant = $variantResult['data'];
@@ -311,6 +318,13 @@ class VariantSyncService
         // Создать модификацию
         $newVariantResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
+            ->setLogContext(
+                accountId: $childAccountId,
+                direction: 'main_to_child',
+                relatedAccountId: $mainAccountId,
+                entityType: 'variant',
+                entityId: $variant['id']
+            )
             ->post('entity/variant', $variantData);
 
         $newVariant = $newVariantResult['data'];
@@ -452,6 +466,13 @@ class VariantSyncService
         // Обновить модификацию
         $updatedVariantResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
+            ->setLogContext(
+                accountId: $childAccountId,
+                direction: 'main_to_child',
+                relatedAccountId: $mainAccountId,
+                entityType: 'variant',
+                entityId: $variant['id']
+            )
             ->put("entity/variant/{$variantMapping->child_entity_id}", $variantData);
 
         // Логировать отправленные данные
@@ -536,6 +557,13 @@ class VariantSyncService
 
             $result = $this->moySkladService
                 ->setAccessToken($childAccount->access_token)
+                ->setLogContext(
+                    accountId: $childAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $mainAccountId,
+                    entityType: 'characteristic',
+                    entityId: null
+                )
                 ->post('entity/variant/metadata/characteristics', $charData);
 
             $newChar = $result['data'];
@@ -606,6 +634,13 @@ class VariantSyncService
                     // Архивировать модификацию в дочернем аккаунте
                     $this->moySkladService
                         ->setAccessToken($childAccount->access_token)
+                        ->setLogContext(
+                            accountId: $mainAccountId,
+                            direction: 'main_to_child',
+                            relatedAccountId: $mapping->child_account_id,
+                            entityType: 'variant',
+                            entityId: $variantId
+                        )
                         ->put("entity/variant/{$mapping->child_entity_id}", [
                             'archived' => true
                         ]);

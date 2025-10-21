@@ -309,6 +309,13 @@ class AttributeSyncService
             // Создать атрибут в целевом аккаунте
             $result = $this->moySkladService
                 ->setAccessToken($targetAccount->access_token)
+                ->setLogContext(
+                    accountId: $targetAccountId,
+                    direction: $direction,
+                    relatedAccountId: $sourceAccountId,
+                    entityType: 'attribute',
+                    entityId: null
+                )
                 ->post("entity/{$metadataEntityType}/metadata/attributes", $attributeData);
 
             $newAttribute = $result['data'];
@@ -431,6 +438,13 @@ class AttributeSyncService
             // МойСклад API: для product/service/bundle всегда используем /entity/product/metadata/attributes
             $response = $this->moySkladService
                 ->setAccessToken($account->access_token)
+                ->setLogContext(
+                    accountId: $accountId,
+                    direction: 'internal',
+                    relatedAccountId: null,
+                    entityType: 'attribute_metadata',
+                    entityId: null
+                )
                 ->get("entity/{$metadataEntityType}/metadata/attributes");
 
             $metadata = [];
@@ -476,6 +490,13 @@ class AttributeSyncService
 
             $response = $this->moySkladService
                 ->setAccessToken($account->access_token)
+                ->setLogContext(
+                    accountId: $accountId,
+                    direction: 'internal',
+                    relatedAccountId: null,
+                    entityType: 'customentity_metadata',
+                    entityId: $customEntityId
+                )
                 ->get("context/companysettings/metadata/customEntities/{$customEntityId}");
 
             $metadata = $response['data'] ?? null;
