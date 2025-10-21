@@ -85,10 +85,10 @@ class BatchEntityLoader
 
         // Выполнить загрузку по выбранной стратегии
         $entities = match($strategy) {
-            'no_filter' => $this->loadAll($entityType, $mainAccountId, $accessToken),
-            'single_api_filter' => $this->loadWithSingleFilter($entityType, $mainAccountId, $accessToken, $filters, $attributesMetadata),
-            'multiple_api_filters' => $this->loadWithMultipleFilters($entityType, $mainAccountId, $accessToken, $filters, $attributesMetadata),
-            'client_side' => $this->loadAllAndFilterClientSide($entityType, $mainAccountId, $accessToken, $filters, $attributesMetadata),
+            'no_filter' => $this->loadAll($entityType, $mainAccountId, $childAccountId, $accessToken),
+            'single_api_filter' => $this->loadWithSingleFilter($entityType, $mainAccountId, $childAccountId, $accessToken, $filters, $attributesMetadata),
+            'multiple_api_filters' => $this->loadWithMultipleFilters($entityType, $mainAccountId, $childAccountId, $accessToken, $filters, $attributesMetadata),
+            'client_side' => $this->loadAllAndFilterClientSide($entityType, $mainAccountId, $childAccountId, $accessToken, $filters, $attributesMetadata),
             default => throw new \Exception("Unknown strategy: {$strategy}")
         };
 
@@ -179,10 +179,11 @@ class BatchEntityLoader
      *
      * @param string $entityType Тип сущности
      * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
      * @param string $accessToken Access token
      * @return array Массив сущностей
      */
-    protected function loadAll(string $entityType, string $mainAccountId, string $accessToken): array
+    protected function loadAll(string $entityType, string $mainAccountId, string $childAccountId, string $accessToken): array
     {
         $config = EntityConfig::get($entityType);
         $entities = [];
@@ -243,6 +244,7 @@ class BatchEntityLoader
      *
      * @param string $entityType Тип сущности
      * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
      * @param string $accessToken Access token
      * @param array $filters Фильтры
      * @param array|null $attributesMetadata Метаданные атрибутов
@@ -251,6 +253,7 @@ class BatchEntityLoader
     protected function loadWithSingleFilter(
         string $entityType,
         string $mainAccountId,
+        string $childAccountId,
         string $accessToken,
         array $filters,
         ?array $attributesMetadata
@@ -269,7 +272,7 @@ class BatchEntityLoader
         if ($apiFilterString === null) {
             // Не должно произойти (determineStrategy проверил), но на всякий случай
             Log::warning("API filter returned null in single_api_filter strategy, fallback to client-side");
-            return $this->loadAllAndFilterClientSide($entityType, $mainAccountId, $accessToken, $filters, $attributesMetadata);
+            return $this->loadAllAndFilterClientSide($entityType, $mainAccountId, $childAccountId, $accessToken, $filters, $attributesMetadata);
         }
 
         $entities = [];
@@ -332,7 +335,7 @@ class BatchEntityLoader
                     ]);
 
                     // Fallback на client-side фильтрацию
-                    return $this->loadAllAndFilterClientSide($entityType, $mainAccountId, $accessToken, $filters, $attributesMetadata);
+                    return $this->loadAllAndFilterClientSide($entityType, $mainAccountId, $childAccountId, $accessToken, $filters, $attributesMetadata);
                 }
 
                 // Для других ошибок - пробросить дальше
@@ -356,6 +359,7 @@ class BatchEntityLoader
      *
      * @param string $entityType Тип сущности
      * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
      * @param string $accessToken Access token
      * @param array $filters Фильтры
      * @param array|null $attributesMetadata Метаданные атрибутов
@@ -364,6 +368,7 @@ class BatchEntityLoader
     protected function loadWithMultipleFilters(
         string $entityType,
         string $mainAccountId,
+        string $childAccountId,
         string $accessToken,
         array $filters,
         ?array $attributesMetadata
@@ -384,7 +389,7 @@ class BatchEntityLoader
 
         if (empty($groups)) {
             Log::warning("No groups found in multiple_api_filters strategy");
-            return $this->loadAll($entityType, $mainAccountId, $accessToken);
+            return $this->loadAll($entityType, $mainAccountId, $childAccountId, $accessToken);
         }
 
         $uniqueEntities = [];  // [entity_id => entity_data]
@@ -482,7 +487,7 @@ class BatchEntityLoader
                         ]);
 
                         // Fallback на client-side для ВСЕГО фильтра (не можем продолжить с API фильтрами)
-                        return $this->loadAllAndFilterClientSide($entityType, $mainAccountId, $accessToken, $filters, $attributesMetadata);
+                        return $this->loadAllAndFilterClientSide($entityType, $mainAccountId, $childAccountId, $accessToken, $filters, $attributesMetadata);
                     }
 
                     // Для других ошибок - пробросить дальше
@@ -519,6 +524,7 @@ class BatchEntityLoader
      *
      * @param string $entityType Тип сущности
      * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
      * @param string $accessToken Access token
      * @param array $filters Фильтры
      * @param array|null $attributesMetadata Метаданные атрибутов
@@ -527,6 +533,7 @@ class BatchEntityLoader
     protected function loadAllAndFilterClientSide(
         string $entityType,
         string $mainAccountId,
+        string $childAccountId,
         string $accessToken,
         array $filters,
         ?array $attributesMetadata
