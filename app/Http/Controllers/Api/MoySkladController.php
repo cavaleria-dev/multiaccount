@@ -56,7 +56,7 @@ class MoySkladController extends Controller
             // Получение данных из запроса (правильная структура от МойСклад)
             $appUid = $request->input('appUid');
             $accountName = $request->input('accountName');
-            $cause = $request->input('cause'); // Install, StatusUpdate, TariffChanged
+            $cause = $request->input('cause'); // Install, Resume, StatusUpdate, TariffChanged
             $access = $request->input('access', []);
             $subscription = $request->input('subscription', []);
 
@@ -169,8 +169,8 @@ class MoySkladController extends Controller
                 ], 200);
             }
 
-            if ($cause === 'StatusUpdate') {
-                // Обновление статуса (обычно возобновление после приостановки)
+            if ($cause === 'Resume' || $cause === 'StatusUpdate') {
+                // Возобновление работы после приостановки или обновление статуса
                 if ($account) {
                     $updateData = [
                         'subscription_status' => $subscription['trial'] ?? false ? 'Trial' : 'Active',
@@ -191,7 +191,8 @@ class MoySkladController extends Controller
 
                         Log::info('МойСклад: Приложение возобновлено', [
                             'accountId' => $accountId,
-                            'previous_status' => $account->status
+                            'previous_status' => $account->status,
+                            'cause' => $cause
                         ]);
                     }
 
@@ -199,8 +200,9 @@ class MoySkladController extends Controller
                         ->where('account_id', $accountId)
                         ->update($updateData);
                 } else {
-                    Log::warning('МойСклад: StatusUpdate для несуществующего аккаунта', [
-                        'accountId' => $accountId
+                    Log::warning('МойСклад: Resume/StatusUpdate для несуществующего аккаунта', [
+                        'accountId' => $accountId,
+                        'cause' => $cause
                     ]);
                 }
 
