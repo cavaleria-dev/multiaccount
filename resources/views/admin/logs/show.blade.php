@@ -46,31 +46,62 @@
         <div>
             <h3 class="font-semibold text-lg mb-3">Контекст</h3>
             <dl class="space-y-2">
+                @php
+                    // Определить кто main, кто child на основе связи в child_accounts
+                    $isAccountMain = DB::table('child_accounts')
+                        ->where('parent_account_id', $log->account_id)
+                        ->exists();
+
+                    // Если account_id является parent, значит он главный
+                    if ($isAccountMain) {
+                        $mainAccount = $log->account;
+                        $mainAccountId = $log->account_id;
+                        $childAccount = $log->relatedAccount;
+                        $childAccountId = $log->related_account_id;
+                    } else {
+                        // Иначе account_id - дочерний, related - главный
+                        $mainAccount = $log->relatedAccount;
+                        $mainAccountId = $log->related_account_id;
+                        $childAccount = $log->account;
+                        $childAccountId = $log->account_id;
+                    }
+                @endphp
+
                 <div>
-                    <dt class="text-sm text-gray-600">Аккаунт:</dt>
+                    <dt class="text-sm text-gray-600">Главный аккаунт:</dt>
                     <dd>
-                        <div class="font-medium">{{ $log->account?->account_name ?? 'Неизвестный' }}</div>
-                        <div class="font-mono text-xs text-gray-500" title="{{ $log->account_id }}">
-                            {{ Str::limit($log->account_id, 20) }}
-                        </div>
+                        <div class="font-medium">{{ $mainAccount?->account_name ?? 'Неизвестный' }}</div>
+                        @if($mainAccountId)
+                            <div class="font-mono text-xs text-gray-500" title="{{ $mainAccountId }}">
+                                {{ Str::limit($mainAccountId, 20) }}
+                            </div>
+                        @endif
                     </dd>
                 </div>
-                @if($log->related_account_id)
+
+                @if($childAccountId)
                     <div>
-                        <dt class="text-sm text-gray-600">Связанный аккаунт:</dt>
+                        <dt class="text-sm text-gray-600">Дочерний аккаунт:</dt>
                         <dd>
-                            <div class="font-medium">{{ $log->relatedAccount?->account_name ?? 'Неизвестный' }}</div>
-                            <div class="font-mono text-xs text-gray-500" title="{{ $log->related_account_id }}">
-                                {{ Str::limit($log->related_account_id, 20) }}
+                            <div class="font-medium">{{ $childAccount?->account_name ?? 'Неизвестный' }}</div>
+                            <div class="font-mono text-xs text-gray-500" title="{{ $childAccountId }}">
+                                {{ Str::limit($childAccountId, 20) }}
                             </div>
                         </dd>
                     </div>
                 @endif
+
                 <div>
                     <dt class="text-sm text-gray-600">Направление:</dt>
                     <dd>
                         @if($log->direction === 'main_to_child')
-                            <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">Главный → Дочерний</span>
+                            @if(!$log->related_account_id)
+                                {{-- Запрос К главному аккаунту (чтение из источника) --}}
+                                <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">Главный</span>
+                            @else
+                                {{-- Синхронизация ИЗ главного В дочерний --}}
+                                <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">Главный → Дочерний</span>
+                            @endif
                         @elseif($log->direction === 'child_to_main')
                             <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">Дочерний → Главный</span>
                         @elseif($log->direction === 'internal')
@@ -80,6 +111,7 @@
                         @endif
                     </dd>
                 </div>
+
                 <div>
                     <dt class="text-sm text-gray-600">Тип сущности:</dt>
                     <dd>{{ $log->entity_type ?? 'N/A' }}</dd>
@@ -97,6 +129,14 @@
         <h3 class="font-semibold text-lg mb-2">Endpoint</h3>
         <pre class="bg-gray-100 p-3 rounded overflow-x-auto text-sm">{{ $log->endpoint }}</pre>
     </div>
+
+    {{-- Request Parameters (GET/POST params) --}}
+    @if($log->request_params && count($log->request_params) > 0)
+        <div class="mb-6">
+            <h3 class="font-semibold text-lg mb-2">Параметры запроса</h3>
+            <pre class="bg-blue-50 p-3 rounded overflow-x-auto text-xs border border-blue-200">{{ json_encode($log->request_params, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) }}</pre>
+        </div>
+    @endif
 
     {{-- Ошибка --}}
     @if($log->error_message)

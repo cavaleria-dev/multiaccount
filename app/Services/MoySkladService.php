@@ -185,7 +185,7 @@ class MoySkladService
             $statusHandling = $this->handleSpecialHttpStatus($responseStatus, $rateLimitInfo);
             if ($statusHandling !== null) {
                 $errorMessage = $statusHandling['message'];
-                $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
+                $this->logApiRequest($method, $url, $params, $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
                 $logged = true; // Отметить что залогировали
 
                 // Если статус требует exception, выбрасываем
@@ -222,14 +222,14 @@ class MoySkladService
                 ]);
 
                 // Логировать запрос
-                $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
+                $this->logApiRequest($method, $url, $params, $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
                 $logged = true; // Отметить что залогировали
 
                 throw new \Exception($errorMessage);
             }
 
             // Логировать успешный запрос
-            $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, null, $rateLimitInfo, $startTime);
+            $this->logApiRequest($method, $url, $params, $data, $responseStatus, $responseBody, null, $rateLimitInfo, $startTime);
             $logged = true; // Отметить что залогировали
 
             // Вернуть данные вместе с информацией о rate limits
@@ -259,7 +259,7 @@ class MoySkladService
                 if ($responseStatus === null) {
                     $responseStatus = 0; // Сетевая ошибка или exception до получения ответа
                 }
-                $this->logApiRequest($method, $url, $params ?: $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
+                $this->logApiRequest($method, $url, $params, $data, $responseStatus, $responseBody, $errorMessage, $rateLimitInfo, $startTime);
             }
 
             throw $e;
@@ -272,7 +272,8 @@ class MoySkladService
     protected function logApiRequest(
         string $method,
         string $url,
-        array $requestPayload,
+        array $params,
+        array $data,
         ?int $responseStatus,
         $responseBody,
         ?string $errorMessage,
@@ -286,6 +287,9 @@ class MoySkladService
 
         $durationMs = (int)((microtime(true) - $startTime) * 1000);
 
+        // Определить что использовать как payload (для POST/PUT используем data, для GET - пусто)
+        $requestPayload = $method === 'GET' ? [] : $data;
+
         $this->apiLogService->logRequest([
             'account_id' => $this->accountId,
             'direction' => $this->direction,
@@ -294,7 +298,8 @@ class MoySkladService
             'entity_id' => $this->entityId,
             'method' => $method,
             'endpoint' => $url,
-            'request_payload' => $requestPayload,
+            'request_params' => $params,  // GET параметры или POST body metadata
+            'request_payload' => $requestPayload,  // POST/PUT body данные
             'response_status' => $responseStatus,
             'response_body' => $responseBody,
             'error_message' => $errorMessage,

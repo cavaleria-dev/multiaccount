@@ -19,6 +19,7 @@ class MoySkladApiLog extends Model
         'entity_id',
         'method',
         'endpoint',
+        'request_params',
         'request_payload',
         'response_status',
         'response_body',
@@ -28,6 +29,7 @@ class MoySkladApiLog extends Model
     ];
 
     protected $casts = [
+        'request_params' => 'array',
         'request_payload' => 'array',
         'response_body' => 'array',
         'rate_limit_info' => 'array',

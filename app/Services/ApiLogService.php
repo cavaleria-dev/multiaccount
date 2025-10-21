@@ -25,6 +25,7 @@ class ApiLogService
                 'entity_id' => $data['entity_id'] ?? null,
                 'method' => $data['method'],
                 'endpoint' => $data['endpoint'],
+                'request_params' => $data['request_params'] ?? null,
                 'request_payload' => $data['request_payload'] ?? null,
                 'response_status' => $data['response_status'],
                 'response_body' => $data['response_body'] ?? null,
