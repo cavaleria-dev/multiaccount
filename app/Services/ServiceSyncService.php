@@ -390,7 +390,8 @@ class ServiceSyncService
 
                 $syncedAttributes[] = [
                     'meta' => [
-                        'href' => config('moysklad.api_url') . "/entity/service/metadata/attributes/{$mapping->child_attribute_id}",
+                        // МойСклад API: для service используем endpoint product/metadata/attributes
+                        'href' => config('moysklad.api_url') . "/entity/product/metadata/attributes/{$mapping->child_attribute_id}",
                         'type' => 'attributemetadata',
                         'mediaType' => 'application/json'
                     ],

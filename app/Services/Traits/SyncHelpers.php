@@ -421,6 +421,10 @@ trait SyncHelpers
     {
         // Если фильтры отключены - пропускаем все сущности
         if (!$settings->product_filters_enabled) {
+            Log::debug('Filters disabled, entity passes', [
+                'entity_id' => $entity['id'] ?? 'unknown',
+                'entity_type' => $entity['meta']['type'] ?? 'unknown'
+            ]);
             return true;
         }
 
@@ -429,6 +433,10 @@ trait SyncHelpers
 
         // Если фильтры не заданы - пропускаем все сущности
         if (!$filters) {
+            Log::debug('No filters configured, entity passes', [
+                'entity_id' => $entity['id'] ?? 'unknown',
+                'entity_type' => $entity['meta']['type'] ?? 'unknown'
+            ]);
             return true;
         }
 
@@ -459,12 +467,19 @@ trait SyncHelpers
                         $mainAccountId,
                         $entityType
                     );
+
+                    Log::debug('Attributes metadata loaded for filters', [
+                        'entity_id' => $entity['id'] ?? 'unknown',
+                        'entity_type' => $entityType,
+                        'metadata_count' => count($attributesMetadata)
+                    ]);
                 }
             } catch (\Exception $e) {
                 // Если не удалось загрузить metadata - продолжить без неё
                 // Фильтрация будет работать по UUID вместо href
                 Log::warning('Failed to load attributes metadata for filters', [
                     'main_account_id' => $mainAccountId,
+                    'entity_id' => $entity['id'] ?? 'unknown',
                     'entity_type' => $entityType,
                     'error' => $e->getMessage()
                 ]);
@@ -472,7 +487,18 @@ trait SyncHelpers
         }
 
         // Применить фильтры с metadata
-        return $this->productFilterService->passes($entity, $filters, $mainAccountId, $attributesMetadata);
+        $passes = $this->productFilterService->passes($entity, $filters, $mainAccountId, $attributesMetadata);
+
+        Log::info('Filter check result', [
+            'entity_id' => $entity['id'] ?? 'unknown',
+            'entity_type' => $entity['meta']['type'] ?? 'unknown',
+            'entity_name' => $entity['name'] ?? 'unknown',
+            'passes' => $passes,
+            'filters_enabled' => $settings->product_filters_enabled,
+            'has_metadata' => $attributesMetadata !== null
+        ]);
+
+        return $passes;
     }
 
 }

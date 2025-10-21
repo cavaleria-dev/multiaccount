@@ -345,10 +345,15 @@ class DependencyCacheService
         $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
         $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
 
+        // МойСклад API: для product/service/bundle используем единый endpoint
+        $metadataEntityType = in_array($entityType, ['product', 'service', 'bundle'])
+            ? 'product'
+            : $entityType;
+
         // Загрузить метаданные атрибутов из MAIN
         $mainResponse = $this->moySkladService
             ->setAccessToken($mainAccount->access_token)
-            ->get("/entity/{$entityType}/metadata/attributes", ['limit' => 1000]);
+            ->get("/entity/{$metadataEntityType}/metadata/attributes", ['limit' => 1000]);
 
         $mainAttributes = $mainResponse['data']['rows'] ?? [];
 
@@ -360,7 +365,7 @@ class DependencyCacheService
         // Загрузить метаданные атрибутов из CHILD
         $childResponse = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
-            ->get("/entity/{$entityType}/metadata/attributes", ['limit' => 1000]);
+            ->get("/entity/{$metadataEntityType}/metadata/attributes", ['limit' => 1000]);
 
         $childAttributes = $childResponse['data']['rows'] ?? [];
 
@@ -446,7 +451,7 @@ class DependencyCacheService
                 try {
                     $result = $this->moySkladService
                         ->setAccessToken($childAccount->access_token)
-                        ->post("/entity/{$entityType}/metadata/attributes", $attributeData);
+                        ->post("/entity/{$metadataEntityType}/metadata/attributes", $attributeData);
 
                     $childAttr = $result['data'];
                 } catch (\Exception $e) {

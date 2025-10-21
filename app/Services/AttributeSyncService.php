@@ -130,9 +130,14 @@ class AttributeSyncService
                 ? $attributeMapping->child_attribute_id
                 : $attributeMapping->parent_attribute_id;
 
+            // МойСклад API: для product/service/bundle используем единый endpoint
+            $metadataEntityType = in_array($entityType, ['product', 'service', 'bundle'])
+                ? 'product'
+                : $entityType;
+
             $syncedAttributes[] = [
                 'meta' => [
-                    'href' => config('moysklad.api_url') . "/entity/{$entityType}/metadata/attributes/{$targetAttributeId}",
+                    'href' => config('moysklad.api_url') . "/entity/{$metadataEntityType}/metadata/attributes/{$targetAttributeId}",
                     'type' => 'attributemetadata',
                     'mediaType' => 'application/json'
                 ],
@@ -296,10 +301,15 @@ class AttributeSyncService
                 ];
             }
 
+            // МойСклад API: для product/service/bundle используем единый endpoint
+            $metadataEntityType = in_array($entityType, ['product', 'service', 'bundle'])
+                ? 'product'
+                : $entityType;
+
             // Создать атрибут в целевом аккаунте
             $result = $this->moySkladService
                 ->setAccessToken($targetAccount->access_token)
-                ->post("entity/{$entityType}/metadata/attributes", $attributeData);
+                ->post("entity/{$metadataEntityType}/metadata/attributes", $attributeData);
 
             $newAttribute = $result['data'];
 
