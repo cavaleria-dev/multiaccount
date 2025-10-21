@@ -60,7 +60,7 @@ class SyncActionsController extends Controller
         try {
             // ПРЕ-КЕШ ЗАВИСИМОСТЕЙ (один раз для всех типов сущностей)
             $cacheService = app(\App\Services\DependencyCacheService::class);
-            $cacheService->cacheAll($mainAccountId, $accountId);
+            $cacheService->cacheAll($mainAccountId, $accountId, $syncSettings);
 
             Log::info('Dependencies pre-cached for batch sync');
 

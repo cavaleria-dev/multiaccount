@@ -55,8 +55,9 @@ class DependencyCacheService
      *
      * @param string $mainAccountId UUID главного аккаунта
      * @param string $childAccountId UUID дочернего аккаунта
+     * @param SyncSetting $settings Настройки синхронизации для проверки включенных типов
      */
-    public function cacheAll(string $mainAccountId, string $childAccountId): void
+    public function cacheAll(string $mainAccountId, string $childAccountId, SyncSetting $settings): void
     {
         Log::info('Starting dependency pre-cache', [
             'main_account_id' => $mainAccountId,
@@ -72,10 +73,20 @@ class DependencyCacheService
             // 2. Папки товаров
             $this->cacheProductFolders($mainAccountId, $childAccountId);
 
-            // 3. Атрибуты (включая справочники)
+            // 3. Атрибуты для товаров (включая справочники)
             $this->cacheAttributes($mainAccountId, $childAccountId, 'product');
 
-            // 4. Элементы справочников (ВАЖНО: после cacheAttributes!)
+            // 4. Атрибуты для услуг (если включены)
+            if ($settings->sync_services ?? false) {
+                $this->cacheAttributes($mainAccountId, $childAccountId, 'service');
+            }
+
+            // 5. Атрибуты для комплектов (если включены)
+            if ($settings->sync_bundles) {
+                $this->cacheAttributes($mainAccountId, $childAccountId, 'bundle');
+            }
+
+            // 6. Элементы справочников (ВАЖНО: после cacheAttributes!)
             $this->cacheCustomEntityElements($mainAccountId, $childAccountId);
 
             $duration = round((microtime(true) - $startTime) * 1000); // ms

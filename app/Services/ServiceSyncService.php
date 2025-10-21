@@ -175,6 +175,11 @@ class ServiceSyncService
             'description' => $service['description'] ?? null,
         ];
 
+        // Добавить штрихкоды
+        if (isset($service['barcodes'])) {
+            $serviceData['barcodes'] = $service['barcodes'];
+        }
+
         // Синхронизировать доп.поля (используя AttributeSyncService)
         if (isset($service['attributes'])) {
             $serviceData['attributes'] = $this->attributeSyncService->syncAttributes(
@@ -185,6 +190,27 @@ class ServiceSyncService
                 attributes: $service['attributes'],
                 direction: 'main_to_child'
             );
+        }
+
+        // Синхронизировать UOM (единица измерения)
+        if (isset($service['uom'])) {
+            $parentUomId = $this->extractEntityId($service['uom']['meta']['href'] ?? '');
+            if ($parentUomId) {
+                $childUomId = $this->standardEntitySync->syncUom(
+                    $mainAccountId,
+                    $childAccountId,
+                    $parentUomId
+                );
+                if ($childUomId) {
+                    $serviceData['uom'] = [
+                        'meta' => [
+                            'href' => config('moysklad.api_url') . "/entity/uom/{$childUomId}",
+                            'type' => 'uom',
+                            'mediaType' => 'application/json'
+                        ]
+                    ];
+                }
+            }
         }
 
         // Синхронизировать цены
@@ -319,6 +345,11 @@ class ServiceSyncService
             'description' => $service['description'] ?? null,
         ];
 
+        // Штрихкоды
+        if (isset($service['barcodes'])) {
+            $serviceData['barcodes'] = $service['barcodes'];
+        }
+
         // Доп.поля (используя AttributeSyncService)
         if (isset($service['attributes'])) {
             $serviceData['attributes'] = $this->attributeSyncService->syncAttributes(
@@ -329,6 +360,27 @@ class ServiceSyncService
                 attributes: $service['attributes'],
                 direction: 'main_to_child'
             );
+        }
+
+        // Синхронизировать UOM (единица измерения)
+        if (isset($service['uom'])) {
+            $parentUomId = $this->extractEntityId($service['uom']['meta']['href'] ?? '');
+            if ($parentUomId) {
+                $childUomId = $this->standardEntitySync->syncUom(
+                    $mainAccountId,
+                    $childAccountId,
+                    $parentUomId
+                );
+                if ($childUomId) {
+                    $serviceData['uom'] = [
+                        'meta' => [
+                            'href' => config('moysklad.api_url') . "/entity/uom/{$childUomId}",
+                            'type' => 'uom',
+                            'mediaType' => 'application/json'
+                        ]
+                    ];
+                }
+            }
         }
 
         // Цены
@@ -430,6 +482,11 @@ class ServiceSyncService
             'description' => $service['description'] ?? null,
         ];
 
+        // 4.5. Штрихкоды
+        if (isset($service['barcodes'])) {
+            $serviceData['barcodes'] = $service['barcodes'];
+        }
+
         // 5. Если обновление - добавить meta
         if ($mapping) {
             $serviceData['meta'] = [
@@ -439,7 +496,26 @@ class ServiceSyncService
             ];
         }
 
-        // 6. Sync Attributes (using cached mappings from DB)
+        // 6. Sync UOM (using cached mapping from DB)
+        if (isset($service['uom']['id'])) {
+            $childUomId = $this->standardEntitySync->getCachedUomMapping(
+                $mainAccountId,
+                $childAccountId,
+                $service['uom']['id']
+            );
+
+            if ($childUomId) {
+                $serviceData['uom'] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/uom/{$childUomId}",
+                        'type' => 'uom',
+                        'mediaType' => 'application/json'
+                    ]
+                ];
+            }
+        }
+
+        // 7. Sync Attributes (using cached mappings from DB)
         if (isset($service['attributes']) && !empty($service['attributes'])) {
             $syncedAttributes = [];
 
@@ -491,7 +567,7 @@ class ServiceSyncService
             }
         }
 
-        // 7. Sync Prices (using existing trait method)
+        // 8. Sync Prices (using existing trait method)
         $prices = $this->syncPrices(
             $mainAccountId,
             $childAccountId,
@@ -507,10 +583,10 @@ class ServiceSyncService
             $serviceData['buyPrice'] = $prices['buyPrice'];
         }
 
-        // 8. Add VAT and tax fields (using ProductSyncService method)
+        // 9. Add VAT and tax fields (using ProductSyncService method)
         $serviceData = $this->productSyncService->addVatAndTaxFields($serviceData, $service, $settings);
 
-        // 9. Store original ID for mapping after batch POST
+        // 10. Store original ID for mapping after batch POST
         $serviceData['_original_id'] = $service['id'];
         $serviceData['_is_update'] = $mapping ? true : false;
         $serviceData['_child_entity_id'] = $mapping ? $mapping->child_entity_id : null;
@@ -593,6 +669,22 @@ class ServiceSyncService
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Извлечь ID сущности из href
+     *
+     * @param string $href URL вида https://api.moysklad.ru/api/remap/1.2/entity/uom/UUID
+     * @return string|null UUID или null если не удалось извлечь
+     */
+    protected function extractEntityId(string $href): ?string
+    {
+        if (empty($href)) {
+            return null;
+        }
+
+        $parts = explode('/', $href);
+        return end($parts) ?: null;
     }
 
 }
