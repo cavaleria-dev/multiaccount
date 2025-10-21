@@ -289,14 +289,7 @@ onMounted(() => {
 
 // Methods
 const emitUpdate = () => {
-  // Emit в формате {groups: [{conditions: [...]}]} для совместимости с БД
-  emit('update:modelValue', {
-    groups: [
-      {
-        conditions: conditions.value
-      }
-    ]
-  })
+  emit('update:modelValue', { conditions: conditions.value })
 }
 
 const addCondition = () => {
