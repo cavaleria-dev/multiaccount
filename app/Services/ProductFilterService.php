@@ -945,44 +945,35 @@ class ProductFilterService
         }
 
         // СТАРЫЙ ФОРМАТ: { groups: [...] } - для обратной совместимости
+        // ВАЖНО: Поскольку OR логика отключена, объединяем все условия из всех групп в один плоский массив с AND логикой
         if (isset($uiFilters['groups']) && is_array($uiFilters['groups'])) {
             if (empty($uiFilters['groups'])) {
                 return [
                     'enabled' => false,
                     'mode' => 'whitelist',
-                    'logic' => 'OR',
+                    'logic' => 'AND',
                     'conditions' => []
                 ];
             }
 
             $groups = $uiFilters['groups'];
-            $convertedConditions = [];
+            $allConditions = [];  // Плоский массив всех условий из всех групп
 
+            // Собрать все условия из всех групп в один массив (AND логика)
             foreach ($groups as $group) {
-                $groupConditions = [];
-
-                foreach ($group['conditions'] as $condition) {
+                foreach ($group['conditions'] ?? [] as $condition) {
                     $converted = $this->convertUiCondition($condition, $mainAccountId, $attributesMetadata);
                     if ($converted) {
-                        $groupConditions[] = $converted;
+                        $allConditions[] = $converted;
                     }
-                }
-
-                // Добавить группу с логикой AND (внутри группы)
-                if (!empty($groupConditions)) {
-                    $convertedConditions[] = [
-                        'type' => 'group',
-                        'logic' => 'AND',
-                        'conditions' => $groupConditions
-                    ];
                 }
             }
 
             return [
-                'enabled' => true,
+                'enabled' => !empty($allConditions),
                 'mode' => 'whitelist',
-                'logic' => 'OR',  // Между группами
-                'conditions' => $convertedConditions
+                'logic' => 'AND',  // AND логика (OR отключена)
+                'conditions' => $allConditions
             ];
         }
 
