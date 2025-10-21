@@ -23,6 +23,8 @@ class ApiLogService
                 'related_account_id' => $data['related_account_id'] ?? null,
                 'entity_type' => $data['entity_type'] ?? null,
                 'entity_id' => $data['entity_id'] ?? null,
+                'operation_type' => $data['operation_type'] ?? null,
+                'operation_result' => $data['operation_result'] ?? null,
                 'method' => $data['method'],
                 'endpoint' => $data['endpoint'],
                 'request_params' => $data['request_params'] ?? null,
@@ -240,6 +242,10 @@ class ApiLogService
 
         if (isset($filters['direction'])) {
             $query->where('direction', $filters['direction']);
+        }
+
+        if (isset($filters['operation_type'])) {
+            $query->where('operation_type', $filters['operation_type']);
         }
 
         return $query;

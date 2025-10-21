@@ -203,6 +203,10 @@ class ApiLogsController extends Controller
             $filters['direction'] = $request->input('direction');
         }
 
+        if ($request->filled('operation_type')) {
+            $filters['operation_type'] = $request->input('operation_type');
+        }
+
         if ($request->boolean('errors_only')) {
             $filters['errors_only'] = true;
         }

@@ -124,6 +124,76 @@
         </div>
     </div>
 
+    {{-- Информация об операции --}}
+    @if($log->operation_type || $log->operation_result)
+        <div class="mb-6">
+            <h3 class="font-semibold text-lg mb-3">Операция</h3>
+            <dl class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                @if($log->operation_type)
+                    <div>
+                        <dt class="text-sm text-gray-600 mb-1">Тип операции:</dt>
+                        <dd>
+                            @php
+                                $operationLabels = [
+                                    'load' => 'Загрузка',
+                                    'create' => 'Создание',
+                                    'update' => 'Обновление',
+                                    'batch_create' => 'Пакетное создание',
+                                    'batch_update' => 'Пакетное обновление',
+                                    'search_existing' => 'Поиск существующих',
+                                    'mapping' => 'Маппинг',
+                                ];
+                                $operationColors = [
+                                    'load' => 'bg-indigo-100 text-indigo-800',
+                                    'create' => 'bg-green-100 text-green-800',
+                                    'update' => 'bg-yellow-100 text-yellow-800',
+                                    'batch_create' => 'bg-green-100 text-green-800',
+                                    'batch_update' => 'bg-yellow-100 text-yellow-800',
+                                    'search_existing' => 'bg-purple-100 text-purple-800',
+                                    'mapping' => 'bg-gray-100 text-gray-800',
+                                ];
+                            @endphp
+                            <span class="px-3 py-1 rounded font-medium {{ $operationColors[$log->operation_type] ?? 'bg-gray-100 text-gray-600' }}">
+                                {{ $operationLabels[$log->operation_type] ?? $log->operation_type }}
+                            </span>
+                        </dd>
+                    </div>
+                @endif
+
+                @if($log->operation_result)
+                    <div>
+                        <dt class="text-sm text-gray-600 mb-1">Результат операции:</dt>
+                        <dd>
+                            @php
+                                $resultLabels = [
+                                    'success' => 'Успешно',
+                                    'success_created' => 'Создано',
+                                    'success_updated' => 'Обновлено',
+                                    'found_existing' => 'Найден существующий',
+                                    'not_found' => 'Не найдено',
+                                    'error_412_duplicate' => 'Ошибка 412: Дубликат',
+                                    'error' => 'Ошибка',
+                                ];
+                                $resultColors = [
+                                    'success' => 'bg-green-100 text-green-800',
+                                    'success_created' => 'bg-green-100 text-green-800',
+                                    'success_updated' => 'bg-blue-100 text-blue-800',
+                                    'found_existing' => 'bg-purple-100 text-purple-800',
+                                    'not_found' => 'bg-yellow-100 text-yellow-800',
+                                    'error_412_duplicate' => 'bg-red-100 text-red-800',
+                                    'error' => 'bg-red-100 text-red-800',
+                                ];
+                            @endphp
+                            <span class="px-3 py-1 rounded font-medium {{ $resultColors[$log->operation_result] ?? 'bg-gray-100 text-gray-600' }}">
+                                {{ $resultLabels[$log->operation_result] ?? $log->operation_result }}
+                            </span>
+                        </dd>
+                    </div>
+                @endif
+            </dl>
+        </div>
+    @endif
+
     {{-- Endpoint --}}
     <div class="mb-6">
         <h3 class="font-semibold text-lg mb-2">Endpoint</h3>

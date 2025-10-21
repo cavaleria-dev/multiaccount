@@ -43,6 +43,20 @@
         </div>
 
         <div>
+            <label class="block text-sm font-medium mb-1">Тип операции</label>
+            <select name="operation_type" class="w-full border rounded px-3 py-2">
+                <option value="">Все</option>
+                <option value="load" {{ request('operation_type') === 'load' ? 'selected' : '' }}>Загрузка</option>
+                <option value="create" {{ request('operation_type') === 'create' ? 'selected' : '' }}>Создание</option>
+                <option value="update" {{ request('operation_type') === 'update' ? 'selected' : '' }}>Обновление</option>
+                <option value="batch_create" {{ request('operation_type') === 'batch_create' ? 'selected' : '' }}>Пакетное создание</option>
+                <option value="batch_update" {{ request('operation_type') === 'batch_update' ? 'selected' : '' }}>Пакетное обновление</option>
+                <option value="search_existing" {{ request('operation_type') === 'search_existing' ? 'selected' : '' }}>Поиск существующих</option>
+                <option value="mapping" {{ request('operation_type') === 'mapping' ? 'selected' : '' }}>Маппинг</option>
+            </select>
+        </div>
+
+        <div>
             <label class="block text-sm font-medium mb-1">Дата от</label>
             <input type="date" name="start_date" value="{{ request('start_date') }}" class="w-full border rounded px-3 py-2">
         </div>
@@ -81,6 +95,7 @@
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Дата/Время</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Аккаунт</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Направление</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Операция</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Метод</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Endpoint</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Статус</th>
@@ -110,6 +125,36 @@
                                     <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded">Дочерний → Главный</span>
                                 @elseif($log->direction === 'internal')
                                     <span class="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded">Внутренний</span>
+                                @else
+                                    <span class="text-xs text-gray-400">-</span>
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                @php
+                                    $operationLabels = [
+                                        'load' => 'Загрузка',
+                                        'create' => 'Создание',
+                                        'update' => 'Обновление',
+                                        'batch_create' => 'Пакетное создание',
+                                        'batch_update' => 'Пакетное обновление',
+                                        'search_existing' => 'Поиск',
+                                        'mapping' => 'Маппинг',
+                                    ];
+                                    $operationColors = [
+                                        'load' => 'bg-indigo-100 text-indigo-800',
+                                        'create' => 'bg-green-100 text-green-800',
+                                        'update' => 'bg-yellow-100 text-yellow-800',
+                                        'batch_create' => 'bg-green-100 text-green-800',
+                                        'batch_update' => 'bg-yellow-100 text-yellow-800',
+                                        'search_existing' => 'bg-purple-100 text-purple-800',
+                                        'mapping' => 'bg-gray-100 text-gray-800',
+                                    ];
+                                @endphp
+                                @if($log->operation_type)
+                                    <span class="px-2 py-1 text-xs rounded {{ $operationColors[$log->operation_type] ?? 'bg-gray-100 text-gray-600' }}"
+                                          title="Результат: {{ $log->operation_result ?? 'N/A' }}">
+                                        {{ $operationLabels[$log->operation_type] ?? $log->operation_type }}
+                                    </span>
                                 @else
                                     <span class="text-xs text-gray-400">-</span>
                                 @endif
