@@ -862,18 +862,22 @@ class BatchEntityLoader
             $finalFilter .= ';' . $userFilterString;
         }
 
+        // Построить унифицированный expand для всех типов
+        $unifiedExpand = EntityConfig::buildUnifiedExpand($entityTypes);
+
         Log::info("Loading assortment with combined types", [
             'entity_types' => $entityTypes,
             'type_filter' => $typeFilterString,
             'user_filter' => $userFilterString,
-            'final_filter' => $finalFilter
+            'final_filter' => $finalFilter,
+            'unified_expand' => $unifiedExpand
         ]);
 
         do {
             $params = [
                 'limit' => $limit,
                 'offset' => $offset,
-                'expand' => 'attributes,productFolder,uom,country,packs.uom,salePrices,components.product,components.variant',
+                'expand' => $unifiedExpand,
                 'filter' => $finalFilter
             ];
 

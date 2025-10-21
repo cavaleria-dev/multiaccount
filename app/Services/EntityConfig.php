@@ -216,4 +216,39 @@ class EntityConfig
     {
         return self::get($entityType)['assortment_type'] ?? $entityType;
     }
+
+    /**
+     * Построить унифицированную строку expand для нескольких типов сущностей
+     *
+     * Объединяет expand параметры из всех указанных типов, удаляя дубликаты.
+     * Используется для загрузки через /entity/assortment с несколькими типами.
+     *
+     * @param array $entityTypes Массив типов сущностей ['product', 'service', 'bundle']
+     * @return string Объединенная строка expand через запятую
+     */
+    public static function buildUnifiedExpand(array $entityTypes): string
+    {
+        $expandFields = [];
+
+        foreach ($entityTypes as $entityType) {
+            if (!self::isSupported($entityType)) {
+                continue;
+            }
+
+            $expand = self::get($entityType)['expand'] ?? '';
+            if (empty($expand)) {
+                continue;
+            }
+
+            // Разбить expand на отдельные поля
+            $fields = array_map('trim', explode(',', $expand));
+            $expandFields = array_merge($expandFields, $fields);
+        }
+
+        // Удалить дубликаты и пустые значения
+        $expandFields = array_filter(array_unique($expandFields));
+
+        // Вернуть объединенную строку
+        return implode(',', $expandFields);
+    }
 }
