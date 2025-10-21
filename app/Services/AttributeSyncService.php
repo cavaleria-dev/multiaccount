@@ -390,9 +390,21 @@ class AttributeSyncService
     {
         // Проверить кеш (static для переиспользования внутри одного запроса)
         static $cache = [];
-        $cacheKey = "{$accountId}:{$entityType}";
+
+        // Для product/service/bundle используем единый кеш и endpoint
+        // МойСклад API: метаданные атрибутов для товаров/услуг/комплектов хранятся в /entity/product/metadata/attributes
+        $metadataEntityType = in_array($entityType, ['product', 'service', 'bundle'])
+            ? 'product'
+            : $entityType;
+
+        $cacheKey = "{$accountId}:{$metadataEntityType}";
 
         if (isset($cache[$cacheKey])) {
+            Log::debug('Attributes metadata loaded from cache', [
+                'account_id' => $accountId,
+                'entity_type' => $entityType,
+                'cache_entity_type' => $metadataEntityType
+            ]);
             return $cache[$cacheKey];
         }
 
@@ -406,10 +418,10 @@ class AttributeSyncService
         }
 
         try {
-            // Получить метаданные атрибутов для указанного типа сущности
+            // МойСклад API: для product/service/bundle всегда используем /entity/product/metadata/attributes
             $response = $this->moySkladService
                 ->setAccessToken($account->access_token)
-                ->get("entity/{$entityType}/metadata/attributes");
+                ->get("entity/{$metadataEntityType}/metadata/attributes");
 
             $metadata = [];
             foreach ($response['data']['rows'] ?? [] as $attr) {
@@ -423,6 +435,7 @@ class AttributeSyncService
             Log::debug('Attributes metadata loaded and cached', [
                 'account_id' => $accountId,
                 'entity_type' => $entityType,
+                'metadata_endpoint' => "entity/{$metadataEntityType}/metadata/attributes",
                 'count' => count($metadata)
             ]);
 
@@ -432,6 +445,7 @@ class AttributeSyncService
             Log::error('Failed to load attributes metadata', [
                 'account_id' => $accountId,
                 'entity_type' => $entityType,
+                'metadata_endpoint' => "entity/{$metadataEntityType}/metadata/attributes",
                 'error' => $e->getMessage()
             ]);
             return [];
