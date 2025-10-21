@@ -293,6 +293,10 @@ class EntityMappingService
                     entityType: 'service',
                     entityId: null
                 )
+                ->setOperationContext(
+                    operationType: 'search_existing',
+                    operationResult: null
+                )
                 ->get('entity/service', [
                     'filter' => "{$matchField}={$escapedValue}",
                     'limit' => 1
@@ -306,6 +310,13 @@ class EntityMappingService
                     'service_name' => $services[0]['name'] ?? null,
                     'service_code' => $services[0]['code'] ?? null
                 ]);
+
+                // Обновить результат операции
+                $this->moySkladService->setOperationContext(
+                    operationType: 'search_existing',
+                    operationResult: 'found_existing'
+                );
+
                 return $services[0];
             }
 
@@ -313,6 +324,12 @@ class EntityMappingService
                 'match_field' => $matchField,
                 'match_value' => $matchValue
             ]);
+
+            // Обновить результат операции
+            $this->moySkladService->setOperationContext(
+                operationType: 'search_existing',
+                operationResult: 'not_found'
+            );
 
             return null;
 
@@ -362,6 +379,10 @@ class EntityMappingService
                     entityType: 'product',
                     entityId: null
                 )
+                ->setOperationContext(
+                    operationType: 'search_existing',
+                    operationResult: null
+                )
                 ->get('entity/product', [
                     'filter' => "{$matchField}={$escapedValue}",
                     'limit' => 1
@@ -375,6 +396,13 @@ class EntityMappingService
                     'product_name' => $products[0]['name'] ?? null,
                     'product_code' => $products[0]['code'] ?? null
                 ]);
+
+                // Обновить результат операции
+                $this->moySkladService->setOperationContext(
+                    operationType: 'search_existing',
+                    operationResult: 'found_existing'
+                );
+
                 return $products[0];
             }
 
@@ -382,6 +410,12 @@ class EntityMappingService
                 'match_field' => $matchField,
                 'match_value' => $matchValue
             ]);
+
+            // Обновить результат операции
+            $this->moySkladService->setOperationContext(
+                operationType: 'search_existing',
+                operationResult: 'not_found'
+            );
 
             return null;
 
@@ -431,6 +465,10 @@ class EntityMappingService
                     entityType: 'bundle',
                     entityId: null
                 )
+                ->setOperationContext(
+                    operationType: 'search_existing',
+                    operationResult: null
+                )
                 ->get('entity/bundle', [
                     'filter' => "{$matchField}={$escapedValue}",
                     'limit' => 1
@@ -444,6 +482,13 @@ class EntityMappingService
                     'bundle_name' => $bundles[0]['name'] ?? null,
                     'bundle_code' => $bundles[0]['code'] ?? null
                 ]);
+
+                // Обновить результат операции
+                $this->moySkladService->setOperationContext(
+                    operationType: 'search_existing',
+                    operationResult: 'found_existing'
+                );
+
                 return $bundles[0];
             }
 
@@ -451,6 +496,12 @@ class EntityMappingService
                 'match_field' => $matchField,
                 'match_value' => $matchValue
             ]);
+
+            // Обновить результат операции
+            $this->moySkladService->setOperationContext(
+                operationType: 'search_existing',
+                operationResult: 'not_found'
+            );
 
             return null;
 

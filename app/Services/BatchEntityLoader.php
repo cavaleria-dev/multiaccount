@@ -319,6 +319,10 @@ class BatchEntityLoader
                     entityType: $entityType,
                     entityId: null  // Batch load - нет конкретного entity_id
                 )
+                ->setOperationContext(
+                    operationType: 'load',
+                    operationResult: 'success'
+                )
                 ->get($config['endpoint'], $params);
 
             $rows = $response['data']['rows'] ?? [];
@@ -419,6 +423,10 @@ class BatchEntityLoader
                         relatedAccountId: $childAccountId,
                         entityType: $entityType,
                         entityId: null  // Batch load with filter
+                    )
+                    ->setOperationContext(
+                        operationType: 'load',
+                        operationResult: 'success'
                     )
                     ->get($endpoint, $params);
 
@@ -567,6 +575,10 @@ class BatchEntityLoader
                             entityType: $entityType,
                             entityId: null  // Batch load with multiple filters (OR logic)
                         )
+                        ->setOperationContext(
+                            operationType: 'load',
+                            operationResult: 'success'
+                        )
                         ->get($endpoint, $params);
 
                     $rows = $response['data']['rows'] ?? [];
@@ -672,6 +684,10 @@ class BatchEntityLoader
                     relatedAccountId: $childAccountId,
                     entityType: $entityType,
                     entityId: null  // Batch load for client-side filtering
+                )
+                ->setOperationContext(
+                    operationType: 'load',
+                    operationResult: 'success'
                 )
                 ->get($config['endpoint'], $params);
 
@@ -889,6 +905,10 @@ class BatchEntityLoader
                     relatedAccountId: $childAccountId,
                     entityType: 'assortment',
                     entityId: null
+                )
+                ->setOperationContext(
+                    operationType: 'load',
+                    operationResult: 'success'
                 )
                 ->get('/entity/assortment', $params);
 

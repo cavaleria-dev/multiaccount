@@ -524,6 +524,10 @@ class ProcessSyncQueueJob implements ShouldQueue
                     entityType: 'batch_products',
                     entityId: null  // Batch - нет конкретного ID
                 )
+                ->setOperationContext(
+                    operationType: 'batch_create',
+                    operationResult: 'success'
+                )
                 ->batchCreateProducts($preparedProducts);
 
             $createdProducts = $response['data'] ?? [];
@@ -858,6 +862,10 @@ class ProcessSyncQueueJob implements ShouldQueue
                     relatedAccountId: $mainAccountId,
                     entityType: 'batch_services',
                     entityId: null  // Batch - нет конкретного ID
+                )
+                ->setOperationContext(
+                    operationType: 'batch_create',
+                    operationResult: 'success'
                 )
                 ->batchCreateServices($preparedServices);
 
