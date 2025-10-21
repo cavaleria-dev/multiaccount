@@ -204,6 +204,13 @@ class BatchEntityLoader
 
             $response = $this->moySkladService
                 ->setAccessToken($accessToken)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: $entityType,
+                    entityId: null  // Batch load - нет конкретного entity_id
+                )
                 ->get($config['endpoint'], $params);
 
             $rows = $response['data']['rows'] ?? [];
@@ -296,6 +303,13 @@ class BatchEntityLoader
             try {
                 $response = $this->moySkladService
                     ->setAccessToken($accessToken)
+                    ->setLogContext(
+                        accountId: $mainAccountId,
+                        direction: 'main_to_child',
+                        relatedAccountId: $childAccountId,
+                        entityType: $entityType,
+                        entityId: null  // Batch load with filter
+                    )
                     ->get($endpoint, $params);
 
                 $rows = $response['data']['rows'] ?? [];
@@ -434,6 +448,13 @@ class BatchEntityLoader
                 try {
                     $response = $this->moySkladService
                         ->setAccessToken($accessToken)
+                        ->setLogContext(
+                            accountId: $mainAccountId,
+                            direction: 'main_to_child',
+                            relatedAccountId: $childAccountId,
+                            entityType: $entityType,
+                            entityId: null  // Batch load with multiple filters (OR logic)
+                        )
                         ->get($endpoint, $params);
 
                     $rows = $response['data']['rows'] ?? [];
@@ -531,6 +552,13 @@ class BatchEntityLoader
 
             $response = $this->moySkladService
                 ->setAccessToken($accessToken)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: $entityType,
+                    entityId: null  // Batch load for client-side filtering
+                )
                 ->get($config['endpoint'], $params);
 
             $rows = $response['data']['rows'] ?? [];
@@ -642,6 +670,14 @@ class BatchEntityLoader
         // Разбить на batch по 100 сущностей
         $batches = array_chunk($entities, 100);
 
+        // Определить правильный ключ для payload (ProcessSyncQueueJob ожидает специфичные ключи)
+        $payloadKey = match($batchEntityType) {
+            'batch_products' => 'products',
+            'batch_services' => 'services',
+            'batch_bundles' => 'bundles',
+            default => 'entities'  // Fallback для других типов
+        };
+
         foreach ($batches as $batch) {
             SyncQueue::create([
                 'account_id' => $childAccountId,
@@ -654,7 +690,7 @@ class BatchEntityLoader
                 'attempts' => 0,
                 'payload' => [
                     'main_account_id' => $mainAccountId,
-                    'entities' => $batch  // Preloaded data
+                    $payloadKey => $batch  // Динамический ключ (products/services/bundles)
                 ]
             ]);
 
