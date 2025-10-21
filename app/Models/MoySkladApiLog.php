@@ -17,6 +17,8 @@ class MoySkladApiLog extends Model
         'related_account_id',
         'entity_type',
         'entity_id',
+        'operation_type',
+        'operation_result',
         'method',
         'endpoint',
         'request_params',

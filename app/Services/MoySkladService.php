@@ -24,6 +24,8 @@ class MoySkladService
     protected ?string $relatedAccountId = null;
     protected ?string $entityType = null;
     protected ?string $entityId = null;
+    protected ?string $operationType = null;
+    protected ?string $operationResult = null;
 
     public function __construct(RateLimitHandler $rateLimitHandler, ?ApiLogService $apiLogService = null)
     {
@@ -61,6 +63,18 @@ class MoySkladService
     }
 
     /**
+     * Установить контекст операции для логирования
+     */
+    public function setOperationContext(
+        ?string $operationType = null,
+        ?string $operationResult = null
+    ): self {
+        $this->operationType = $operationType;
+        $this->operationResult = $operationResult;
+        return $this;
+    }
+
+    /**
      * Очистить контекст логирования
      */
     public function clearLogContext(): self
@@ -70,6 +84,8 @@ class MoySkladService
         $this->relatedAccountId = null;
         $this->entityType = null;
         $this->entityId = null;
+        $this->operationType = null;
+        $this->operationResult = null;
         return $this;
     }
 
@@ -296,6 +312,8 @@ class MoySkladService
             'related_account_id' => $this->relatedAccountId,
             'entity_type' => $this->entityType,
             'entity_id' => $this->entityId,
+            'operation_type' => $this->operationType,
+            'operation_result' => $this->operationResult,
             'method' => $method,
             'endpoint' => $url,
             'request_params' => $params,  // GET параметры или POST body metadata
