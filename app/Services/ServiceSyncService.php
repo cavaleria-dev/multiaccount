@@ -58,6 +58,13 @@ class ServiceSyncService
             $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
             $serviceResult = $this->moySkladService
                 ->setAccessToken($mainAccount->access_token)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: 'service',
+                    entityId: $serviceId
+                )
                 ->get("entity/service/{$serviceId}", ['expand' => 'attributes']);
 
             $service = $serviceResult['data'];
@@ -195,6 +202,13 @@ class ServiceSyncService
         // Создать услугу
         $newServiceResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
+            ->setLogContext(
+                accountId: $mainAccountId,
+                direction: 'main_to_child',
+                relatedAccountId: $childAccountId,
+                entityType: 'service',
+                entityId: $service['id']
+            )
             ->post('entity/service', $serviceData);
 
         $newService = $newServiceResult['data'];
@@ -269,6 +283,13 @@ class ServiceSyncService
         // Обновить услугу
         $updatedServiceResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
+            ->setLogContext(
+                accountId: $mainAccountId,
+                direction: 'main_to_child',
+                relatedAccountId: $childAccountId,
+                entityType: 'service',
+                entityId: $service['id']
+            )
             ->put("entity/service/{$mapping->child_entity_id}", $serviceData);
 
         Log::info('Service updated in child account', [
@@ -466,6 +487,13 @@ class ServiceSyncService
 
                     $this->moySkladService
                         ->setAccessToken($childAccount->access_token)
+                        ->setLogContext(
+                            accountId: $mainAccountId,
+                            direction: 'main_to_child',
+                            relatedAccountId: $mapping->child_account_id,
+                            entityType: 'service',
+                            entityId: $serviceId
+                        )
                         ->put("entity/service/{$mapping->child_entity_id}", [
                             'archived' => true
                         ]);

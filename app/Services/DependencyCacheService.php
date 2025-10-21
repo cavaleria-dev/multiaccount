@@ -131,6 +131,13 @@ class DependencyCacheService
         // Загрузить все UOM из main
         $mainResponse = $this->moySkladService
             ->setAccessToken($mainAccount->access_token)
+            ->setLogContext(
+                accountId: $mainAccountId,
+                direction: 'internal',
+                relatedAccountId: null,
+                entityType: 'uom',
+                entityId: null
+            )
             ->get('/entity/uom', ['limit' => 1000]);
 
         $mainUoms = $mainResponse['data']['rows'] ?? [];
@@ -138,6 +145,13 @@ class DependencyCacheService
         // Загрузить все UOM из child
         $childResponse = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
+            ->setLogContext(
+                accountId: $childAccountId,
+                direction: 'internal',
+                relatedAccountId: null,
+                entityType: 'uom',
+                entityId: null
+            )
             ->get('/entity/uom', ['limit' => 1000]);
 
         $childUoms = $childResponse['data']['rows'] ?? [];
@@ -211,6 +225,13 @@ class DependencyCacheService
         // Загрузить все Country из main
         $mainResponse = $this->moySkladService
             ->setAccessToken($mainAccount->access_token)
+            ->setLogContext(
+                accountId: $mainAccountId,
+                direction: 'internal',
+                relatedAccountId: null,
+                entityType: 'country',
+                entityId: null
+            )
             ->get('/entity/country', ['limit' => 1000]);
 
         $mainCountries = $mainResponse['data']['rows'] ?? [];
@@ -218,6 +239,13 @@ class DependencyCacheService
         // Загрузить все Country из child
         $childResponse = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
+            ->setLogContext(
+                accountId: $childAccountId,
+                direction: 'internal',
+                relatedAccountId: null,
+                entityType: 'country',
+                entityId: null
+            )
             ->get('/entity/country', ['limit' => 1000]);
 
         $childCountries = $childResponse['data']['rows'] ?? [];
@@ -291,6 +319,13 @@ class DependencyCacheService
         // Загрузить все папки из main
         $response = $this->moySkladService
             ->setAccessToken($mainAccount->access_token)
+            ->setLogContext(
+                accountId: $mainAccountId,
+                direction: 'main_to_child',
+                relatedAccountId: $childAccountId,
+                entityType: 'productfolder',
+                entityId: null
+            )
             ->get('/entity/productfolder', ['limit' => 1000]);
 
         $folders = $response['data']['rows'] ?? [];
@@ -353,6 +388,13 @@ class DependencyCacheService
         // Загрузить метаданные атрибутов из MAIN
         $mainResponse = $this->moySkladService
             ->setAccessToken($mainAccount->access_token)
+            ->setLogContext(
+                accountId: $mainAccountId,
+                direction: 'main_to_child',
+                relatedAccountId: $childAccountId,
+                entityType: $entityType . '_metadata',
+                entityId: null
+            )
             ->get("/entity/{$metadataEntityType}/metadata/attributes", ['limit' => 1000]);
 
         $mainAttributes = $mainResponse['data']['rows'] ?? [];
@@ -365,6 +407,13 @@ class DependencyCacheService
         // Загрузить метаданные атрибутов из CHILD
         $childResponse = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
+            ->setLogContext(
+                accountId: $childAccountId,
+                direction: 'main_to_child',
+                relatedAccountId: $mainAccountId,
+                entityType: $entityType . '_metadata',
+                entityId: null
+            )
             ->get("/entity/{$metadataEntityType}/metadata/attributes", ['limit' => 1000]);
 
         $childAttributes = $childResponse['data']['rows'] ?? [];
@@ -451,6 +500,13 @@ class DependencyCacheService
                 try {
                     $result = $this->moySkladService
                         ->setAccessToken($childAccount->access_token)
+                        ->setLogContext(
+                            accountId: $childAccountId,
+                            direction: 'main_to_child',
+                            relatedAccountId: $mainAccountId,
+                            entityType: $entityType . '_metadata',
+                            entityId: null
+                        )
                         ->post("/entity/{$metadataEntityType}/metadata/attributes", $attributeData);
 
                     $childAttr = $result['data'];
