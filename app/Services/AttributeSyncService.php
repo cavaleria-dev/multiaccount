@@ -229,7 +229,83 @@ class AttributeSyncService
                 $childAccountId = $sourceAccountId;
             }
 
-            Log::info('Creating attribute in target account', [
+            // Проверить, существует ли атрибут в целевом аккаунте
+            $existingAttributes = $this->loadAttributesMetadata($targetAccountId, $entityType);
+
+            Log::info('Checking if attribute exists in target account', [
+                'source_account_id' => $sourceAccountId,
+                'target_account_id' => $targetAccountId,
+                'entity_type' => $entityType,
+                'looking_for_name' => $attribute['name'],
+                'looking_for_type' => $attribute['type'],
+                'has_customEntityMeta' => isset($attribute['customEntityMeta']),
+                'total_existing_attributes' => count($existingAttributes),
+                'existing_attribute_names' => array_map(fn($a) => [
+                    'name' => $a['name'] ?? null,
+                    'type' => $a['type'] ?? null,
+                    'id' => $a['id'] ?? null
+                ], $existingAttributes)
+            ]);
+
+            $existingAttribute = $this->findAttributeByNameAndType(
+                $existingAttributes,
+                $attribute['name'],
+                $attribute['type'],
+                $attribute['customEntityMeta'] ?? null
+            );
+
+            if ($existingAttribute) {
+                Log::info('Attribute found in target account', [
+                    'found_attribute_id' => $existingAttribute['id'] ?? null,
+                    'found_attribute_name' => $existingAttribute['name'] ?? null,
+                    'found_attribute_type' => $existingAttribute['type'] ?? null
+                ]);
+                // Атрибут уже существует - создать только маппинг
+                Log::info('Attribute already exists in target account, creating mapping only', [
+                    'source_account_id' => $sourceAccountId,
+                    'target_account_id' => $targetAccountId,
+                    'entity_type' => $entityType,
+                    'attribute_name' => $attribute['name'],
+                    'attribute_type' => $attribute['type'],
+                    'existing_attribute_id' => $existingAttribute['id'],
+                    'direction' => $direction
+                ]);
+
+                // Определить ID атрибутов для маппинга
+                if ($direction === 'main_to_child') {
+                    $parentAttributeId = $attribute['id'];
+                    $childAttributeId = $existingAttribute['id'];
+                } else {
+                    $parentAttributeId = $existingAttribute['id'];
+                    $childAttributeId = $attribute['id'];
+                }
+
+                // Создать маппинг
+                $mapping = AttributeMapping::create([
+                    'parent_account_id' => $parentAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => $entityType,
+                    'parent_attribute_id' => $parentAttributeId,
+                    'child_attribute_id' => $childAttributeId,
+                    'attribute_name' => $attribute['name'],
+                    'attribute_type' => $attribute['type'],
+                    'is_synced' => true,
+                    'auto_created' => false, // Не автоматически создан
+                ]);
+
+                return $mapping;
+            }
+
+            // Атрибут НЕ найден - создать новый
+            Log::warning('Attribute NOT found in target account - will attempt to create', [
+                'source_account_id' => $sourceAccountId,
+                'target_account_id' => $targetAccountId,
+                'attribute_name' => $attribute['name'],
+                'attribute_type' => $attribute['type'],
+                'existing_attributes_count' => count($existingAttributes)
+            ]);
+
+            Log::info('Creating new attribute in target account', [
                 'source_account_id' => $sourceAccountId,
                 'target_account_id' => $targetAccountId,
                 'entity_type' => $entityType,
@@ -353,13 +429,31 @@ class AttributeSyncService
             return $mapping;
 
         } catch (\Exception $e) {
-            Log::error('Failed to create attribute in target account', [
-                'source_account_id' => $sourceAccountId,
-                'target_account_id' => $targetAccountId,
-                'attribute' => $attribute,
-                'direction' => $direction,
-                'error' => $e->getMessage()
-            ]);
+            $errorMessage = $e->getMessage();
+
+            // Специальная обработка ошибки 412 (уникальность атрибута)
+            if (strpos($errorMessage, '412') !== false || strpos($errorMessage, '3006') !== false) {
+                Log::error('Attribute already exists in МойСклад (HTTP 412 - uniqueness violation)', [
+                    'source_account_id' => $sourceAccountId,
+                    'target_account_id' => $targetAccountId,
+                    'entity_type' => $entityType,
+                    'attribute_name' => $attribute['name'],
+                    'attribute_type' => $attribute['type'],
+                    'error' => $errorMessage,
+                    'hint' => 'Attribute was not found in metadata but exists in МойСклад API. Check: 1) Cache invalidation, 2) API delay, 3) Search logic in findAttributeByNameAndType()',
+                    'existing_attributes_searched' => count($existingAttributes ?? [])
+                ]);
+            } else {
+                Log::error('Failed to create attribute in target account', [
+                    'source_account_id' => $sourceAccountId,
+                    'target_account_id' => $targetAccountId,
+                    'entity_type' => $entityType,
+                    'attribute' => $attribute,
+                    'direction' => $direction,
+                    'error' => $errorMessage
+                ]);
+            }
+
             return null;
         }
     }
@@ -534,5 +628,92 @@ class AttributeSyncService
 
         $parts = explode('/', $href);
         return end($parts) ?: null;
+    }
+
+    /**
+     * Найти атрибут по имени и типу в списке атрибутов
+     *
+     * @param array $attributes Массив атрибутов из метаданных
+     * @param string $name Название атрибута
+     * @param string $type Тип атрибута
+     * @param array|null $customEntityMeta Метаданные справочника (для customentity)
+     * @return array|null Найденный атрибут или null
+     */
+    protected function findAttributeByNameAndType(
+        array $attributes,
+        string $name,
+        string $type,
+        ?array $customEntityMeta = null
+    ): ?array {
+        // Нормализовать имя (убрать пробелы по краям)
+        $name = trim($name);
+
+        foreach ($attributes as $attr) {
+            $attrName = trim($attr['name'] ?? '');
+            $attrType = $attr['type'] ?? null;
+
+            Log::debug('Comparing attributes in findAttributeByNameAndType', [
+                'looking_for' => ['name' => $name, 'type' => $type],
+                'comparing_with' => [
+                    'name' => $attrName,
+                    'type' => $attrType,
+                    'id' => $attr['id'] ?? null
+                ],
+                'name_match' => $attrName === $name,
+                'type_match' => $attrType === $type
+            ]);
+
+            // Проверить имя и тип
+            if ($attrName === $name && $attrType === $type) {
+
+                // Для НЕ-customentity: сразу вернуть атрибут (совпадения имени и типа достаточно)
+                if ($type !== 'customentity') {
+                    Log::debug('Attribute found (non-customentity)', [
+                        'attribute_name' => $attrName,
+                        'attribute_type' => $attrType,
+                        'attribute_id' => $attr['id'] ?? null
+                    ]);
+                    return $attr;
+                }
+
+                // Для customentity: дополнительно проверить название справочника
+                if ($customEntityMeta) {
+                    $sourceCustomEntityName = $customEntityMeta['name'] ?? null;
+                    $targetCustomEntityName = $attr['customEntityMeta']['name'] ?? null;
+
+                    if ($sourceCustomEntityName && $targetCustomEntityName) {
+                        if ($sourceCustomEntityName === $targetCustomEntityName) {
+                            Log::debug('Attribute found (customentity with matching custom entity)', [
+                                'attribute_name' => $attrName,
+                                'custom_entity_name' => $sourceCustomEntityName,
+                                'attribute_id' => $attr['id'] ?? null
+                            ]);
+                            return $attr; // Полное совпадение (name + type + customEntity)
+                        }
+                        // Разные справочники - продолжить поиск
+                        Log::debug('Custom entity names do not match, continuing search', [
+                            'source_custom_entity' => $sourceCustomEntityName,
+                            'target_custom_entity' => $targetCustomEntityName
+                        ]);
+                        continue;
+                    }
+                }
+
+                // Для customentity без customEntityMeta или если названия справочников не указаны
+                // Вернуть атрибут по совпадению имени и типа
+                Log::debug('Attribute found (customentity without meta check)', [
+                    'attribute_name' => $attrName,
+                    'attribute_id' => $attr['id'] ?? null
+                ]);
+                return $attr;
+            }
+        }
+
+        Log::debug('Attribute not found in target account', [
+            'looking_for_name' => $name,
+            'looking_for_type' => $type
+        ]);
+
+        return null;
     }
 }
