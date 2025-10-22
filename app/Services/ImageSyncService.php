@@ -634,23 +634,15 @@ class ImageSyncService
      */
     public function getImageLimit(SyncSetting $settings): int
     {
-        Log::debug('getImageLimit called', [
-            'sync_images' => $settings->sync_images,
-            'sync_images_all' => $settings->sync_images_all
-        ]);
-
         // Проверяем обе настройки (взаимоисключающие)
         if (!$settings->sync_images && !$settings->sync_images_all) {
-            Log::debug('getImageLimit returning 0 (both disabled)');
             return 0; // Image sync disabled
         }
 
         if ($settings->sync_images_all) {
-            Log::debug('getImageLimit returning 10 (all images)');
             return 10; // МойСклад maximum: 10 images per entity
         }
 
-        Log::debug('getImageLimit returning 1 (first image only)');
         return 1; // Only first image (sync_images = true)
     }
 

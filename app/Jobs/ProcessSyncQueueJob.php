@@ -360,7 +360,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                 ->setAccessToken($mainAccount->access_token)
                 ->get('/entity/variant', [
                     'filter' => "productid={$productId}",
-                    'expand' => 'product.salePrices,characteristics,packs.uom',
+                    'expand' => 'product.salePrices,characteristics,packs.uom,images',
                     'limit' => 1000
                 ]);
 
@@ -705,7 +705,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                     $mappingCount++;
 
                     // Синхронизировать изображения (если включено)
-                    if ($syncSettings->sync_images) {
+                    if ($syncSettings->sync_images || $syncSettings->sync_images_all) {
                         $originalImages = $preparedProducts[$index]['_original_images'] ?? [];
 
                         if (!empty($originalImages)) {
@@ -1392,7 +1392,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                     $mappingCount++;
 
                     // Синхронизировать изображения (если включено)
-                    if ($syncSettings->sync_images) {
+                    if ($syncSettings->sync_images || $syncSettings->sync_images_all) {
                         $originalImages = $preparedBundles[$index]['_original_images'] ?? [];
 
                         if (!empty($originalImages)) {

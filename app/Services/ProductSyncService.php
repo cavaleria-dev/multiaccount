@@ -170,29 +170,8 @@ class ProductSyncService
                 $result = $this->createProduct($childAccount, $mainAccountId, $childAccountId, $product, $settings);
             }
 
-            // DEBUG: Log image sync decision
-            Log::debug('Image sync decision point', [
-                'product_id' => $productId,
-                'result_exists' => $result !== null,
-                'sync_images' => $settings->sync_images,
-                'sync_images_all' => $settings->sync_images_all,
-                'has_images_key' => isset($product['images']['rows']),
-                'images_count' => count($product['images']['rows'] ?? []),
-                'condition_result' => (
-                    $result &&
-                    ($settings->sync_images || $settings->sync_images_all) &&
-                    isset($product['images']['rows']) &&
-                    !empty($product['images']['rows'])
-                )
-            ]);
-
             // Синхронизировать изображения (если включено)
             if ($result && ($settings->sync_images || $settings->sync_images_all) && isset($product['images']['rows']) && !empty($product['images']['rows'])) {
-                Log::info('Calling queueImageSync for product', [
-                    'product_id' => $productId,
-                    'images_count' => count($product['images']['rows'])
-                ]);
-
                 $this->queueImageSync($mainAccountId, $childAccountId, 'product', $productId, $result['id'], $product['images']['rows'], $settings);
             }
 
@@ -1324,31 +1303,11 @@ class ProductSyncService
         array $images,
         SyncSetting $settings
     ): int {
-        // DEBUG: Log queueImageSync call
-        Log::debug('queueImageSync called', [
-            'entity_type' => $entityType,
-            'parent_entity_id' => $parentEntityId,
-            'child_entity_id' => $childEntityId,
-            'images_count' => count($images),
-            'sync_images' => $settings->sync_images,
-            'sync_images_all' => $settings->sync_images_all
-        ]);
-
         // Получить лимит изображений
         $imageSyncService = app(\App\Services\ImageSyncService::class);
         $limit = $imageSyncService->getImageLimit($settings);
 
-        Log::debug('Image limit calculated', [
-            'limit' => $limit,
-            'sync_images' => $settings->sync_images,
-            'sync_images_all' => $settings->sync_images_all
-        ]);
-
         if ($limit === 0) {
-            Log::warning('Image sync disabled (limit = 0)', [
-                'entity_type' => $entityType,
-                'entity_id' => $parentEntityId
-            ]);
             return 0; // Image sync disabled
         }
 
