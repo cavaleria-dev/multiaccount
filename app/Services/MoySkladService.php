@@ -465,6 +465,33 @@ class MoySkladService
         return $this->post('entity/bundle', $bundles);
     }
 
+    /**
+     * Загрузить изображение для сущности
+     *
+     * @param string $entityType Тип сущности (product, bundle, variant)
+     * @param string $entityId UUID сущности
+     * @param string $base64Content Base64-encoded image content
+     * @param string $filename Имя файла
+     * @return array Результат операции
+     * @throws \Exception При ошибке загрузки
+     */
+    public function uploadImage(string $entityType, string $entityId, string $base64Content, string $filename): array
+    {
+        Log::debug('Uploading image to МойСклад', [
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
+            'filename' => $filename,
+            'base64_size' => strlen($base64Content)
+        ]);
+
+        $endpoint = "entity/{$entityType}/{$entityId}/images";
+
+        return $this->post($endpoint, [
+            'filename' => $filename,
+            'content' => $base64Content
+        ]);
+    }
+
     // ============ Методы для работы с заказами ============
 
     /**

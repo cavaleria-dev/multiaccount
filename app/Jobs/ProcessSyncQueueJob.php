@@ -11,6 +11,7 @@ use App\Services\RetailDemandSyncService;
 use App\Services\PurchaseOrderSyncService;
 use App\Services\SyncStatisticsService;
 use App\Services\WebhookService;
+use App\Services\ImageSyncService;
 use App\Exceptions\RateLimitException;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -40,7 +41,8 @@ class ProcessSyncQueueJob implements ShouldQueue
         RetailDemandSyncService $retailDemandSyncService,
         PurchaseOrderSyncService $purchaseOrderSyncService,
         SyncStatisticsService $statisticsService,
-        WebhookService $webhookService
+        WebhookService $webhookService,
+        ImageSyncService $imageSyncService
     ): void {
         // Детальное логирование для диагностики
         $totalPending = \DB::table('sync_queue')->where('status', 'pending')->count();
@@ -93,7 +95,8 @@ class ProcessSyncQueueJob implements ShouldQueue
                     $customerOrderSyncService,
                     $retailDemandSyncService,
                     $purchaseOrderSyncService,
-                    $webhookService
+                    $webhookService,
+                    $imageSyncService
                 );
 
                 $duration = (int)((microtime(true) - $startTime) * 1000); // ms
@@ -224,7 +227,8 @@ class ProcessSyncQueueJob implements ShouldQueue
         CustomerOrderSyncService $customerOrderSyncService,
         RetailDemandSyncService $retailDemandSyncService,
         PurchaseOrderSyncService $purchaseOrderSyncService,
-        WebhookService $webhookService
+        WebhookService $webhookService,
+        ImageSyncService $imageSyncService
     ): void {
         // Гарантировать что payload это массив, а не null
         $payload = $task->payload ?? [];
@@ -242,6 +246,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             'retaildemand' => $this->processRetailDemandSync($task, $payload, $retailDemandSyncService),
             'purchaseorder' => $this->processPurchaseOrderSync($task, $payload, $purchaseOrderSyncService),
             'webhook' => $this->processWebhookCheck($task, $webhookService),
+            'image_sync' => $this->processImageSync($task, $payload, $imageSyncService),
             default => Log::warning("Unknown entity type in queue: {$task->entity_type}")
         };
     }
@@ -1587,6 +1592,62 @@ class ProcessSyncQueueJob implements ShouldQueue
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Обработать синхронизацию изображения
+     */
+    protected function processImageSync(SyncQueue $task, array $payload, ImageSyncService $imageSyncService): void
+    {
+        // Проверить что payload содержит необходимые данные
+        if (empty($payload) || !isset($payload['main_account_id'])) {
+            Log::warning('Image sync task skipped: missing main_account_id in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'entity_id' => $task->entity_id,
+                'payload' => $payload
+            ]);
+            throw new \Exception('Invalid payload: missing main_account_id');
+        }
+
+        $requiredFields = ['child_account_id', 'parent_entity_type', 'parent_entity_id', 'child_entity_id', 'image_url', 'filename'];
+        foreach ($requiredFields as $field) {
+            if (!isset($payload[$field])) {
+                Log::error('Image sync task skipped: missing required field', [
+                    'task_id' => $task->id,
+                    'missing_field' => $field,
+                    'payload' => $payload
+                ]);
+                throw new \Exception("Invalid payload: missing {$field}");
+            }
+        }
+
+        Log::info('Starting image sync', [
+            'task_id' => $task->id,
+            'parent_entity_type' => $payload['parent_entity_type'],
+            'parent_entity_id' => $payload['parent_entity_id'],
+            'child_entity_id' => $payload['child_entity_id'],
+            'filename' => $payload['filename']
+        ]);
+
+        $result = $imageSyncService->syncImages(
+            $payload['main_account_id'],
+            $payload['child_account_id'],
+            $payload['parent_entity_type'],
+            $payload['parent_entity_id'],
+            [$payload] // Pass single image as array
+        );
+
+        if (!$result) {
+            throw new \Exception('Image sync failed - no images were successfully synced');
+        }
+
+        Log::info('Image sync completed successfully', [
+            'task_id' => $task->id,
+            'parent_entity_type' => $payload['parent_entity_type'],
+            'parent_entity_id' => $payload['parent_entity_id'],
+            'filename' => $payload['filename']
+        ]);
     }
 
     /**

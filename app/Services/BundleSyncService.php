@@ -74,7 +74,7 @@ class BundleSyncService
                     entityType: 'bundle',
                     entityId: $bundleId
                 )
-                ->get("entity/bundle/{$bundleId}", ['expand' => 'components.assortment']);
+                ->get("entity/bundle/{$bundleId}", ['expand' => 'components.assortment,images']);
 
             $bundle = $bundleResult['data'];
 
@@ -132,13 +132,21 @@ class BundleSyncService
 
             $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
 
+            $result = null;
             if ($mapping) {
                 // Комплект уже существует, обновляем
-                return $this->updateBundle($childAccount, $mainAccountId, $childAccountId, $bundle, $mapping, $settings);
+                $result = $this->updateBundle($childAccount, $mainAccountId, $childAccountId, $bundle, $mapping, $settings);
             } else {
                 // Создаем новый комплект
-                return $this->createBundle($childAccount, $mainAccountId, $childAccountId, $bundle, $settings);
+                $result = $this->createBundle($childAccount, $mainAccountId, $childAccountId, $bundle, $settings);
             }
+
+            // Синхронизировать изображения (если включено)
+            if ($result && $settings->sync_images && isset($bundle['images']['rows']) && !empty($bundle['images']['rows'])) {
+                $this->queueImageSync($mainAccountId, $childAccountId, 'bundle', $bundleId, $result['id'], $bundle['images']['rows'], $settings);
+            }
+
+            return $result;
 
         } catch (\Exception $e) {
             Log::error('Failed to sync bundle', [
@@ -795,6 +803,97 @@ class BundleSyncService
             ]);
             throw $e;
         }
+    }
+
+    /**
+     * Добавить задачи синхронизации изображений в очередь
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $entityType Тип сущности (product, bundle, variant)
+     * @param string $parentEntityId UUID сущности в главном аккаунте
+     * @param string $childEntityId UUID сущности в дочернем аккаунте
+     * @param array $images Массив изображений из МойСклад API (rows)
+     * @param SyncSetting $settings Настройки синхронизации
+     * @return int Количество добавленных задач
+     */
+    protected function queueImageSync(
+        string $mainAccountId,
+        string $childAccountId,
+        string $entityType,
+        string $parentEntityId,
+        string $childEntityId,
+        array $images,
+        SyncSetting $settings
+    ): int {
+        // Получить лимит изображений
+        $imageSyncService = app(\App\Services\ImageSyncService::class);
+        $limit = $imageSyncService->getImageLimit($settings);
+
+        if ($limit === 0) {
+            return 0; // Image sync disabled
+        }
+
+        // Ограничить количество изображений
+        $imagesToSync = array_slice($images, 0, $limit);
+        $queuedCount = 0;
+
+        foreach ($imagesToSync as $index => $image) {
+            try {
+                $downloadHref = $image['meta']['downloadHref'] ?? null;
+                $filename = $image['filename'] ?? "image_{$index}.jpg";
+
+                if (!$downloadHref) {
+                    Log::warning('Image missing downloadHref, skipping', [
+                        'entity_type' => $entityType,
+                        'entity_id' => $parentEntityId,
+                        'image_index' => $index
+                    ]);
+                    continue;
+                }
+
+                \App\Models\SyncQueue::create([
+                    'account_id' => $childAccountId,
+                    'entity_type' => 'image_sync',
+                    'entity_id' => $filename,
+                    'operation' => 'sync',
+                    'priority' => 80, // Low priority (higher number = lower priority)
+                    'payload' => [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'parent_entity_type' => $entityType,
+                        'parent_entity_id' => $parentEntityId,
+                        'child_entity_id' => $childEntityId,
+                        'image_url' => $downloadHref,
+                        'filename' => $filename,
+                    ],
+                    'max_attempts' => 3,
+                ]);
+
+                $queuedCount++;
+
+            } catch (\Exception $e) {
+                Log::error('Failed to queue image sync task', [
+                    'entity_type' => $entityType,
+                    'entity_id' => $parentEntityId,
+                    'image_index' => $index,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+
+        if ($queuedCount > 0) {
+            Log::info('Queued image sync tasks', [
+                'entity_type' => $entityType,
+                'entity_id' => $parentEntityId,
+                'child_entity_id' => $childEntityId,
+                'queued_count' => $queuedCount,
+                'total_images' => count($images),
+                'limit' => $limit
+            ]);
+        }
+
+        return $queuedCount;
     }
 
 }

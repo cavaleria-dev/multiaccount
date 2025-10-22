@@ -19,7 +19,7 @@ class EntityConfig
     protected static array $configs = [
         'product' => [
             'endpoint' => '/entity/product',
-            'expand' => 'attributes,productFolder,uom,country,packs.uom,salePrices',
+            'expand' => 'attributes,productFolder,uom,country,packs.uom,salePrices,images',
             'batch_entity_type' => 'batch_products',
             'filter_metadata_type' => 'product',
             'supports_filters' => true,
@@ -45,7 +45,7 @@ class EntityConfig
 
         'bundle' => [
             'endpoint' => '/entity/bundle',
-            'expand' => 'attributes,productFolder,components.product,components.variant',
+            'expand' => 'attributes,productFolder,components.product,components.variant,images',
             'batch_entity_type' => 'batch_bundles',
             'filter_metadata_type' => 'product',  // Bundles используют product metadata
             'supports_filters' => true,
@@ -58,7 +58,7 @@ class EntityConfig
 
         'variant' => [
             'endpoint' => '/entity/variant',
-            'expand' => 'attributes,product,characteristics',
+            'expand' => 'attributes,product,characteristics,images',
             'batch_entity_type' => 'batch_variants',
             'filter_metadata_type' => 'product',  // Variants используют product metadata
             'supports_filters' => false,  // Variants не фильтруются напрямую (группируются по product)
