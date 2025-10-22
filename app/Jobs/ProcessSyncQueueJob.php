@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\SyncQueue;
 use App\Services\ProductSyncService;
 use App\Services\ServiceSyncService;
+use App\Services\BundleSyncService;
 use App\Services\CustomerOrderSyncService;
 use App\Services\RetailDemandSyncService;
 use App\Services\PurchaseOrderSyncService;
@@ -34,6 +35,7 @@ class ProcessSyncQueueJob implements ShouldQueue
     public function handle(
         ProductSyncService $productSyncService,
         ServiceSyncService $serviceSyncService,
+        BundleSyncService $bundleSyncService,
         CustomerOrderSyncService $customerOrderSyncService,
         RetailDemandSyncService $retailDemandSyncService,
         PurchaseOrderSyncService $purchaseOrderSyncService,
@@ -87,6 +89,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                     $task,
                     $productSyncService,
                     $serviceSyncService,
+                    $bundleSyncService,
                     $customerOrderSyncService,
                     $retailDemandSyncService,
                     $purchaseOrderSyncService,
@@ -217,6 +220,7 @@ class ProcessSyncQueueJob implements ShouldQueue
         SyncQueue $task,
         ProductSyncService $productSyncService,
         ServiceSyncService $serviceSyncService,
+        BundleSyncService $bundleSyncService,
         CustomerOrderSyncService $customerOrderSyncService,
         RetailDemandSyncService $retailDemandSyncService,
         PurchaseOrderSyncService $purchaseOrderSyncService,
@@ -230,7 +234,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             'variant' => $this->processVariantSync($task, $payload, $productSyncService),
             'product_variants' => $this->processBatchVariantSync($task, $payload, $productSyncService),
             'batch_products' => $this->processBatchProductSync($task, $payload, $productSyncService),
-            'bundle' => $this->processBundleSync($task, $payload, $productSyncService),
+            'bundle' => $this->processBundleSync($task, $payload, $bundleSyncService),
             'service' => $this->processServiceSync($task, $payload, $serviceSyncService),
             'batch_services' => $this->processBatchServiceSync($task, $payload, $serviceSyncService),
             'customerorder' => $this->processCustomerOrderSync($task, $payload, $customerOrderSyncService),
@@ -1103,7 +1107,7 @@ class ProcessSyncQueueJob implements ShouldQueue
     /**
      * Обработать синхронизацию комплекта
      */
-    protected function processBundleSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
+    protected function processBundleSync(SyncQueue $task, array $payload, BundleSyncService $bundleSyncService): void
     {
         // Проверить что payload содержит необходимые данные
         if (empty($payload) || !isset($payload['main_account_id'])) {
@@ -1116,9 +1120,17 @@ class ProcessSyncQueueJob implements ShouldQueue
             throw new \Exception('Invalid payload: missing main_account_id');
         }
 
+        Log::info('Processing bundle sync task', [
+            'task_id' => $task->id,
+            'bundle_id' => $task->entity_id,
+            'main_account_id' => $payload['main_account_id'],
+            'child_account_id' => $task->account_id,
+            'operation' => $task->operation
+        ]);
+
         if ($task->operation === 'delete') {
             // При удалении или архивации комплекта в главном - архивируем во всех дочерних
-            $archivedCount = $productSyncService->archiveBundle(
+            $archivedCount = $bundleSyncService->archiveBundle(
                 $payload['main_account_id'],
                 $task->entity_id
             );
@@ -1131,11 +1143,24 @@ class ProcessSyncQueueJob implements ShouldQueue
             return;
         }
 
-        $productSyncService->syncBundle(
+        $result = $bundleSyncService->syncBundle(
             $payload['main_account_id'],
             $task->account_id,
             $task->entity_id
         );
+
+        if ($result) {
+            Log::info('Bundle sync completed successfully', [
+                'task_id' => $task->id,
+                'bundle_id' => $task->entity_id,
+                'child_bundle_id' => $result['id'] ?? 'unknown'
+            ]);
+        } else {
+            Log::warning('Bundle sync returned null (possibly filtered out or disabled)', [
+                'task_id' => $task->id,
+                'bundle_id' => $task->entity_id
+            ]);
+        }
     }
 
     /**
