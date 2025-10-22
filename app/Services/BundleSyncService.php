@@ -492,6 +492,11 @@ class BundleSyncService
     ): array {
         $syncedComponents = [];
 
+        // Проверить структуру: если это объект с rows - взять rows
+        if (isset($components['rows']) && is_array($components['rows'])) {
+            $components = $components['rows'];
+        }
+
         foreach ($components as $component) {
             $assortment = $component['assortment'] ?? null;
             if (!$assortment) {
