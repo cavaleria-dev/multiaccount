@@ -287,31 +287,40 @@ Image sync is controlled by settings in the `sync_settings` table:
 
 ### `sync_images`
 
-Boolean flag to enable/disable image synchronization.
+Boolean flag to enable synchronization of **first image only**.
 
 **Default**: `false` (disabled)
 
-### `sync_images_mode`
+**Type**: `boolean`
 
-Controls how many images to sync:
+### `sync_images_all`
 
-- `disabled` (0 images)
-- `first_only` (1 image)
-- `all` (up to 10 images)
+Boolean flag to enable synchronization of **all images** (up to 10 per entity - МойСклад limit).
 
-**Default**: `disabled`
+**Default**: `false` (disabled)
+
+**Type**: `boolean`
+
+**Note**: These settings are **mutually exclusive** in the UI:
+- When you enable "Только первое изображение" (`sync_images`), "Все изображения" (`sync_images_all`) is automatically disabled
+- When you enable "Все изображения" (`sync_images_all`), "Только первое изображение" (`sync_images`) is automatically disabled
 
 **Example**:
 
 ```php
 // Enable sync of first image only
 $settings->sync_images = true;
-$settings->sync_images_mode = 'first_only';
+$settings->sync_images_all = false;
 $settings->save();
 
 // Enable sync of all images
-$settings->sync_images = true;
-$settings->sync_images_mode = 'all';
+$settings->sync_images = false;
+$settings->sync_images_all = true;
+$settings->save();
+
+// Disable image sync completely
+$settings->sync_images = false;
+$settings->sync_images_all = false;
 $settings->save();
 ```
 
@@ -538,10 +547,15 @@ ls -1 storage/app/temp_images/ | wc -l
 ### Images not syncing
 
 **Check**:
-1. Settings: `sync_images = true` and `sync_images_mode != 'disabled'`
-2. Queue: Look for pending `image_sync` tasks
+1. Settings: Either `sync_images = true` (first image only) OR `sync_images_all = true` (all images)
+2. Queue: Look for pending `image_sync` tasks in sync_queue table
 3. Worker: Ensure queue worker is running (Supervisor)
 4. Logs: Check for errors in `storage/logs/laravel.log`
+
+**Common error**: "Image sync is disabled"
+- This appears in logs when both `sync_images` and `sync_images_all` are false
+- Check the sync settings for the child account in the UI
+- Make sure at least one image sync option is enabled
 
 ### Temp files not cleaning up
 
@@ -631,6 +645,12 @@ GET {downloadHref from entity.images.rows[].meta.downloadHref}
 - [Common Patterns](10-common-patterns.md) - Best practices and troubleshooting
 
 ## Changelog
+
+### 2025-10-22
+- **BUGFIX**: Fixed image sync settings check to support `sync_images_all` option
+  - Previously only checked `sync_images` flag, causing "Image sync is disabled" error when using "All images" option
+  - Now correctly checks both `sync_images` OR `sync_images_all` (matches other sync services)
+  - Affected methods: `syncImagesForEntity()` and `syncImages()` in ImageSyncService
 
 ### 2025-01-22
 - Initial implementation with batch upload support
