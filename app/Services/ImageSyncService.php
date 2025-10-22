@@ -131,7 +131,7 @@ class ImageSyncService
                     }
 
                     $base64Images[] = [
-                        'filename' => $filename,
+                        'filename' => uniqid() . '_' . $filename,
                         'content' => $base64Content
                     ];
 
@@ -546,7 +546,8 @@ class ImageSyncService
                 'base64_size' => strlen($base64Content)
             ]);
 
-            // Upload via МойСклад API
+            // Upload via МойСклад API (with unique prefix to prevent filename conflicts)
+            $uniqueFilename = uniqid() . '_' . $filename;
             $result = $this->moySkladService
                 ->setAccessToken($childAccount->access_token)
                 ->setLogContext(
@@ -557,14 +558,15 @@ class ImageSyncService
                     entityId: $childEntityId,
                     operationType: 'upload_image'
                 )
-                ->uploadImage($entityType, $childEntityId, $base64Content, $filename);
+                ->uploadImage($entityType, $childEntityId, $base64Content, $uniqueFilename);
 
             if (isset($result['data'])) {
                 Log::info('Image uploaded to МойСклад', [
                     'child_account_id' => $childAccountId,
                     'entity_type' => $entityType,
                     'child_entity_id' => $childEntityId,
-                    'filename' => $filename,
+                    'original_filename' => $filename,
+                    'unique_filename' => $uniqueFilename,
                     'image_id' => $result['data']['filename'] ?? 'unknown'
                 ]);
                 return true;
