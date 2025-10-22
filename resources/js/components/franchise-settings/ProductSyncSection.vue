@@ -31,7 +31,7 @@
         />
         <Toggle
           v-model="localSettings.sync_images"
-          label="Изображения"
+          label="Только первое изображение"
           size="small"
           color="green"
         />
@@ -109,7 +109,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import Toggle from '../Toggle.vue'
 import SimpleSelect from '../SimpleSelect.vue'
 
@@ -151,5 +151,25 @@ const emit = defineEmits(['update:settings', 'sync-all-products'])
 const localSettings = computed({
   get: () => props.settings,
   set: (value) => emit('update:settings', value)
+})
+
+// Auto-enable products when variants are enabled
+watch(() => localSettings.value.sync_variants, (newValue) => {
+  if (newValue && !localSettings.value.sync_products) {
+    localSettings.value.sync_products = true
+  }
+})
+
+// Mutual exclusion: "Только первое изображение" ↔ "Все изображения"
+watch(() => localSettings.value.sync_images, (newValue) => {
+  if (newValue && localSettings.value.sync_images_all) {
+    localSettings.value.sync_images_all = false
+  }
+})
+
+watch(() => localSettings.value.sync_images_all, (newValue) => {
+  if (newValue && localSettings.value.sync_images) {
+    localSettings.value.sync_images = false
+  }
 })
 </script>
