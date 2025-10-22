@@ -432,6 +432,39 @@ class MoySkladService
         return $this->post('entity/service', $services);
     }
 
+    /**
+     * Batch создание/обновление комплектов через POST /entity/bundle
+     *
+     * @param array $bundles Массив комплектов (рекомендуется до 100 за раз)
+     * @return array Response с массивом созданных/обновленных комплектов
+     * @throws \InvalidArgumentException Если массив пустой или превышает лимит
+     */
+    public function batchCreateBundles(array $bundles): array
+    {
+        if (empty($bundles)) {
+            throw new \InvalidArgumentException('Bundles array cannot be empty');
+        }
+
+        if (count($bundles) > 1000) {
+            throw new \InvalidArgumentException('МойСклад limit: max 1000 bundles per batch (got ' . count($bundles) . ')');
+        }
+
+        // Проверить примерный размер запроса
+        $estimatedSize = strlen(json_encode($bundles));
+        $estimatedSizeMb = round($estimatedSize / (1024 * 1024), 2);
+
+        if ($estimatedSize > 20 * 1024 * 1024) {
+            throw new \InvalidArgumentException("Request size ({$estimatedSizeMb}MB) exceeds МойСклад limit (20MB)");
+        }
+
+        Log::info('Batch creating bundles', [
+            'count' => count($bundles),
+            'estimated_size_mb' => $estimatedSizeMb
+        ]);
+
+        return $this->post('entity/bundle', $bundles);
+    }
+
     // ============ Методы для работы с заказами ============
 
     /**

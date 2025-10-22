@@ -105,7 +105,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                 ]);
 
                 // Записать статистику
-                if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'batch_products', 'bundle', 'service', 'batch_services'])) {
+                if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'batch_products', 'bundle', 'batch_bundles', 'service', 'batch_services'])) {
                     $payload = $task->payload;
                     if (isset($payload['main_account_id'])) {
                         $statisticsService->recordSync(
@@ -153,9 +153,9 @@ class ProcessSyncQueueJob implements ShouldQueue
                 // Ловим и Exception, и Error (включая TypeError)
                 $task->increment('attempts');
 
-                // Специальная обработка для batch задач (batch_services, batch_products)
+                // Специальная обработка для batch задач (batch_services, batch_products, batch_bundles)
                 // Если batch POST упал целиком → создать индивидуальные retry задачи для всех сущностей
-                if (in_array($task->entity_type, ['batch_services', 'batch_products'])) {
+                if (in_array($task->entity_type, ['batch_services', 'batch_products', 'batch_bundles'])) {
                     $this->handleBatchTaskFailure($task, $e, $statisticsService);
                     continue; // Переходим к следующей задаче
                 }
@@ -171,7 +171,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                     ]);
 
                     // Записать статистику о неудаче
-                    if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'batch_products', 'bundle', 'service', 'batch_services'])) {
+                    if (in_array($task->entity_type, ['product', 'variant', 'product_variants', 'batch_products', 'bundle', 'batch_bundles', 'service', 'batch_services'])) {
                         $payload = $task->payload;
                         if (isset($payload['main_account_id'])) {
                             $statisticsService->recordSync(
@@ -235,6 +235,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             'product_variants' => $this->processBatchVariantSync($task, $payload, $productSyncService),
             'batch_products' => $this->processBatchProductSync($task, $payload, $productSyncService),
             'bundle' => $this->processBundleSync($task, $payload, $bundleSyncService),
+            'batch_bundles' => $this->processBatchBundleSync($task, $payload, $bundleSyncService),
             'service' => $this->processServiceSync($task, $payload, $serviceSyncService),
             'batch_services' => $this->processBatchServiceSync($task, $payload, $serviceSyncService),
             'customerorder' => $this->processCustomerOrderSync($task, $payload, $customerOrderSyncService),
@@ -1105,6 +1106,337 @@ class ProcessSyncQueueJob implements ShouldQueue
     }
 
     /**
+     * Обработать пакетную синхронизацию комплектов (batch POST)
+     *
+     * Получает готовые комплекты из payload, подготавливает их (используя только кеш),
+     * отправляет batch POST в МойСклад и создает mappings.
+     */
+    protected function processBatchBundleSync(SyncQueue $task, array $payload, BundleSyncService $bundleSyncService): void
+    {
+        // Проверить что payload содержит необходимые данные
+        if (empty($payload) || !isset($payload['main_account_id'])) {
+            Log::warning('Batch bundle task skipped: missing main_account_id in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'payload_keys' => array_keys($payload)
+            ]);
+            throw new \Exception('Invalid payload: missing main_account_id');
+        }
+
+        if (!isset($payload['bundles']) || empty($payload['bundles'])) {
+            Log::warning('Batch bundle task skipped: missing bundles in payload', [
+                'task_id' => $task->id,
+                'entity_type' => $task->entity_type,
+                'payload_keys' => array_keys($payload)
+            ]);
+            throw new \Exception('Invalid payload: missing bundles array');
+        }
+
+        $mainAccountId = $payload['main_account_id'];
+        $childAccountId = $task->account_id;
+        $bundles = $payload['bundles'];
+
+        try {
+            // Получить настройки синхронизации
+            $syncSettings = \App\Models\SyncSetting::where('account_id', $childAccountId)->first();
+
+            if (!$syncSettings) {
+                throw new \Exception("Sync settings not found for child account {$childAccountId}");
+            }
+
+            Log::info('Batch bundle sync started', [
+                'task_id' => $task->id,
+                'bundles_count' => count($bundles),
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId
+            ]);
+
+            // Подготовить комплекты для batch POST (используя только кеш)
+            $preparedBundles = [];
+            $skippedCount = 0;
+
+            foreach ($bundles as $bundle) {
+                $prepared = $bundleSyncService->prepareBundleForBatch(
+                    $bundle,
+                    $mainAccountId,
+                    $childAccountId,
+                    $syncSettings
+                );
+
+                if ($prepared) {
+                    $preparedBundles[] = $prepared;
+                } else {
+                    $skippedCount++; // Filtered out or missing components
+                }
+            }
+
+            if (empty($preparedBundles)) {
+                Log::info('All bundles filtered out in batch', [
+                    'task_id' => $task->id,
+                    'total_bundles' => count($bundles),
+                    'skipped' => $skippedCount
+                ]);
+                return;
+            }
+
+            Log::info('Bundles prepared for batch POST', [
+                'task_id' => $task->id,
+                'prepared_count' => count($preparedBundles),
+                'skipped_count' => $skippedCount
+            ]);
+
+            // Получить child account для access token
+            $childAccount = \App\Models\Account::where('account_id', $childAccountId)->firstOrFail();
+            $moysklad = app(\App\Services\MoySkladService::class);
+
+            // Отправить batch POST
+            $response = $moysklad
+                ->setAccessToken($childAccount->access_token)
+                ->setLogContext(
+                    accountId: $childAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $mainAccountId,
+                    entityType: 'batch_bundles',
+                    entityId: null  // Batch - нет конкретного ID
+                )
+                ->setOperationContext(
+                    operationType: 'batch_create',
+                    operationResult: 'success'
+                )
+                ->batchCreateBundles($preparedBundles);
+
+            $createdBundles = $response['data'] ?? [];
+
+            Log::info('Batch POST completed', [
+                'task_id' => $task->id,
+                'sent_count' => count($preparedBundles),
+                'received_count' => count($createdBundles)
+            ]);
+
+            // Разделить успешные результаты от ошибок
+            $successfulResults = [];
+            $errorResults = [];
+
+            foreach ($createdBundles as $index => $result) {
+                // МойСклад возвращает mixed array: успехи {"id": "xxx"} и ошибки {"errors": [...]}
+                if (isset($result['errors']) && is_array($result['errors'])) {
+                    $errorResults[$index] = $result;
+                } else {
+                    $successfulResults[$index] = $result;
+                }
+            }
+
+            Log::info('Batch POST results separated', [
+                'task_id' => $task->id,
+                'successful_count' => count($successfulResults),
+                'error_count' => count($errorResults)
+            ]);
+
+            // Обработать ошибки (код 1021 - сущность не найдена)
+            $deletedMappingsCount = 0;
+            $retryTasksCount = 0;
+
+            foreach ($errorResults as $index => $errorResult) {
+                $originalId = $preparedBundles[$index]['_original_id'] ?? null;
+
+                if (!$originalId) {
+                    Log::warning('Error result without _original_id', [
+                        'task_id' => $task->id,
+                        'index' => $index,
+                        'errors' => $errorResult['errors']
+                    ]);
+                    continue;
+                }
+
+                // Извлечь код ошибки (проверяем первую ошибку в массиве)
+                $firstError = $errorResult['errors'][0] ?? null;
+                $errorCode = $firstError['code'] ?? null;
+                $errorMessage = $firstError['error'] ?? 'Unknown error';
+
+                Log::error('Batch POST error for bundle', [
+                    'task_id' => $task->id,
+                    'index' => $index,
+                    'original_id' => $originalId,
+                    'error_code' => $errorCode,
+                    'error_message' => $errorMessage
+                ]);
+
+                // Код 1021 = "Объект не найден" - означает комплект удален в child account
+                if ($errorCode === 1021) {
+                    // Удалить stale mapping
+                    $deleted = \App\Models\EntityMapping::where([
+                        'parent_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'entity_type' => 'bundle',
+                        'parent_entity_id' => $originalId
+                    ])->delete();
+
+                    if ($deleted > 0) {
+                        $deletedMappingsCount++;
+                        Log::info('Deleted stale bundle mapping (entity not found in child)', [
+                            'task_id' => $task->id,
+                            'original_id' => $originalId,
+                            'error_code' => $errorCode
+                        ]);
+                    }
+
+                    // Создать retry задачу с операцией CREATE (не UPDATE)
+                    SyncQueue::create([
+                        'account_id' => $childAccountId,
+                        'entity_type' => 'bundle',
+                        'entity_id' => $originalId,
+                        'operation' => 'create',  // ВАЖНО: CREATE, не update
+                        'priority' => 5,
+                        'scheduled_at' => now()->addMinutes(5),
+                        'status' => 'pending',
+                        'attempts' => 0,
+                        'payload' => [
+                            'main_account_id' => $mainAccountId,
+                            'batch_retry' => true,
+                            'retry_reason' => 'entity_deleted_in_child'
+                        ]
+                    ]);
+
+                    $retryTasksCount++;
+
+                    Log::info('Created retry task as CREATE for deleted bundle', [
+                        'original_task_id' => $task->id,
+                        'bundle_id' => $originalId
+                    ]);
+                } else {
+                    // Другие ошибки - создать retry как UPDATE
+                    SyncQueue::create([
+                        'account_id' => $childAccountId,
+                        'entity_type' => 'bundle',
+                        'entity_id' => $originalId,
+                        'operation' => 'update',
+                        'priority' => 5,
+                        'scheduled_at' => now()->addMinutes(5),
+                        'status' => 'pending',
+                        'attempts' => 0,
+                        'payload' => [
+                            'main_account_id' => $mainAccountId,
+                            'batch_retry' => true,
+                            'error_code' => $errorCode
+                        ]
+                    ]);
+
+                    $retryTasksCount++;
+
+                    Log::info('Created retry task for batch error', [
+                        'original_task_id' => $task->id,
+                        'bundle_id' => $originalId,
+                        'error_code' => $errorCode
+                    ]);
+                }
+            }
+
+            // Создать mappings ТОЛЬКО для успешных результатов
+            $mappingCount = 0;
+            $failedCount = 0;
+
+            foreach ($successfulResults as $index => $createdBundle) {
+                try {
+                    // Получить оригинальный ID из метаданных
+                    $originalId = $preparedBundles[$index]['_original_id'] ?? null;
+                    $isUpdate = $preparedBundles[$index]['_is_update'] ?? false;
+
+                    if (!$originalId) {
+                        Log::warning('Cannot create mapping: missing _original_id', [
+                            'task_id' => $task->id,
+                            'index' => $index,
+                            'child_bundle_id' => $createdBundle['id'] ?? 'unknown'
+                        ]);
+                        $failedCount++;
+                        continue;
+                    }
+
+                    // Создать или обновить mapping
+                    \App\Models\EntityMapping::updateOrCreate(
+                        [
+                            'parent_account_id' => $mainAccountId,
+                            'child_account_id' => $childAccountId,
+                            'entity_type' => 'bundle',
+                            'parent_entity_id' => $originalId
+                        ],
+                        [
+                            'child_entity_id' => $createdBundle['id'],
+                            'sync_direction' => 'main_to_child',
+                            'match_field' => $syncSettings->product_match_field ?? 'code',
+                            'match_value' => $createdBundle['code'] ?? $createdBundle['name']
+                        ]
+                    );
+
+                    $mappingCount++;
+
+                } catch (\Exception $e) {
+                    $failedCount++;
+
+                    // Получить оригинальный ID
+                    $originalId = $preparedBundles[$index]['_original_id'] ?? null;
+
+                    Log::error('Failed to create mapping in batch', [
+                        'task_id' => $task->id,
+                        'index' => $index,
+                        'original_id' => $originalId,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    // Создать индивидуальную retry задачу для упавшего комплекта
+                    if ($originalId) {
+                        SyncQueue::create([
+                            'account_id' => $childAccountId,
+                            'entity_type' => 'bundle',
+                            'entity_id' => $originalId,
+                            'operation' => 'update',
+                            'priority' => 5,
+                            'scheduled_at' => now()->addMinutes(5),
+                            'status' => 'pending',
+                            'attempts' => 0,
+                            'payload' => [
+                                'main_account_id' => $mainAccountId,
+                                'batch_retry' => true,
+                                'retry_reason' => 'mapping_creation_failed'
+                            ]
+                        ]);
+
+                        Log::info('Created individual retry task for failed bundle', [
+                            'original_task_id' => $task->id,
+                            'bundle_id' => $originalId
+                        ]);
+                    }
+                }
+            }
+
+            Log::info('Batch bundle sync completed', [
+                'task_id' => $task->id,
+                'total_bundles' => count($bundles),
+                'prepared_count' => count($preparedBundles),
+                'successful_results' => count($successfulResults),
+                'error_results' => count($errorResults),
+                'mappings_created' => $mappingCount,
+                'failed_mappings' => $failedCount,
+                'deleted_stale_mappings' => $deletedMappingsCount,
+                'retry_tasks_created' => $retryTasksCount
+            ]);
+
+            // Если более 50% упали - выбросить исключение для retry всей задачи
+            if ($failedCount > count($preparedBundles) / 2) {
+                throw new \Exception("Batch sync failed: {$failedCount} of " . count($preparedBundles) . " bundles failed");
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Batch bundle sync failed completely', [
+                'task_id' => $task->id,
+                'bundles_count' => count($bundles),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
      * Обработать синхронизацию комплекта
      */
     protected function processBundleSync(SyncQueue $task, array $payload, BundleSyncService $bundleSyncService): void
@@ -1300,6 +1632,9 @@ class ProcessSyncQueueJob implements ShouldQueue
         } elseif ($task->entity_type === 'batch_products') {
             $entities = $payload['products'] ?? [];
             $entityTypeSingular = 'product';
+        } elseif ($task->entity_type === 'batch_bundles') {
+            $entities = $payload['bundles'] ?? [];
+            $entityTypeSingular = 'bundle';
         }
 
         if (empty($entities)) {

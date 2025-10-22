@@ -547,6 +547,172 @@ class BundleSyncService
     }
 
     /**
+     * Подготовить комплект для batch синхронизации (batch POST)
+     *
+     * Использует ТОЛЬКО кешированные mappings из БД (без дополнительных GET запросов).
+     * Возвращает массив готовый для batch POST в МойСклад.
+     *
+     * @param array $bundle Комплект из главного аккаунта (с expand)
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param SyncSetting $settings Настройки синхронизации
+     * @return array|null Подготовленный комплект для batch POST или null если skip
+     */
+    public function prepareBundleForBatch(
+        array $bundle,
+        string $mainAccountId,
+        string $childAccountId,
+        SyncSetting $settings
+    ): ?array {
+        // 1. Проверить фильтры (используя трейт SyncHelpers)
+        if (!$this->passesFilters($bundle, $settings, $mainAccountId)) {
+            Log::debug('Bundle filtered out in batch', ['bundle_id' => $bundle['id']]);
+            return null;
+        }
+
+        // 2. Проверить, что поле сопоставления заполнено
+        $matchField = $settings->product_match_field ?? 'article';
+        if ($matchField === 'name') {
+            if (empty($bundle['name'])) {
+                Log::warning('Bundle has empty name (required field!)', [
+                    'bundle_id' => $bundle['id']
+                ]);
+                return null;
+            }
+        } else {
+            if (empty($bundle[$matchField])) {
+                Log::debug('Bundle skipped in batch: match field is empty', [
+                    'bundle_id' => $bundle['id'],
+                    'match_field' => $matchField,
+                    'bundle_name' => $bundle['name'] ?? 'unknown'
+                ]);
+                return null;
+            }
+        }
+
+        // 3. Проверить mapping (create or update?)
+        $mapping = EntityMapping::where([
+            'parent_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'entity_type' => 'bundle',
+            'parent_entity_id' => $bundle['id']
+        ])->first();
+
+        // 4. Build base bundle data
+        $bundleData = [
+            'name' => $bundle['name'],
+            'code' => $bundle['code'] ?? null,
+            'externalCode' => $bundle['externalCode'] ?? null,
+            'article' => $bundle['article'] ?? null,
+            'description' => $bundle['description'] ?? null,
+        ];
+
+        // 5. Если обновление - добавить meta
+        if ($mapping) {
+            $bundleData['meta'] = [
+                'href' => config('moysklad.api_url') . "/entity/bundle/{$mapping->child_entity_id}",
+                'type' => 'bundle',
+                'mediaType' => 'application/json'
+            ];
+        }
+
+        // 6. Штрихкоды
+        if (isset($bundle['barcodes'])) {
+            $bundleData['barcodes'] = $bundle['barcodes'];
+        }
+
+        // 7. Синхронизировать доп.поля (используя кешированные mappings)
+        if (isset($bundle['attributes'])) {
+            $bundleData['attributes'] = $this->attributeSyncService->syncAttributes(
+                sourceAccountId: $mainAccountId,
+                targetAccountId: $childAccountId,
+                settingsAccountId: $childAccountId,
+                entityType: 'bundle',
+                attributes: $bundle['attributes'],
+                direction: 'main_to_child'
+            );
+        }
+
+        // 8. Синхронизировать группу товара (используя кешированный mapping)
+        if ($settings->create_product_folders && isset($bundle['productFolder']['id'])) {
+            $childFolderId = $this->productFolderSyncService->getCachedProductFolderMapping(
+                $mainAccountId,
+                $childAccountId,
+                $bundle['productFolder']['id']
+            );
+
+            if ($childFolderId) {
+                $bundleData['productFolder'] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                        'type' => 'productfolder',
+                        'mediaType' => 'application/json'
+                    ]
+                ];
+            }
+        }
+
+        // 9. Синхронизировать UOM (используя кешированный mapping)
+        if (isset($bundle['uom']['id'])) {
+            $childUomId = $this->standardEntitySync->getCachedUomMapping(
+                $mainAccountId,
+                $childAccountId,
+                $bundle['uom']['id']
+            );
+
+            if ($childUomId) {
+                $bundleData['uom'] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/uom/{$childUomId}",
+                        'type' => 'uom',
+                        'mediaType' => 'application/json'
+                    ]
+                ];
+            }
+        }
+
+        // 10. Синхронизировать цены (используя трейт SyncHelpers)
+        $prices = $this->syncPrices(
+            $mainAccountId,
+            $childAccountId,
+            $bundle,
+            $settings
+        );
+        $bundleData['salePrices'] = $prices['salePrices'];
+        if (isset($prices['buyPrice'])) {
+            $bundleData['buyPrice'] = $prices['buyPrice'];
+        }
+
+        // 11. Синхронизировать компоненты комплекта (с автосинхронизацией)
+        if (isset($bundle['components'])) {
+            $syncedComponents = $this->syncBundleComponents(
+                $mainAccountId,
+                $childAccountId,
+                $bundle['components']
+            );
+
+            if (empty($syncedComponents)) {
+                Log::warning('Bundle has no synced components - skipping', [
+                    'bundle_id' => $bundle['id'],
+                    'components_count' => count($bundle['components'])
+                ]);
+                return null; // Комплект без компонентов не имеет смысла
+            }
+
+            $bundleData['components'] = $syncedComponents;
+        }
+
+        // 12. Добавить НДС и налогообложение
+        $bundleData = $this->productSyncService->addVatAndTaxFields($bundleData, $bundle, $settings);
+
+        // 13. Добавить служебные поля для обработки результата batch POST
+        $bundleData['_original_id'] = $bundle['id'];
+        $bundleData['_is_update'] = $mapping ? true : false;
+
+        return $bundleData;
+    }
+
+    /**
      * Архивировать комплект в дочерних аккаунтах
      */
     public function archiveBundle(string $mainAccountId, string $bundleId): int
