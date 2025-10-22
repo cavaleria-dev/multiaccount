@@ -555,8 +555,7 @@ class ImageSyncService
                     direction: 'main_to_child',
                     relatedAccountId: null,
                     entityType: 'image',
-                    entityId: $childEntityId,
-                    operationType: 'upload_image'
+                    entityId: $childEntityId
                 )
                 ->uploadImage($entityType, $childEntityId, $base64Content, $uniqueFilename);
 
@@ -773,8 +772,7 @@ class ImageSyncService
                     direction: 'main_to_child',
                     relatedAccountId: null,
                     entityType: 'image_batch',
-                    entityId: $childEntityId,
-                    operationType: 'batch_upload_images'
+                    entityId: $childEntityId
                 )
                 ->batchUploadImages($entityType, $childEntityId, $images);
 
