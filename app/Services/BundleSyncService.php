@@ -58,7 +58,7 @@ class BundleSyncService
             // Получить настройки синхронизации
             $settings = SyncSetting::where('account_id', $childAccountId)->first();
 
-            if (!$settings || !$settings->sync_products) {
+            if (!$settings || !$settings->sync_bundles) {
                 Log::debug('Bundle sync is disabled', ['child_account_id' => $childAccountId]);
                 return null;
             }
@@ -633,18 +633,19 @@ class BundleSyncService
             );
         }
 
-        // 8. Синхронизировать группу товара (используя кешированный mapping)
+        // 8. Синхронизировать группу товара (используя кешированный mapping из DB)
         if ($settings->create_product_folders && isset($bundle['productFolder']['id'])) {
-            $childFolderId = $this->productFolderSyncService->getCachedProductFolderMapping(
-                $mainAccountId,
-                $childAccountId,
-                $bundle['productFolder']['id']
-            );
+            $folderMapping = EntityMapping::where([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'productfolder',
+                'parent_entity_id' => $bundle['productFolder']['id']
+            ])->first();
 
-            if ($childFolderId) {
+            if ($folderMapping) {
                 $bundleData['productFolder'] = [
                     'meta' => [
-                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$folderMapping->child_entity_id}",
                         'type' => 'productfolder',
                         'mediaType' => 'application/json'
                     ]
