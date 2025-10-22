@@ -61,7 +61,7 @@ class ImageSyncService
             // Получить настройки синхронизации
             $settings = SyncSetting::where('account_id', $childAccountId)->first();
 
-            if (!$settings || !$settings->sync_images) {
+            if (!$settings || (!$settings->sync_images && !$settings->sync_images_all)) {
                 Log::debug('Image sync is disabled', [
                     'child_account_id' => $childAccountId,
                     'entity_type' => $entityType,
@@ -250,7 +250,7 @@ class ImageSyncService
             // Получить настройки синхронизации
             $settings = SyncSetting::where('account_id', $childAccountId)->first();
 
-            if (!$settings || !$settings->sync_images) {
+            if (!$settings || (!$settings->sync_images && !$settings->sync_images_all)) {
                 Log::debug('Image sync is disabled', [
                     'child_account_id' => $childAccountId,
                     'parent_entity_type' => $parentEntityType,
