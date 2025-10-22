@@ -356,15 +356,36 @@ class ProcessSyncQueueJob implements ShouldQueue
             $variantSyncService = app(\App\Services\VariantSyncService::class);
 
             // Загрузить все модификации этого товара с expand
-            $response = $moysklad
-                ->setAccessToken($mainAccount->access_token)
-                ->get('/entity/variant', [
-                    'filter' => "productid={$productId}",
-                    'expand' => 'product.salePrices,characteristics,packs.uom,images',
-                    'limit' => 1000
+            // ВАЖНО: МойСклад API лимиты - max 100 с expand (не 1000!)
+            $variants = [];
+            $offset = 0;
+            $limit = 100;
+            $totalLoaded = 0;
+
+            do {
+                $response = $moysklad
+                    ->setAccessToken($mainAccount->access_token)
+                    ->get('/entity/variant', [
+                        'filter' => "productid={$productId}",
+                        'expand' => 'product.salePrices,characteristics,packs.uom,images',
+                        'limit' => $limit,
+                        'offset' => $offset
+                    ]);
+
+                $rows = $response['data']['rows'] ?? [];
+                $variants = array_merge($variants, $rows);
+                $totalLoaded += count($rows);
+                $offset += $limit;
+
+                Log::debug('Loaded variants batch', [
+                    'task_id' => $task->id,
+                    'product_id' => $productId,
+                    'batch_size' => count($rows),
+                    'total_loaded' => $totalLoaded,
+                    'offset' => $offset
                 ]);
 
-            $variants = $response['data']['rows'] ?? [];
+            } while (count($rows) === $limit);
 
             if (empty($variants)) {
                 Log::info('No variants found for product', [
@@ -377,7 +398,8 @@ class ProcessSyncQueueJob implements ShouldQueue
             Log::info('Batch variant sync started', [
                 'task_id' => $task->id,
                 'product_id' => $productId,
-                'variants_count' => count($variants)
+                'variants_count' => count($variants),
+                'api_requests' => ceil(count($variants) / $limit)
             ]);
 
             $successCount = 0;
