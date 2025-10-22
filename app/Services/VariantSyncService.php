@@ -120,7 +120,7 @@ class VariantSyncService
             }
 
             // Синхронизировать изображения (если включено)
-            if ($result && $settings->sync_images && isset($variant['images']['rows']) && !empty($variant['images']['rows'])) {
+            if ($result && ($settings->sync_images || $settings->sync_images_all) && isset($variant['images']['rows']) && !empty($variant['images']['rows'])) {
                 $this->queueImageSync($mainAccountId, $childAccountId, 'variant', $variantId, $result['id'], $variant['images']['rows'], $settings);
             }
 

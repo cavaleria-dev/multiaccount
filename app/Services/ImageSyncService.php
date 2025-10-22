@@ -634,7 +634,8 @@ class ImageSyncService
      */
     public function getImageLimit(SyncSetting $settings): int
     {
-        if (!$settings->sync_images) {
+        // Проверяем обе настройки (взаимоисключающие)
+        if (!$settings->sync_images && !$settings->sync_images_all) {
             return 0; // Image sync disabled
         }
 
@@ -642,7 +643,7 @@ class ImageSyncService
             return 10; // МойСклад maximum: 10 images per entity
         }
 
-        return 1; // Only first image
+        return 1; // Only first image (sync_images = true)
     }
 
     /**

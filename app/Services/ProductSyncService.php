@@ -92,7 +92,7 @@ class ProductSyncService
                     entityType: 'product',
                     entityId: $productId
                 )
-                ->get("entity/product/{$productId}", ['expand' => 'attributes,productFolder,uom,country,packs.uom']);
+                ->get("entity/product/{$productId}", ['expand' => 'attributes,productFolder,uom,country,packs.uom,images']);
 
             $product = $productResult['data'];
 
@@ -171,7 +171,7 @@ class ProductSyncService
             }
 
             // Синхронизировать изображения (если включено)
-            if ($result && $settings->sync_images && isset($product['images']['rows']) && !empty($product['images']['rows'])) {
+            if ($result && ($settings->sync_images || $settings->sync_images_all) && isset($product['images']['rows']) && !empty($product['images']['rows'])) {
                 $this->queueImageSync($mainAccountId, $childAccountId, 'product', $productId, $result['id'], $product['images']['rows'], $settings);
             }
 

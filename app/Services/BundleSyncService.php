@@ -142,7 +142,7 @@ class BundleSyncService
             }
 
             // Синхронизировать изображения (если включено)
-            if ($result && $settings->sync_images && isset($bundle['images']['rows']) && !empty($bundle['images']['rows'])) {
+            if ($result && ($settings->sync_images || $settings->sync_images_all) && isset($bundle['images']['rows']) && !empty($bundle['images']['rows'])) {
                 $this->queueImageSync($mainAccountId, $childAccountId, 'bundle', $bundleId, $result['id'], $bundle['images']['rows'], $settings);
             }
 
