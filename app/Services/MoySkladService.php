@@ -492,6 +492,57 @@ class MoySkladService
         ]);
     }
 
+    /**
+     * Batch загрузка нескольких изображений для одной сущности
+     *
+     * МойСклад поддерживает загрузку массива изображений за один POST запрос.
+     * Лимит: 20MB на один запрос.
+     *
+     * @param string $entityType Тип сущности (product, bundle, variant)
+     * @param string $entityId UUID сущности
+     * @param array $images Массив изображений [{filename, content}, ...]
+     * @return array Результат операции
+     * @throws \Exception При ошибке загрузки
+     */
+    public function batchUploadImages(string $entityType, string $entityId, array $images): array
+    {
+        $totalSize = array_sum(array_map(fn($img) => strlen($img['content']), $images));
+
+        Log::debug('Batch uploading images to МойСклад', [
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
+            'images_count' => count($images),
+            'total_size_mb' => round($totalSize / 1024 / 1024, 2)
+        ]);
+
+        $endpoint = "entity/{$entityType}/{$entityId}/images";
+
+        // МойСклад принимает массив изображений
+        return $this->post($endpoint, $images);
+    }
+
+    /**
+     * Удалить изображение сущности
+     *
+     * @param string $entityType Тип сущности (product, bundle, variant)
+     * @param string $entityId UUID сущности
+     * @param string $imageId UUID изображения
+     * @return array Результат операции
+     * @throws \Exception При ошибке удаления
+     */
+    public function deleteImage(string $entityType, string $entityId, string $imageId): array
+    {
+        Log::debug('Deleting image from МойСклад', [
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
+            'image_id' => $imageId
+        ]);
+
+        $endpoint = "entity/{$entityType}/{$entityId}/images/{$imageId}";
+
+        return $this->delete($endpoint);
+    }
+
     // ============ Методы для работы с заказами ============
 
     /**

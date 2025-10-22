@@ -18,6 +18,7 @@ This project uses modular documentation for better maintainability. See specific
 10. **[Common Patterns & Gotchas](docs/10-common-patterns.md)** - Best practices, troubleshooting
 11. **[Admin Monitoring](docs/11-admin-monitoring.md)** - API monitoring system
 12. **[Configuration & Resources](docs/12-configuration.md)** - Environment setup, Git workflow
+13. **[Image Synchronization](docs/13-image-sync.md)** - Image sync with batch upload optimization
 
 ## Quick Reference
 
@@ -161,3 +162,4 @@ Each section above links to detailed documentation in the `docs/` folder. Start 
 - Adding features? → [Service Layer](docs/05-services.md) + [Coding Standards](docs/09-coding-standards.md)
 - Debugging issues? → [Common Patterns & Gotchas](docs/10-common-patterns.md)
 - Frontend work? → [Frontend Architecture](docs/06-frontend.md)
+- Image sync? → [Image Synchronization](docs/13-image-sync.md)

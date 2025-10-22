@@ -704,6 +704,23 @@ class ProcessSyncQueueJob implements ShouldQueue
 
                     $mappingCount++;
 
+                    // Синхронизировать изображения (если включено)
+                    if ($syncSettings->sync_images) {
+                        $originalImages = $preparedProducts[$index]['_original_images'] ?? [];
+
+                        if (!empty($originalImages)) {
+                            $this->queueImageSyncForEntity(
+                                $mainAccountId,
+                                $childAccountId,
+                                'product',
+                                $originalId,
+                                $createdProduct['id'],
+                                $originalImages,
+                                $syncSettings
+                            );
+                        }
+                    }
+
                 } catch (\Exception $e) {
                     $failedCount++;
 
@@ -1374,6 +1391,23 @@ class ProcessSyncQueueJob implements ShouldQueue
 
                     $mappingCount++;
 
+                    // Синхронизировать изображения (если включено)
+                    if ($syncSettings->sync_images) {
+                        $originalImages = $preparedBundles[$index]['_original_images'] ?? [];
+
+                        if (!empty($originalImages)) {
+                            $this->queueImageSyncForEntity(
+                                $mainAccountId,
+                                $childAccountId,
+                                'bundle',
+                                $originalId,
+                                $createdBundle['id'],
+                                $originalImages,
+                                $syncSettings
+                            );
+                        }
+                    }
+
                 } catch (\Exception $e) {
                     $failedCount++;
 
@@ -1610,44 +1644,178 @@ class ProcessSyncQueueJob implements ShouldQueue
             throw new \Exception('Invalid payload: missing main_account_id');
         }
 
-        $requiredFields = ['child_account_id', 'parent_entity_type', 'parent_entity_id', 'child_entity_id', 'image_url', 'filename'];
-        foreach ($requiredFields as $field) {
-            if (!isset($payload[$field])) {
-                Log::error('Image sync task skipped: missing required field', [
-                    'task_id' => $task->id,
-                    'missing_field' => $field,
-                    'payload' => $payload
-                ]);
-                throw new \Exception("Invalid payload: missing {$field}");
+        // Проверить новый формат payload (с массивом images)
+        if (isset($payload['images']) && is_array($payload['images'])) {
+            // Новый batch формат
+            $requiredFields = ['child_account_id', 'entity_type', 'parent_entity_id', 'child_entity_id', 'images'];
+            foreach ($requiredFields as $field) {
+                if (!isset($payload[$field])) {
+                    Log::error('Image sync task skipped: missing required field', [
+                        'task_id' => $task->id,
+                        'missing_field' => $field,
+                        'payload' => $payload
+                    ]);
+                    throw new \Exception("Invalid payload: missing {$field}");
+                }
             }
+
+            Log::info('Starting batch image sync', [
+                'task_id' => $task->id,
+                'entity_type' => $payload['entity_type'],
+                'parent_entity_id' => $payload['parent_entity_id'],
+                'child_entity_id' => $payload['child_entity_id'],
+                'images_count' => count($payload['images'])
+            ]);
+
+            // Вызвать новый batch метод
+            $result = $imageSyncService->syncImagesForEntity(
+                $payload['main_account_id'],
+                $payload['child_account_id'],
+                $payload['entity_type'],
+                $payload['parent_entity_id'],
+                $payload['child_entity_id'],
+                $payload['images']
+            );
+
+            if (!$result) {
+                throw new \Exception('Batch image sync failed - no images were successfully synced');
+            }
+
+            Log::info('Batch image sync completed successfully', [
+                'task_id' => $task->id,
+                'entity_type' => $payload['entity_type'],
+                'parent_entity_id' => $payload['parent_entity_id'],
+                'images_count' => count($payload['images'])
+            ]);
+
+        } else {
+            // Старый формат (одно изображение за раз) - для обратной совместимости
+            $requiredFields = ['child_account_id', 'parent_entity_type', 'parent_entity_id', 'child_entity_id', 'image_url', 'filename'];
+            foreach ($requiredFields as $field) {
+                if (!isset($payload[$field])) {
+                    Log::error('Image sync task skipped: missing required field', [
+                        'task_id' => $task->id,
+                        'missing_field' => $field,
+                        'payload' => $payload
+                    ]);
+                    throw new \Exception("Invalid payload: missing {$field}");
+                }
+            }
+
+            Log::info('Starting single image sync (legacy)', [
+                'task_id' => $task->id,
+                'parent_entity_type' => $payload['parent_entity_type'],
+                'parent_entity_id' => $payload['parent_entity_id'],
+                'child_entity_id' => $payload['child_entity_id'],
+                'filename' => $payload['filename']
+            ]);
+
+            // Вызвать старый метод
+            $result = $imageSyncService->syncImages(
+                $payload['main_account_id'],
+                $payload['child_account_id'],
+                $payload['parent_entity_type'],
+                $payload['parent_entity_id'],
+                [$payload] // Pass single image as array
+            );
+
+            if (!$result) {
+                throw new \Exception('Image sync failed - no images were successfully synced');
+            }
+
+            Log::info('Single image sync completed successfully', [
+                'task_id' => $task->id,
+                'parent_entity_type' => $payload['parent_entity_type'],
+                'parent_entity_id' => $payload['parent_entity_id'],
+                'filename' => $payload['filename']
+            ]);
         }
+    }
 
-        Log::info('Starting image sync', [
-            'task_id' => $task->id,
-            'parent_entity_type' => $payload['parent_entity_type'],
-            'parent_entity_id' => $payload['parent_entity_id'],
-            'child_entity_id' => $payload['child_entity_id'],
-            'filename' => $payload['filename']
-        ]);
+    /**
+     * Поставить в очередь синхронизацию изображений для сущности (batch mode)
+     *
+     * Создает одну задачу image_sync с массивом всех изображений сущности.
+     * Вызывается из processBatchProductSync() и processBatchBundleSync().
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $entityType Тип сущности (product, bundle, variant)
+     * @param string $parentEntityId UUID сущности в главном аккаунте
+     * @param string $childEntityId UUID сущности в дочернем аккаунте
+     * @param array $images Массив изображений из МойСклад API (images.rows)
+     * @param \App\Models\SyncSetting $settings Настройки синхронизации
+     * @return bool Успех создания задачи
+     */
+    protected function queueImageSyncForEntity(
+        string $mainAccountId,
+        string $childAccountId,
+        string $entityType,
+        string $parentEntityId,
+        string $childEntityId,
+        array $images,
+        \App\Models\SyncSetting $settings
+    ): bool {
+        try {
+            if (empty($images)) {
+                return false; // Nothing to queue
+            }
 
-        $result = $imageSyncService->syncImages(
-            $payload['main_account_id'],
-            $payload['child_account_id'],
-            $payload['parent_entity_type'],
-            $payload['parent_entity_id'],
-            [$payload] // Pass single image as array
-        );
+            // Получить лимит изображений из настроек
+            $imageSyncService = app(\App\Services\ImageSyncService::class);
+            $limit = $imageSyncService->getImageLimit($settings);
 
-        if (!$result) {
-            throw new \Exception('Image sync failed - no images were successfully synced');
+            if ($limit === 0) {
+                Log::debug('Image sync is disabled', [
+                    'entity_type' => $entityType,
+                    'parent_entity_id' => $parentEntityId
+                ]);
+                return false;
+            }
+
+            // Ограничить количество изображений
+            $imagesToSync = array_slice($images, 0, $limit);
+
+            Log::info('Queueing batch image sync task', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => $entityType,
+                'parent_entity_id' => $parentEntityId,
+                'child_entity_id' => $childEntityId,
+                'images_count' => count($imagesToSync),
+                'total_images' => count($images),
+                'limit' => $limit
+            ]);
+
+            // Создать одну задачу с массивом всех изображений
+            SyncQueue::create([
+                'account_id' => $childAccountId,
+                'entity_type' => 'image_sync',
+                'entity_id' => $parentEntityId, // ID родительской сущности
+                'operation' => 'sync',
+                'priority' => 50, // Medium priority (changed from 80 to 50)
+                'payload' => [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => $entityType,
+                    'parent_entity_id' => $parentEntityId,
+                    'child_entity_id' => $childEntityId,
+                    'images' => $imagesToSync, // Массив всех изображений
+                ],
+                'max_attempts' => 3,
+            ]);
+
+            return true;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to queue image sync task', [
+                'entity_type' => $entityType,
+                'parent_entity_id' => $parentEntityId,
+                'child_entity_id' => $childEntityId,
+                'error' => $e->getMessage()
+            ]);
+            return false;
         }
-
-        Log::info('Image sync completed successfully', [
-            'task_id' => $task->id,
-            'parent_entity_type' => $payload['parent_entity_type'],
-            'parent_entity_id' => $payload['parent_entity_id'],
-            'filename' => $payload['filename']
-        ]);
     }
 
     /**

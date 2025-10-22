@@ -32,7 +32,205 @@ class ImageSyncService
     }
 
     /**
-     * Синхронизировать изображения для сущности
+     * Синхронизировать все изображения сущности (batch upload с Replace стратегией)
+     *
+     * Workflow:
+     * 1. DELETE всех существующих изображений в child account
+     * 2. Download всех изображений из main account
+     * 3. Convert to base64
+     * 4. Batch POST всех изображений за один запрос (или несколько если > 20MB)
+     * 5. Cleanup локальных файлов
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $entityType Тип сущности (product, bundle, variant)
+     * @param string $parentEntityId UUID сущности в главном аккаунте
+     * @param string $childEntityId UUID сущности в дочернем аккаунте
+     * @param array $images Массив изображений из МойСклад API (images.rows)
+     * @return bool Успех операции
+     */
+    public function syncImagesForEntity(
+        string $mainAccountId,
+        string $childAccountId,
+        string $entityType,
+        string $parentEntityId,
+        string $childEntityId,
+        array $images
+    ): bool {
+        try {
+            // Получить настройки синхронизации
+            $settings = SyncSetting::where('account_id', $childAccountId)->first();
+
+            if (!$settings || !$settings->sync_images) {
+                Log::debug('Image sync is disabled', [
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => $entityType,
+                    'parent_entity_id' => $parentEntityId
+                ]);
+                return false;
+            }
+
+            if (empty($images)) {
+                Log::debug('No images to sync', [
+                    'entity_type' => $entityType,
+                    'parent_entity_id' => $parentEntityId
+                ]);
+                return true; // Not an error, just nothing to do
+            }
+
+            Log::info('Starting batch image sync for entity', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => $entityType,
+                'parent_entity_id' => $parentEntityId,
+                'child_entity_id' => $childEntityId,
+                'images_count' => count($images)
+            ]);
+
+            // 1. DELETE всех существующих изображений (Replace стратегия)
+            $this->deleteAllImagesFromEntity($childAccountId, $entityType, $childEntityId);
+
+            // 2. Download & convert all images
+            $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
+            $base64Images = [];
+            $localPaths = [];
+
+            foreach ($images as $image) {
+                try {
+                    $downloadUrl = $image['meta']['downloadHref'] ?? null;
+                    $filename = $image['filename'] ?? 'image_' . uniqid() . '.jpg';
+
+                    if (!$downloadUrl) {
+                        Log::warning('Image missing downloadHref, skipping', [
+                            'entity_type' => $entityType,
+                            'entity_id' => $parentEntityId,
+                            'filename' => $filename
+                        ]);
+                        continue;
+                    }
+
+                    // Download
+                    $localPath = $this->downloadImage($downloadUrl, $mainAccount->access_token, $filename);
+                    if (!$localPath) {
+                        Log::warning('Failed to download image, skipping', [
+                            'download_url' => $downloadUrl,
+                            'filename' => $filename
+                        ]);
+                        continue;
+                    }
+
+                    $localPaths[] = $localPath;
+
+                    // Convert to base64
+                    $base64Content = $this->convertToBase64($localPath);
+                    if (!$base64Content) {
+                        Log::warning('Failed to convert image to base64, skipping', [
+                            'filename' => $filename
+                        ]);
+                        continue;
+                    }
+
+                    $base64Images[] = [
+                        'filename' => $filename,
+                        'content' => $base64Content
+                    ];
+
+                } catch (\Exception $e) {
+                    Log::error('Failed to process image in batch', [
+                        'entity_type' => $entityType,
+                        'entity_id' => $parentEntityId,
+                        'error' => $e->getMessage()
+                    ]);
+                    continue;
+                }
+            }
+
+            if (empty($base64Images)) {
+                Log::warning('No images successfully processed for upload', [
+                    'entity_type' => $entityType,
+                    'parent_entity_id' => $parentEntityId
+                ]);
+
+                // Cleanup downloaded files
+                foreach ($localPaths as $path) {
+                    $this->deleteLocalImage($path);
+                }
+
+                return false;
+            }
+
+            // 3. Разбить на batches если превышен лимит 20MB
+            $batches = $this->splitIntoBatches($base64Images, 20 * 1024 * 1024); // 20MB
+
+            Log::info('Images prepared for upload', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+                'total_images' => count($base64Images),
+                'batches_count' => count($batches)
+            ]);
+
+            // 4. Batch upload
+            $uploadedCount = 0;
+            foreach ($batches as $batchIndex => $batch) {
+                try {
+                    $result = $this->batchUploadImages(
+                        $childAccountId,
+                        $entityType,
+                        $childEntityId,
+                        $batch
+                    );
+
+                    if ($result) {
+                        $uploadedCount += count($batch);
+                        Log::debug('Batch uploaded successfully', [
+                            'batch_index' => $batchIndex,
+                            'images_in_batch' => count($batch)
+                        ]);
+                    } else {
+                        Log::error('Batch upload failed', [
+                            'batch_index' => $batchIndex,
+                            'images_in_batch' => count($batch)
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Exception during batch upload', [
+                        'batch_index' => $batchIndex,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            // 5. Cleanup всех локальных файлов
+            foreach ($localPaths as $path) {
+                $this->deleteLocalImage($path);
+            }
+
+            Log::info('Batch image sync completed', [
+                'entity_type' => $entityType,
+                'parent_entity_id' => $parentEntityId,
+                'child_entity_id' => $childEntityId,
+                'uploaded_count' => $uploadedCount,
+                'total_count' => count($base64Images)
+            ]);
+
+            return $uploadedCount > 0;
+
+        } catch (\Exception $e) {
+            Log::error('Batch image sync failed completely', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => $entityType,
+                'parent_entity_id' => $parentEntityId,
+                'child_entity_id' => $childEntityId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Синхронизировать изображения для сущности (старая версия для обратной совместимости)
      *
      * @param string $mainAccountId UUID главного аккаунта
      * @param string $childAccountId UUID дочернего аккаунта
@@ -195,8 +393,34 @@ class ImageSyncService
                 'filename' => $filename
             ]);
 
-            // Download image with МойСклад authorization
-            $response = Http::timeout(30)
+            // Проверить размер файла перед скачиванием (HEAD запрос)
+            try {
+                $headResponse = Http::timeout(10)
+                    ->withHeaders([
+                        'Authorization' => 'Bearer ' . $accessToken,
+                    ])
+                    ->head($downloadUrl);
+
+                if ($headResponse->successful()) {
+                    $contentLength = $headResponse->header('Content-Length');
+                    if ($contentLength && $contentLength > 10 * 1024 * 1024) { // 10MB limit
+                        Log::warning('Image too large, skipping download', [
+                            'url' => $downloadUrl,
+                            'filename' => $filename,
+                            'size_mb' => round($contentLength / 1024 / 1024, 2)
+                        ]);
+                        return null;
+                    }
+                }
+            } catch (\Exception $e) {
+                // HEAD request failed, продолжаем с обычной загрузкой
+                Log::debug('HEAD request failed, proceeding with download', [
+                    'error' => $e->getMessage()
+                ]);
+            }
+
+            // Download image with МойСклад authorization (increased timeout to 60 seconds)
+            $response = Http::timeout(60)
                 ->withHeaders([
                     'Authorization' => 'Bearer ' . $accessToken,
                     'Accept-Encoding' => 'gzip'
@@ -208,6 +432,17 @@ class ImageSyncService
                     'url' => $downloadUrl,
                     'status' => $response->status(),
                     'body' => $response->body()
+                ]);
+                return null;
+            }
+
+            // Проверить размер после скачивания
+            $imageSize = strlen($response->body());
+            if ($imageSize > 10 * 1024 * 1024) { // 10MB limit
+                Log::warning('Downloaded image exceeds size limit, skipping', [
+                    'url' => $downloadUrl,
+                    'filename' => $filename,
+                    'size_mb' => round($imageSize / 1024 / 1024, 2)
                 ]);
                 return null;
             }
@@ -407,5 +642,220 @@ class ImageSyncService
         }
 
         return 1; // Only first image
+    }
+
+    /**
+     * Удалить все изображения сущности в child account
+     *
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $entityType Тип сущности (product, bundle, variant)
+     * @param string $childEntityId UUID сущности в дочернем аккаунте
+     * @return bool Успех операции
+     */
+    protected function deleteAllImagesFromEntity(
+        string $childAccountId,
+        string $entityType,
+        string $childEntityId
+    ): bool {
+        try {
+            $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
+
+            Log::debug('Deleting all images from entity', [
+                'child_account_id' => $childAccountId,
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId
+            ]);
+
+            // Get existing images
+            $result = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->get("entity/{$entityType}/{$childEntityId}/images");
+
+            $existingImages = $result['data']['rows'] ?? [];
+
+            if (empty($existingImages)) {
+                Log::debug('No existing images to delete', [
+                    'entity_type' => $entityType,
+                    'child_entity_id' => $childEntityId
+                ]);
+                return true;
+            }
+
+            Log::info('Deleting existing images', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+                'images_count' => count($existingImages)
+            ]);
+
+            // Delete each image
+            $deletedCount = 0;
+            foreach ($existingImages as $image) {
+                try {
+                    $imageId = $image['id'] ?? null;
+                    if (!$imageId) {
+                        continue;
+                    }
+
+                    $this->moySkladService
+                        ->setAccessToken($childAccount->access_token)
+                        ->delete("entity/{$entityType}/{$childEntityId}/images/{$imageId}");
+
+                    $deletedCount++;
+                } catch (\Exception $e) {
+                    Log::warning('Failed to delete image', [
+                        'entity_type' => $entityType,
+                        'child_entity_id' => $childEntityId,
+                        'image_id' => $imageId ?? 'unknown',
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            Log::info('Images deleted', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+                'deleted_count' => $deletedCount,
+                'total_count' => count($existingImages)
+            ]);
+
+            return true;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to delete images from entity', [
+                'child_account_id' => $childAccountId,
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Batch upload изображений в child account
+     *
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $entityType Тип сущности (product, bundle, variant)
+     * @param string $childEntityId UUID сущности в дочернем аккаунте
+     * @param array $images Массив изображений [{filename, content}, ...]
+     * @return bool Успех операции
+     */
+    protected function batchUploadImages(
+        string $childAccountId,
+        string $entityType,
+        string $childEntityId,
+        array $images
+    ): bool {
+        try {
+            if (empty($images)) {
+                return true;
+            }
+
+            $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
+
+            $totalSize = array_sum(array_map(fn($img) => strlen($img['content']), $images));
+
+            Log::debug('Batch uploading images', [
+                'child_account_id' => $childAccountId,
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+                'images_count' => count($images),
+                'total_size_mb' => round($totalSize / 1024 / 1024, 2)
+            ]);
+
+            // Batch upload via МойСклад API
+            $result = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->setLogContext(
+                    accountId: $childAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: null,
+                    entityType: 'image_batch',
+                    entityId: $childEntityId,
+                    operationType: 'batch_upload_images'
+                )
+                ->batchUploadImages($entityType, $childEntityId, $images);
+
+            if (isset($result['data']) && is_array($result['data'])) {
+                Log::info('Batch images uploaded successfully', [
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => $entityType,
+                    'child_entity_id' => $childEntityId,
+                    'images_count' => count($images),
+                    'uploaded_count' => count($result['data'])
+                ]);
+                return true;
+            }
+
+            Log::error('Batch image upload returned unexpected response', [
+                'result' => $result
+            ]);
+            return false;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to batch upload images', [
+                'child_account_id' => $childAccountId,
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+                'images_count' => count($images),
+                'error' => $e->getMessage()
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Разбить массив изображений на batches по размеру
+     *
+     * @param array $images Массив изображений [{filename, content}, ...]
+     * @param int $maxSizeBytes Максимальный размер одного batch (20MB)
+     * @return array Массив batches
+     */
+    protected function splitIntoBatches(array $images, int $maxSizeBytes): array
+    {
+        $batches = [];
+        $currentBatch = [];
+        $currentSize = 0;
+
+        foreach ($images as $image) {
+            $imageSize = strlen($image['content']);
+
+            // Если один файл больше лимита - добавляем его отдельным batch
+            if ($imageSize > $maxSizeBytes) {
+                Log::warning('Single image exceeds batch size limit', [
+                    'filename' => $image['filename'],
+                    'size_mb' => round($imageSize / 1024 / 1024, 2),
+                    'limit_mb' => round($maxSizeBytes / 1024 / 1024, 2)
+                ]);
+
+                // Если текущий batch не пустой - сохраняем его
+                if (!empty($currentBatch)) {
+                    $batches[] = $currentBatch;
+                    $currentBatch = [];
+                    $currentSize = 0;
+                }
+
+                // Добавляем большой файл отдельным batch
+                $batches[] = [$image];
+                continue;
+            }
+
+            // Если добавление файла превысит лимит - начинаем новый batch
+            if ($currentSize + $imageSize > $maxSizeBytes) {
+                $batches[] = $currentBatch;
+                $currentBatch = [$image];
+                $currentSize = $imageSize;
+            } else {
+                $currentBatch[] = $image;
+                $currentSize += $imageSize;
+            }
+        }
+
+        // Добавить последний batch если не пустой
+        if (!empty($currentBatch)) {
+            $batches[] = $currentBatch;
+        }
+
+        return $batches;
     }
 }

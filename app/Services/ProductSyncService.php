@@ -414,6 +414,9 @@ class ProductSyncService
         $productData['_is_update'] = $mapping ? true : false;
         $productData['_child_entity_id'] = $mapping ? $mapping->child_entity_id : null;
 
+        // 14. Store images data for batch image sync after entity creation
+        $productData['_original_images'] = $product['images']['rows'] ?? [];
+
         return $productData;
     }
 
@@ -1331,7 +1334,7 @@ class ProductSyncService
                     'entity_type' => 'image_sync',
                     'entity_id' => $filename,
                     'operation' => 'sync',
-                    'priority' => 80, // Low priority (higher number = lower priority)
+                    'priority' => 50, // Medium priority (changed from 80 to 50)
                     'payload' => [
                         'main_account_id' => $mainAccountId,
                         'child_account_id' => $childAccountId,

@@ -814,7 +814,7 @@ class VariantSyncService
                     'entity_type' => 'image_sync',
                     'entity_id' => $filename,
                     'operation' => 'sync',
-                    'priority' => 80, // Low priority (higher number = lower priority)
+                    'priority' => 50, // Medium priority (changed from 80 to 50)
                     'payload' => [
                         'main_account_id' => $mainAccountId,
                         'child_account_id' => $childAccountId,
