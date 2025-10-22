@@ -220,6 +220,7 @@ class VariantSyncService
             'name' => $variant['name'],
             'code' => $variant['code'] ?? null,
             'externalCode' => $variant['externalCode'] ?? null,
+            'description' => $variant['description'] ?? null,
             'product' => [
                 'meta' => [
                     'href' => config('moysklad.api_url') . "/entity/product/{$productMapping->child_entity_id}",
@@ -325,6 +326,10 @@ class VariantSyncService
                 entityType: 'variant',
                 entityId: $variant['id']
             )
+            ->setOperationContext(
+                operationType: 'create',
+                operationResult: 'success'
+            )
             ->post('entity/variant', $variantData);
 
         $newVariant = $newVariantResult['data'];
@@ -365,6 +370,7 @@ class VariantSyncService
             'name' => $variant['name'],
             'code' => $variant['code'] ?? null,
             'externalCode' => $variant['externalCode'] ?? null,
+            'description' => $variant['description'] ?? null,
         ];
 
         // Штрихкоды
@@ -472,6 +478,10 @@ class VariantSyncService
                 relatedAccountId: $mainAccountId,
                 entityType: 'variant',
                 entityId: $variant['id']
+            )
+            ->setOperationContext(
+                operationType: 'update',
+                operationResult: 'success'
             )
             ->put("entity/variant/{$variantMapping->child_entity_id}", $variantData);
 

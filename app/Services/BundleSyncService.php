@@ -24,6 +24,7 @@ class BundleSyncService
     protected ProductSyncService $productSyncService;
     protected VariantSyncService $variantSyncService;
     protected AttributeSyncService $attributeSyncService;
+    protected ProductFolderSyncService $productFolderSyncService;
     protected EntityMappingService $entityMappingService;
 
     public function __construct(
@@ -34,6 +35,7 @@ class BundleSyncService
         ProductSyncService $productSyncService,
         VariantSyncService $variantSyncService,
         AttributeSyncService $attributeSyncService,
+        ProductFolderSyncService $productFolderSyncService,
         EntityMappingService $entityMappingService
     ) {
         $this->moySkladService = $moySkladService;
@@ -43,6 +45,7 @@ class BundleSyncService
         $this->productSyncService = $productSyncService;
         $this->variantSyncService = $variantSyncService;
         $this->attributeSyncService = $attributeSyncService;
+        $this->productFolderSyncService = $productFolderSyncService;
         $this->entityMappingService = $entityMappingService;
     }
 
@@ -167,6 +170,80 @@ class BundleSyncService
             'description' => $bundle['description'] ?? null,
         ];
 
+        // Добавить штрихкоды
+        if (isset($bundle['barcodes'])) {
+            $bundleData['barcodes'] = $bundle['barcodes'];
+        }
+
+        // Синхронизировать доп.поля (используя AttributeSyncService)
+        if (isset($bundle['attributes'])) {
+            $bundleData['attributes'] = $this->attributeSyncService->syncAttributes(
+                sourceAccountId: $mainAccountId,
+                targetAccountId: $childAccountId,
+                settingsAccountId: $childAccountId,
+                entityType: 'bundle',
+                attributes: $bundle['attributes'],
+                direction: 'main_to_child'
+            );
+        }
+
+        // Синхронизировать группу товара (ProductFolder)
+        if ($settings->create_product_folders && isset($bundle['productFolder'])) {
+            $folderHref = $bundle['productFolder']['meta']['href'] ?? null;
+            if ($folderHref) {
+                $folderId = $this->extractEntityId($folderHref);
+                if ($folderId) {
+                    $childFolderId = $this->productFolderSyncService->syncProductFolder(
+                        $mainAccountId,
+                        $childAccountId,
+                        $folderId
+                    );
+                    if ($childFolderId) {
+                        $bundleData['productFolder'] = [
+                            'meta' => [
+                                'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                                'type' => 'productfolder',
+                                'mediaType' => 'application/json'
+                            ]
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Синхронизировать UOM (единица измерения)
+        if (isset($bundle['uom'])) {
+            $parentUomId = $this->extractEntityId($bundle['uom']['meta']['href'] ?? '');
+            if ($parentUomId) {
+                $childUomId = $this->standardEntitySync->syncUom(
+                    $mainAccountId,
+                    $childAccountId,
+                    $parentUomId
+                );
+                if ($childUomId) {
+                    $bundleData['uom'] = [
+                        'meta' => [
+                            'href' => config('moysklad.api_url') . "/entity/uom/{$childUomId}",
+                            'type' => 'uom',
+                            'mediaType' => 'application/json'
+                        ]
+                    ];
+                }
+            }
+        }
+
+        // Синхронизировать цены (используя трейт SyncHelpers)
+        $prices = $this->syncPrices(
+            $mainAccountId,
+            $childAccountId,
+            $bundle,
+            $settings
+        );
+        $bundleData['salePrices'] = $prices['salePrices'];
+        if (isset($prices['buyPrice'])) {
+            $bundleData['buyPrice'] = $prices['buyPrice'];
+        }
+
         // Синхронизировать компоненты комплекта
         if (isset($bundle['components'])) {
             $bundleData['components'] = $this->syncBundleComponents(
@@ -224,6 +301,10 @@ class BundleSyncService
                     relatedAccountId: $childAccountId,
                     entityType: 'bundle',
                     entityId: $bundle['id']
+                )
+                ->setOperationContext(
+                    operationType: 'create',
+                    operationResult: 'success'
                 )
                 ->post('entity/bundle', $bundleData);
 
@@ -289,6 +370,80 @@ class BundleSyncService
             'description' => $bundle['description'] ?? null,
         ];
 
+        // Штрихкоды
+        if (isset($bundle['barcodes'])) {
+            $bundleData['barcodes'] = $bundle['barcodes'];
+        }
+
+        // Доп.поля (используя AttributeSyncService)
+        if (isset($bundle['attributes'])) {
+            $bundleData['attributes'] = $this->attributeSyncService->syncAttributes(
+                sourceAccountId: $mainAccountId,
+                targetAccountId: $childAccountId,
+                settingsAccountId: $childAccountId,
+                entityType: 'bundle',
+                attributes: $bundle['attributes'],
+                direction: 'main_to_child'
+            );
+        }
+
+        // Группа товара (ProductFolder)
+        if ($settings->create_product_folders && isset($bundle['productFolder'])) {
+            $folderHref = $bundle['productFolder']['meta']['href'] ?? null;
+            if ($folderHref) {
+                $folderId = $this->extractEntityId($folderHref);
+                if ($folderId) {
+                    $childFolderId = $this->productFolderSyncService->syncProductFolder(
+                        $mainAccountId,
+                        $childAccountId,
+                        $folderId
+                    );
+                    if ($childFolderId) {
+                        $bundleData['productFolder'] = [
+                            'meta' => [
+                                'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                                'type' => 'productfolder',
+                                'mediaType' => 'application/json'
+                            ]
+                        ];
+                    }
+                }
+            }
+        }
+
+        // UOM (единица измерения)
+        if (isset($bundle['uom'])) {
+            $parentUomId = $this->extractEntityId($bundle['uom']['meta']['href'] ?? '');
+            if ($parentUomId) {
+                $childUomId = $this->standardEntitySync->syncUom(
+                    $mainAccountId,
+                    $childAccountId,
+                    $parentUomId
+                );
+                if ($childUomId) {
+                    $bundleData['uom'] = [
+                        'meta' => [
+                            'href' => config('moysklad.api_url') . "/entity/uom/{$childUomId}",
+                            'type' => 'uom',
+                            'mediaType' => 'application/json'
+                        ]
+                    ];
+                }
+            }
+        }
+
+        // Цены (используя трейт SyncHelpers)
+        $prices = $this->syncPrices(
+            $mainAccountId,
+            $childAccountId,
+            $bundle,
+            $settings
+        );
+        $bundleData['salePrices'] = $prices['salePrices'];
+        if (isset($prices['buyPrice'])) {
+            $bundleData['buyPrice'] = $prices['buyPrice'];
+        }
+
         // Компоненты комплекта
         if (isset($bundle['components'])) {
             $bundleData['components'] = $this->syncBundleComponents(
@@ -310,6 +465,10 @@ class BundleSyncService
                 relatedAccountId: $childAccountId,
                 entityType: 'bundle',
                 entityId: $bundle['id']
+            )
+            ->setOperationContext(
+                operationType: 'update',
+                operationResult: 'success'
             )
             ->put("entity/bundle/{$mapping->child_entity_id}", $bundleData);
 
