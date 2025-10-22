@@ -1794,6 +1794,9 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'entity_id' => $parentEntityId, // ID родительской сущности
                 'operation' => 'sync',
                 'priority' => 50, // Medium priority (changed from 80 to 50)
+                'status' => 'pending',
+                'attempts' => 0,
+                'scheduled_at' => now(),
                 'payload' => [
                     'main_account_id' => $mainAccountId,
                     'child_account_id' => $childAccountId,
