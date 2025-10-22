@@ -284,6 +284,10 @@ class ServiceSyncService
                     entityType: 'service',
                     entityId: $service['id']
                 )
+                ->setOperationContext(
+                    operationType: 'create',
+                    operationResult: 'success'
+                )
                 ->post('entity/service', $serviceData);
 
             $newService = $newServiceResult['data'];
@@ -407,6 +411,10 @@ class ServiceSyncService
                 relatedAccountId: $childAccountId,
                 entityType: 'service',
                 entityId: $service['id']
+            )
+            ->setOperationContext(
+                operationType: 'update',
+                operationResult: 'success'
             )
             ->put("entity/service/{$mapping->child_entity_id}", $serviceData);
 

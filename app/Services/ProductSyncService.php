@@ -587,6 +587,10 @@ class ProductSyncService
 
             $newProductResult = $this->moySkladService
                 ->setAccessToken($childAccount->access_token)
+                ->setOperationContext(
+                    operationType: 'create',
+                    operationResult: 'success'
+                )
                 ->post('entity/product', $productData);
 
             $newProduct = $newProductResult['data'];
@@ -781,6 +785,10 @@ class ProductSyncService
 
         $updatedProductResult = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
+            ->setOperationContext(
+                operationType: 'update',
+                operationResult: 'success'
+            )
             ->put("entity/product/{$mapping->child_entity_id}", $productData);
 
         Log::channel('sync')->info('Updating product in child account - RESPONSE', [
