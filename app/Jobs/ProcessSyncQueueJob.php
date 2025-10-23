@@ -355,6 +355,13 @@ class ProcessSyncQueueJob implements ShouldQueue
             $moysklad = app(\App\Services\MoySkladService::class);
             $variantSyncService = app(\App\Services\VariantSyncService::class);
 
+            // Получить настройки синхронизации
+            $syncSettings = \App\Models\SyncSetting::where('account_id', $childAccountId)->first();
+
+            if (!$syncSettings) {
+                throw new \Exception("Sync settings not found for child account {$childAccountId}");
+            }
+
             // Загрузить все модификации этого товара с expand
             // ВАЖНО: МойСклад API лимиты - max 100 с expand (не 1000!)
             $variants = [];
