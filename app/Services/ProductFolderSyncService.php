@@ -41,7 +41,29 @@ class ProductFolderSyncService
                 ->first();
 
             if ($mapping) {
-                return $mapping->child_entity_id;
+                // Проверить что папка существует в child через GET
+                try {
+                    $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
+                    $this->moySkladService
+                        ->setAccessToken($childAccount->access_token)
+                        ->get("entity/productfolder/{$mapping->child_entity_id}");
+
+                    // Папка существует
+                    return $mapping->child_entity_id;
+
+                } catch (\Exception $e) {
+                    // Папка удалена (404) - удалить stale mapping и создать заново
+                    Log::warning('ProductFolder mapping exists but entity deleted in child, recreating', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'parent_folder_id' => $folderId,
+                        'stale_child_id' => $mapping->child_entity_id,
+                        'error' => $e->getMessage()
+                    ]);
+
+                    $mapping->delete();
+                    // Продолжить выполнение - создать папку заново (код ниже)
+                }
             }
 
             // Получить группу из главного аккаунта

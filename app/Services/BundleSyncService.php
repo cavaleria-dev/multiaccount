@@ -646,19 +646,21 @@ class BundleSyncService
             );
         }
 
-        // 8. Синхронизировать группу товара (используя кешированный mapping из DB)
+        // 8. Синхронизировать группу товара (вызываем syncProductFolder для валидации + создания)
         if ($settings->create_product_folders && isset($bundle['productFolder']['id'])) {
-            $folderMapping = EntityMapping::where([
-                'parent_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'entity_type' => 'productfolder',
-                'parent_entity_id' => $bundle['productFolder']['id']
-            ])->first();
+            $folderId = $bundle['productFolder']['id'];
 
-            if ($folderMapping) {
+            // Вызываем syncProductFolder - он проверит существование и создаст если нужно
+            $childFolderId = $this->productFolderSyncService->syncProductFolder(
+                $mainAccountId,
+                $childAccountId,
+                $folderId
+            );
+
+            if ($childFolderId) {
                 $bundleData['productFolder'] = [
                     'meta' => [
-                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$folderMapping->child_entity_id}",
+                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
                         'type' => 'productfolder',
                         'mediaType' => 'application/json'
                     ]

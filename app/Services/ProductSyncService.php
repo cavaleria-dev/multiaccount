@@ -308,19 +308,21 @@ class ProductSyncService
             }
         }
 
-        // 8. Sync ProductFolder (using cached mapping from DB)
+        // 8. Sync ProductFolder (вызываем syncProductFolder для валидации + создания)
         if ($settings->create_product_folders && isset($product['productFolder']['id'])) {
-            $folderMapping = EntityMapping::where([
-                'parent_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'entity_type' => 'productfolder',
-                'parent_entity_id' => $product['productFolder']['id']
-            ])->first();
+            $folderId = $product['productFolder']['id'];
 
-            if ($folderMapping) {
+            // Вызываем syncProductFolder - он проверит существование и создаст если нужно
+            $childFolderId = $this->productFolderSyncService->syncProductFolder(
+                $mainAccountId,
+                $childAccountId,
+                $folderId
+            );
+
+            if ($childFolderId) {
                 $productData['productFolder'] = [
                     'meta' => [
-                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$folderMapping->child_entity_id}",
+                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
                         'type' => 'productfolder',
                         'mediaType' => 'application/json'
                     ]
