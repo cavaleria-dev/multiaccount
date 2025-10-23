@@ -460,9 +460,9 @@ trait SyncHelpers
             }
         }
 
-        // Загрузить metadata атрибутов если фильтры в UI формате (с groups)
+        // Загрузить metadata атрибутов если фильтры в UI формате (groups ИЛИ conditions без enabled)
         $attributesMetadata = null;
-        if (isset($filters['groups'])) {
+        if (isset($filters['groups']) || (isset($filters['conditions']) && !isset($filters['enabled']))) {
             try {
                 // attributeSyncService должен быть доступен в классе
                 if (isset($this->attributeSyncService)) {
