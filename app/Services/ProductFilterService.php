@@ -27,8 +27,8 @@ class ProductFilterService
             return null;
         }
 
-        // Автоматическая конвертация из UI формата
-        if (isset($filters['groups'])) {
+        // Автоматическая конвертация из UI формата (groups ИЛИ conditions без enabled)
+        if (isset($filters['groups']) || (isset($filters['conditions']) && !isset($filters['enabled']))) {
             $filters = $this->convertFromUiFormat($filters, $mainAccountId, $attributesMetadata);
         }
 
