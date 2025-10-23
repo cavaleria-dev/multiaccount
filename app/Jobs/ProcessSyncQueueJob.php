@@ -408,8 +408,32 @@ class ProcessSyncQueueJob implements ShouldQueue
             // Синхронизировать каждую модификацию с уже загруженными данными
             foreach ($variants as $variant) {
                 try {
-                    $variantSyncService->syncVariantData($mainAccountId, $childAccountId, $variant);
-                    $successCount++;
+                    // Синхронизировать variant и получить результат
+                    $result = $variantSyncService->syncVariantData($mainAccountId, $childAccountId, $variant);
+
+                    if ($result) {
+                        $successCount++;
+
+                        // Синхронизировать изображения (если включено)
+                        if ($syncSettings->sync_images || $syncSettings->sync_images_all) {
+                            $images = $variant['images']['rows'] ?? [];
+
+                            if (!empty($images)) {
+                                $this->queueImageSyncForEntity(
+                                    $mainAccountId,
+                                    $childAccountId,
+                                    'variant',
+                                    $variant['id'],
+                                    $result['id'],
+                                    $images,
+                                    $syncSettings
+                                );
+                            }
+                        }
+                    } else {
+                        // Variant был отфильтрован или sync disabled
+                        $successCount++;
+                    }
 
                 } catch (\Exception $e) {
                     $failedCount++;
