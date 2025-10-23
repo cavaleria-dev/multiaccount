@@ -691,6 +691,9 @@ class ServiceSyncService
             return null;
         }
 
+        // Удалить query string если есть (?expand=..., ?filter=..., etc)
+        $href = strtok($href, '?');
+
         $parts = explode('/', $href);
         return end($parts) ?: null;
     }

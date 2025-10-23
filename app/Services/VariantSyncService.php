@@ -82,22 +82,33 @@ class VariantSyncService
                 ->first();
 
             if (!$productMapping) {
-                Log::warning('Parent product not found in child account, syncing product first', [
-                    'product_id' => $productId,
-                    'variant_id' => $variantId
-                ]);
-                // Сначала синхронизировать товар-родитель
-                $this->productSyncService->syncProduct($mainAccountId, $childAccountId, $productId);
+                // Fallback 1: попытаться найти product в child account по matching field
+                $productMapping = $this->findProductInChildAndCreateMapping(
+                    $mainAccountId,
+                    $childAccountId,
+                    $productId,
+                    $variant['product'],
+                    $settings
+                );
 
-                // Повторно получить маппинг
-                $productMapping = EntityMapping::where('parent_account_id', $mainAccountId)
-                    ->where('child_account_id', $childAccountId)
-                    ->where('parent_entity_id', $productId)
-                    ->where('entity_type', 'product')
-                    ->first();
-
+                // Fallback 2: если не найден - синхронизировать товар-родитель
                 if (!$productMapping) {
-                    return null;
+                    Log::warning('Parent product not found in child account, syncing product first', [
+                        'product_id' => $productId,
+                        'variant_id' => $variantId
+                    ]);
+                    $this->productSyncService->syncProduct($mainAccountId, $childAccountId, $productId);
+
+                    // Повторно получить маппинг
+                    $productMapping = EntityMapping::where('parent_account_id', $mainAccountId)
+                        ->where('child_account_id', $childAccountId)
+                        ->where('parent_entity_id', $productId)
+                        ->where('entity_type', 'product')
+                        ->first();
+
+                    if (!$productMapping) {
+                        return null;
+                    }
                 }
             }
 
@@ -176,6 +187,17 @@ class VariantSyncService
                 ->where('parent_entity_id', $productId)
                 ->where('entity_type', 'product')
                 ->first();
+
+            if (!$productMapping) {
+                // Fallback: попытаться найти product в child account по matching field
+                $productMapping = $this->findProductInChildAndCreateMapping(
+                    $mainAccountId,
+                    $childAccountId,
+                    $productId,
+                    $variant['product'],
+                    $settings
+                );
+            }
 
             if (!$productMapping) {
                 Log::warning('Parent product not found in child account, skipping variant', [
@@ -854,5 +876,101 @@ class VariantSyncService
         }
 
         return $queuedCount;
+    }
+
+    /**
+     * Найти product в child account и создать маппинг
+     *
+     * Используется как fallback когда маппинг не найден, но product может
+     * существовать в child (создан вручную / отфильтрован / etc)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $productId UUID продукта в главном аккаунте
+     * @param array $productData Expanded product data из variant
+     * @param SyncSetting $settings Настройки синхронизации
+     * @return EntityMapping|null Найденный/созданный маппинг
+     */
+    protected function findProductInChildAndCreateMapping(
+        string $mainAccountId,
+        string $childAccountId,
+        string $productId,
+        array $productData,
+        SyncSetting $settings
+    ): ?EntityMapping {
+        try {
+            $matchField = $settings->product_match_field ?? 'article';
+            $matchValue = ($matchField === 'name')
+                ? ($productData['name'] ?? null)
+                : ($productData[$matchField] ?? null);
+
+            if (empty($matchValue)) {
+                Log::debug('Cannot search for product in child: match field empty', [
+                    'product_id' => $productId,
+                    'match_field' => $matchField
+                ]);
+                return null;
+            }
+
+            // Поиск в child account
+            $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
+            $filter = ($matchField === 'name')
+                ? "name={$matchValue}"
+                : "{$matchField}={$matchValue}";
+
+            $result = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->get('entity/product', [
+                    'filter' => $filter,
+                    'limit' => 1
+                ]);
+
+            $found = $result['data']['rows'] ?? [];
+            if (empty($found)) {
+                Log::debug('Product not found in child account by match field', [
+                    'product_id' => $productId,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue
+                ]);
+                return null;
+            }
+
+            $childProduct = $found[0];
+            $childProductId = $this->extractEntityId($childProduct['meta']['href'] ?? '');
+
+            if (!$childProductId) {
+                Log::error('Cannot extract child product ID from search result', [
+                    'product_id' => $productId,
+                    'child_product_meta' => $childProduct['meta'] ?? null
+                ]);
+                return null;
+            }
+
+            // Создать маппинг
+            $mapping = EntityMapping::create([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'product',
+                'parent_entity_id' => $productId,
+                'child_entity_id' => $childProductId,
+                'sync_direction' => 'main_to_child',
+            ]);
+
+            Log::info('Created product mapping via fallback search', [
+                'main_product_id' => $productId,
+                'child_product_id' => $childProductId,
+                'match_field' => $matchField,
+                'match_value' => $matchValue
+            ]);
+
+            return $mapping;
+
+        } catch (\Exception $e) {
+            Log::error('Fallback product search failed', [
+                'product_id' => $productId,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
     }
 }
