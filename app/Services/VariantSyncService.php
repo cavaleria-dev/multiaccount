@@ -124,9 +124,20 @@ class VariantSyncService
             $result = null;
             if ($variantMapping) {
                 // Модификация уже существует, обновляем
+                Log::debug('Variant mapping found, updating', [
+                    'main_variant_id' => $variantId,
+                    'child_variant_id' => $variantMapping->child_entity_id,
+                    'parent_product_id' => $productId,
+                    'child_product_id' => $productMapping->child_entity_id
+                ]);
                 $result = $this->updateVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $variantMapping, $settings);
             } else {
                 // Создаем новую модификацию
+                Log::debug('Variant mapping not found, creating new', [
+                    'main_variant_id' => $variantId,
+                    'parent_product_id' => $productId,
+                    'child_product_id' => $productMapping->child_entity_id
+                ]);
                 $result = $this->createVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $settings);
             }
 
@@ -218,9 +229,20 @@ class VariantSyncService
 
             if ($variantMapping) {
                 // Модификация уже существует, обновляем
+                Log::debug('Variant mapping found, updating (batch)', [
+                    'main_variant_id' => $variantId,
+                    'child_variant_id' => $variantMapping->child_entity_id,
+                    'parent_product_id' => $productId,
+                    'child_product_id' => $productMapping->child_entity_id
+                ]);
                 return $this->updateVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $variantMapping, $settings);
             } else {
                 // Создаем новую модификацию
+                Log::debug('Variant mapping not found, creating new (batch)', [
+                    'main_variant_id' => $variantId,
+                    'parent_product_id' => $productId,
+                    'child_product_id' => $productMapping->child_entity_id
+                ]);
                 return $this->createVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $settings);
             }
 
@@ -378,7 +400,10 @@ class VariantSyncService
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
             'main_variant_id' => $variant['id'],
-            'child_variant_id' => $newVariant['id']
+            'child_variant_id' => $newVariant['id'],
+            'parent_product_id' => $this->extractEntityId($variant['product']['meta']['href'] ?? ''),
+            'child_product_id' => $productMapping->child_entity_id,
+            'has_custom_prices' => isset($variantData['salePrices'])
         ]);
 
         return $newVariant;
@@ -499,39 +524,63 @@ class VariantSyncService
         // Используем метод из ProductSyncService через композицию
         $variantData = $this->productSyncService->addAdditionalFields($variantData, $variant, $settings);
 
-        // Обновить модификацию
-        $updatedVariantResult = $this->moySkladService
-            ->setAccessToken($childAccount->access_token)
-            ->setLogContext(
-                accountId: $childAccountId,
-                direction: 'main_to_child',
-                relatedAccountId: $mainAccountId,
-                entityType: 'variant',
-                entityId: $variant['id']
-            )
-            ->setOperationContext(
-                operationType: 'update',
-                operationResult: 'success'
-            )
-            ->put("entity/variant/{$variantMapping->child_entity_id}", $variantData);
+        // Обновить модификацию с fallback на создание при 404
+        try {
+            $updatedVariantResult = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->setLogContext(
+                    accountId: $childAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $mainAccountId,
+                    entityType: 'variant',
+                    entityId: $variant['id']
+                )
+                ->setOperationContext(
+                    operationType: 'update',
+                    operationResult: 'success'
+                )
+                ->put("entity/variant/{$variantMapping->child_entity_id}", $variantData);
 
-        // Логировать отправленные данные
-        Log::debug('Variant update request sent', [
-            'child_account_id' => $childAccountId,
-            'child_variant_id' => $variantMapping->child_entity_id,
-            'request_data' => $variantData,
-            'has_sale_prices' => isset($variantData['salePrices']) && !empty($variantData['salePrices']),
-            'sale_prices_count' => count($variantData['salePrices'] ?? [])
-        ]);
+            // Логировать отправленные данные
+            Log::debug('Variant update request sent', [
+                'child_account_id' => $childAccountId,
+                'child_variant_id' => $variantMapping->child_entity_id,
+                'request_data' => $variantData,
+                'has_sale_prices' => isset($variantData['salePrices']) && !empty($variantData['salePrices']),
+                'sale_prices_count' => count($variantData['salePrices'] ?? [])
+            ]);
 
-        Log::info('Variant updated in child account', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'main_variant_id' => $variant['id'],
-            'child_variant_id' => $variantMapping->child_entity_id
-        ]);
+            Log::info('Variant updated in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id'],
+                'child_variant_id' => $variantMapping->child_entity_id
+            ]);
 
-        return $updatedVariantResult['data'];
+            return $updatedVariantResult['data'];
+
+        } catch (\Exception $e) {
+            // 404 fallback: variant не существует в child (устаревший маппинг)
+            // Удаляем маппинг и создаём variant заново
+            if (str_contains($e->getMessage(), '404') || str_contains($e->getMessage(), 'Not Found')) {
+                Log::warning('Variant not found in child account (404), deleting stale mapping and creating new', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'main_variant_id' => $variant['id'],
+                    'stale_child_variant_id' => $variantMapping->child_entity_id,
+                    'error' => $e->getMessage()
+                ]);
+
+                // Удалить устаревший маппинг
+                $variantMapping->delete();
+
+                // Создать variant заново
+                return $this->createVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $settings);
+            }
+
+            // Другие ошибки - пробросить дальше
+            throw $e;
+        }
     }
 
     /**

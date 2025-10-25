@@ -196,7 +196,7 @@ class SyncActionsController extends Controller
                 'entity_type' => 'product_variants', // Новый тип: пакетная синхронизация модификаций
                 'entity_id' => $productId, // ID товара-родителя
                 'operation' => 'batch_sync',
-                'priority' => 10, // Высокий приоритет для ручной синхронизации
+                'priority' => 5, // Средний приоритет (ниже products=10, выше bundles=1)
                 'scheduled_at' => now(),
                 'status' => 'pending',
                 'attempts' => 0,

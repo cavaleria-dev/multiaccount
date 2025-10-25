@@ -443,6 +443,25 @@ class ProcessSyncQueueJob implements ShouldQueue
         $productId = $task->entity_id; // ID родительского товара
 
         try {
+            // Проверить, что родительский product синхронизирован (есть маппинг)
+            // Variants должны синхронизироваться ТОЛЬКО для товаров, прошедших фильтрацию
+            $productMapping = \App\Models\EntityMapping::where('parent_account_id', $mainAccountId)
+                ->where('child_account_id', $childAccountId)
+                ->where('parent_entity_id', $productId)
+                ->where('entity_type', 'product')
+                ->first();
+
+            if (!$productMapping) {
+                Log::info('Parent product not synced, skipping variant batch sync', [
+                    'task_id' => $task->id,
+                    'product_id' => $productId,
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'reason' => 'Parent product mapping not found (filtered out or not synced yet)'
+                ]);
+                return; // Пропустить всю задачу - parent product не прошел фильтрацию
+            }
+
             // Получить main account для access token
             $mainAccount = \App\Models\Account::where('account_id', $mainAccountId)->firstOrFail();
             $moysklad = app(\App\Services\MoySkladService::class);
