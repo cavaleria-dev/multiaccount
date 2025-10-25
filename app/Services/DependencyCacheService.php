@@ -70,8 +70,10 @@ class DependencyCacheService
             // 1. Стандартные сущности (UOM, Country)
             $this->cacheStandardEntities($mainAccountId, $childAccountId);
 
-            // 2. Папки товаров
-            $this->cacheProductFolders($mainAccountId, $childAccountId);
+            // 2. Папки товаров - УДАЛЕНО
+            // Группы теперь синхронизируются в BatchEntityLoader::loadAndCreateAssortmentBatchTasks()
+            // после фильтрации (только нужные группы)
+            // $this->cacheProductFolders($mainAccountId, $childAccountId);
 
             // 3. Атрибуты для товаров (включая справочники)
             $this->cacheAttributes($mainAccountId, $childAccountId, 'product');
