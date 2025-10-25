@@ -485,7 +485,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                 $response = $moysklad
                     ->setAccessToken($mainAccount->access_token)
                     ->get('/entity/variant', [
-                        'filter' => "product=https://api.moysklad.ru/api/remap/1.2/entity/product/{$productId}",
+                        'filter' => "productid={$productId}",
                         'expand' => 'product.salePrices,characteristics,packs.uom,images',
                         'limit' => $limit,
                         'offset' => $offset
