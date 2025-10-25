@@ -1372,6 +1372,59 @@ class VariantSyncService
     }
 
     /**
+     * Подготовить характеристики для batch POST
+     *
+     * Использует существующие маппинги (созданные в preSyncCharacteristics).
+     * НЕ создаёт новые характеристики.
+     *
+     * @param array $characteristics Характеристики из main account
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @return array Массив для МойСклад API: [['id' => '...', 'value' => '...'], ...]
+     */
+    protected function prepareCharacteristics(
+        array $characteristics,
+        string $mainAccountId,
+        string $childAccountId
+    ): array {
+        $preparedCharacteristics = [];
+
+        foreach ($characteristics as $characteristic) {
+            $charName = $characteristic['name'] ?? null;
+            $charValue = $characteristic['value'] ?? null;
+
+            if (!$charName) {
+                continue;
+            }
+
+            // Найти маппинг характеристики
+            $charMapping = CharacteristicMapping::where('parent_account_id', $mainAccountId)
+                ->where('child_account_id', $childAccountId)
+                ->where('characteristic_name', $charName)
+                ->first();
+
+            if ($charMapping) {
+                // Маппинг найден - использовать child ID
+                $preparedCharacteristics[] = [
+                    'id' => $charMapping->child_characteristic_id,
+                    'value' => $charValue
+                ];
+            } else {
+                // Маппинг НЕ найден - характеристика должна была быть создана в preSyncCharacteristics
+                Log::warning('Characteristic mapping not found during batch prepare', [
+                    'characteristic_name' => $charName,
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'context' => 'This should have been created in preSyncCharacteristics phase'
+                ]);
+                // Пропускаем эту характеристику
+            }
+        }
+
+        return $preparedCharacteristics;
+    }
+
+    /**
      * Построить href для child product
      *
      * @param string $childAccountId UUID дочернего аккаунта
