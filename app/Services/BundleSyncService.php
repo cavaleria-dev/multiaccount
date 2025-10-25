@@ -195,28 +195,32 @@ class BundleSyncService
             );
         }
 
-        // Синхронизировать группу товара (ProductFolder)
-        if ($settings->create_product_folders && isset($bundle['productFolder'])) {
-            $folderHref = $bundle['productFolder']['meta']['href'] ?? null;
-            if ($folderHref) {
-                $folderId = $this->extractEntityId($folderHref);
-                if ($folderId) {
-                    $childFolderId = $this->productFolderSyncService->syncProductFolder(
-                        $mainAccountId,
-                        $childAccountId,
-                        $folderId
-                    );
-                    if ($childFolderId) {
-                        $bundleData['productFolder'] = [
-                            'meta' => [
-                                'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
-                                'type' => 'productfolder',
-                                'mediaType' => 'application/json'
-                            ]
-                        ];
+        // Синхронизировать группу товара (если настройка включена)
+        if (isset($bundle['productFolder'])) {
+            if ($settings->create_product_folders) {
+                // Синхронизировать группу (для индивидуальной синхронизации)
+                $folderHref = $bundle['productFolder']['meta']['href'] ?? null;
+                if ($folderHref) {
+                    $folderId = $this->extractEntityId($folderHref);
+                    if ($folderId) {
+                        $childFolderId = $this->productFolderSyncService->syncProductFolder(
+                            $mainAccountId,
+                            $childAccountId,
+                            $folderId
+                        );
+                        if ($childFolderId) {
+                            $bundleData['productFolder'] = [
+                                'meta' => [
+                                    'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                                    'type' => 'productfolder',
+                                    'mediaType' => 'application/json'
+                                ]
+                            ];
+                        }
                     }
                 }
             }
+            // Если настройка выключена - НЕ передаем productFolder, комплект создается без группы
         }
 
         // Синхронизировать UOM (единица измерения)
@@ -395,28 +399,32 @@ class BundleSyncService
             );
         }
 
-        // Группа товара (ProductFolder)
-        if ($settings->create_product_folders && isset($bundle['productFolder'])) {
-            $folderHref = $bundle['productFolder']['meta']['href'] ?? null;
-            if ($folderHref) {
-                $folderId = $this->extractEntityId($folderHref);
-                if ($folderId) {
-                    $childFolderId = $this->productFolderSyncService->syncProductFolder(
-                        $mainAccountId,
-                        $childAccountId,
-                        $folderId
-                    );
-                    if ($childFolderId) {
-                        $bundleData['productFolder'] = [
-                            'meta' => [
-                                'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
-                                'type' => 'productfolder',
-                                'mediaType' => 'application/json'
-                            ]
-                        ];
+        // Синхронизировать группу товара (если настройка включена)
+        if (isset($bundle['productFolder'])) {
+            if ($settings->create_product_folders) {
+                // Синхронизировать группу (для индивидуальной синхронизации)
+                $folderHref = $bundle['productFolder']['meta']['href'] ?? null;
+                if ($folderHref) {
+                    $folderId = $this->extractEntityId($folderHref);
+                    if ($folderId) {
+                        $childFolderId = $this->productFolderSyncService->syncProductFolder(
+                            $mainAccountId,
+                            $childAccountId,
+                            $folderId
+                        );
+                        if ($childFolderId) {
+                            $bundleData['productFolder'] = [
+                                'meta' => [
+                                    'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                                    'type' => 'productfolder',
+                                    'mediaType' => 'application/json'
+                                ]
+                            ];
+                        }
                     }
                 }
             }
+            // Если настройка выключена - НЕ передаем productFolder, комплект обновляется без группы
         }
 
         // UOM (единица измерения)
@@ -646,21 +654,22 @@ class BundleSyncService
             );
         }
 
-        // 8. Синхронизировать группу товара (вызываем syncProductFolder для валидации + создания)
+        // 8. ProductFolder - использовать CACHED маппинг (группы уже синхронизированы в processBatchBundleSync)
         if ($settings->create_product_folders && isset($bundle['productFolder']['id'])) {
             $folderId = $bundle['productFolder']['id'];
 
-            // Вызываем syncProductFolder - он проверит существование и создаст если нужно
-            $childFolderId = $this->productFolderSyncService->syncProductFolder(
-                $mainAccountId,
-                $childAccountId,
-                $folderId
-            );
+            // Найти CACHED маппинг группы (группы уже pre-synced в batch job)
+            $folderMapping = \App\Models\EntityMapping::where([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'productfolder',
+                'parent_entity_id' => $folderId
+            ])->first();
 
-            if ($childFolderId) {
+            if ($folderMapping) {
                 $bundleData['productFolder'] = [
                     'meta' => [
-                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$folderMapping->child_entity_id}",
                         'type' => 'productfolder',
                         'mediaType' => 'application/json'
                     ]

@@ -308,21 +308,22 @@ class ProductSyncService
             }
         }
 
-        // 8. Sync ProductFolder (вызываем syncProductFolder для валидации + создания)
+        // 8. ProductFolder - использовать CACHED маппинг (группы уже синхронизированы в processBatchProductSync)
         if ($settings->create_product_folders && isset($product['productFolder']['id'])) {
             $folderId = $product['productFolder']['id'];
 
-            // Вызываем syncProductFolder - он проверит существование и создаст если нужно
-            $childFolderId = $this->productFolderSyncService->syncProductFolder(
-                $mainAccountId,
-                $childAccountId,
-                $folderId
-            );
+            // Найти CACHED маппинг группы (группы уже pre-synced в batch job)
+            $folderMapping = \App\Models\EntityMapping::where([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'productfolder',
+                'parent_entity_id' => $folderId
+            ])->first();
 
-            if ($childFolderId) {
+            if ($folderMapping) {
                 $productData['productFolder'] = [
                     'meta' => [
-                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$folderMapping->child_entity_id}",
                         'type' => 'productfolder',
                         'mediaType' => 'application/json'
                     ]
@@ -457,24 +458,28 @@ class ProductSyncService
             );
         }
 
-        // Синхронизировать группу товара (используя ProductFolderSyncService)
-        if ($settings->create_product_folders && isset($product['productFolder'])) {
-            $folderHref = $product['productFolder']['meta']['href'] ?? null;
-            if ($folderHref) {
-                $folderId = $this->extractEntityId($folderHref);
-                if ($folderId) {
-                    $childFolderId = $this->productFolderSyncService->syncProductFolder($mainAccountId, $childAccountId, $folderId);
-                    if ($childFolderId) {
-                        $productData['productFolder'] = [
-                            'meta' => [
-                                'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
-                                'type' => 'productfolder',
-                                'mediaType' => 'application/json'
-                            ]
-                        ];
+        // Синхронизировать группу товара (если настройка включена)
+        if (isset($product['productFolder'])) {
+            if ($settings->create_product_folders) {
+                // Синхронизировать группу (для индивидуальной синхронизации)
+                $folderHref = $product['productFolder']['meta']['href'] ?? null;
+                if ($folderHref) {
+                    $folderId = $this->extractEntityId($folderHref);
+                    if ($folderId) {
+                        $childFolderId = $this->productFolderSyncService->syncProductFolder($mainAccountId, $childAccountId, $folderId);
+                        if ($childFolderId) {
+                            $productData['productFolder'] = [
+                                'meta' => [
+                                    'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                                    'type' => 'productfolder',
+                                    'mediaType' => 'application/json'
+                                ]
+                            ];
+                        }
                     }
                 }
             }
+            // Если настройка выключена - НЕ передаем productFolder, товар создается без группы
         }
 
         // Синхронизировать цены (используя трейт SyncHelpers)
@@ -690,24 +695,28 @@ class ProductSyncService
             );
         }
 
-        // Синхронизировать группу товара (используя ProductFolderSyncService)
-        if ($settings->create_product_folders && isset($product['productFolder'])) {
-            $folderHref = $product['productFolder']['meta']['href'] ?? null;
-            if ($folderHref) {
-                $folderId = $this->extractEntityId($folderHref);
-                if ($folderId) {
-                    $childFolderId = $this->productFolderSyncService->syncProductFolder($mainAccountId, $childAccountId, $folderId);
-                    if ($childFolderId) {
-                        $productData['productFolder'] = [
-                            'meta' => [
-                                'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
-                                'type' => 'productfolder',
-                                'mediaType' => 'application/json'
-                            ]
-                        ];
+        // Синхронизировать группу товара (если настройка включена)
+        if (isset($product['productFolder'])) {
+            if ($settings->create_product_folders) {
+                // Синхронизировать группу (для индивидуальной синхронизации)
+                $folderHref = $product['productFolder']['meta']['href'] ?? null;
+                if ($folderHref) {
+                    $folderId = $this->extractEntityId($folderHref);
+                    if ($folderId) {
+                        $childFolderId = $this->productFolderSyncService->syncProductFolder($mainAccountId, $childAccountId, $folderId);
+                        if ($childFolderId) {
+                            $productData['productFolder'] = [
+                                'meta' => [
+                                    'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                                    'type' => 'productfolder',
+                                    'mediaType' => 'application/json'
+                                ]
+                            ];
+                        }
                     }
                 }
             }
+            // Если настройка выключена - НЕ передаем productFolder, товар обновляется без группы
         }
 
         // Цены (используя трейт SyncHelpers)

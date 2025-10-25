@@ -539,11 +539,46 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'child_account_id' => $childAccountId
             ]);
 
+            // Фильтровать товары ПЕРЕД синхронизацией групп
+            $filteredProducts = [];
+            foreach ($products as $product) {
+                // Используем SyncHelpers::passesFilters для проверки
+                if ($productSyncService->passesFilters($product, $syncSettings, 'product')) {
+                    $filteredProducts[] = $product;
+                }
+            }
+
+            if (empty($filteredProducts)) {
+                Log::info('All products filtered out in batch', [
+                    'task_id' => $task->id,
+                    'total_products' => count($products),
+                    'filtered_out' => count($products)
+                ]);
+                return;
+            }
+
+            Log::info('Products filtered for batch sync', [
+                'task_id' => $task->id,
+                'total_products' => count($products),
+                'filtered_products' => count($filteredProducts),
+                'filtered_out' => count($products) - count($filteredProducts)
+            ]);
+
+            // Pre-sync групп товаров (если настройка включена)
+            if ($syncSettings->create_product_folders) {
+                $productFolderSyncService = app(\App\Services\ProductFolderSyncService::class);
+                $productFolderSyncService->syncFoldersForEntities(
+                    $mainAccountId,
+                    $childAccountId,
+                    $filteredProducts
+                );
+            }
+
             // Подготовить товары для batch POST (используя только кеш)
             $preparedProducts = [];
             $skippedCount = 0;
 
-            foreach ($products as $product) {
+            foreach ($filteredProducts as $product) {
                 $prepared = $productSyncService->prepareProductForBatch(
                     $product,
                     $mainAccountId,
@@ -554,14 +589,14 @@ class ProcessSyncQueueJob implements ShouldQueue
                 if ($prepared) {
                     $preparedProducts[] = $prepared;
                 } else {
-                    $skippedCount++; // Filtered out
+                    $skippedCount++; // Skipped during preparation
                 }
             }
 
             if (empty($preparedProducts)) {
-                Log::info('All products filtered out in batch', [
+                Log::info('All products skipped during preparation', [
                     'task_id' => $task->id,
-                    'total_products' => count($products),
+                    'filtered_products' => count($filteredProducts),
                     'skipped' => $skippedCount
                 ]);
                 return;
@@ -887,10 +922,46 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'child_account_id' => $childAccountId
             ]);
 
+            // Фильтровать услуги ПЕРЕД синхронизацией групп
+            $filteredServices = [];
+            foreach ($services as $service) {
+                // Используем SyncHelpers::passesFilters для проверки
+                if ($serviceSyncService->passesFilters($service, $syncSettings, 'service')) {
+                    $filteredServices[] = $service;
+                }
+            }
+
+            if (empty($filteredServices)) {
+                Log::info('All services filtered out in batch', [
+                    'task_id' => $task->id,
+                    'total_services' => count($services),
+                    'filtered_out' => count($services)
+                ]);
+                return;
+            }
+
+            Log::info('Services filtered for batch sync', [
+                'task_id' => $task->id,
+                'total_services' => count($services),
+                'filtered_services' => count($filteredServices),
+                'filtered_out' => count($services) - count($filteredServices)
+            ]);
+
+            // Pre-sync групп товаров (если настройка включена)
+            if ($syncSettings->create_product_folders) {
+                $productFolderSyncService = app(\App\Services\ProductFolderSyncService::class);
+                $productFolderSyncService->syncFoldersForEntities(
+                    $mainAccountId,
+                    $childAccountId,
+                    $filteredServices
+                );
+            }
+
             // Подготовить услуги для batch POST (используя только кеш)
             $preparedServices = [];
+            $skippedCount = 0;
 
-            foreach ($services as $service) {
+            foreach ($filteredServices as $service) {
                 $prepared = $serviceSyncService->prepareServiceForBatch(
                     $service,
                     $mainAccountId,
@@ -900,13 +971,16 @@ class ProcessSyncQueueJob implements ShouldQueue
 
                 if ($prepared) {
                     $preparedServices[] = $prepared;
+                } else {
+                    $skippedCount++;
                 }
             }
 
             if (empty($preparedServices)) {
-                Log::info('All services skipped in batch', [
+                Log::info('All services skipped during preparation', [
                     'task_id' => $task->id,
-                    'total_services' => count($services)
+                    'filtered_services' => count($filteredServices),
+                    'skipped' => $skippedCount
                 ]);
                 return;
             }
@@ -1226,11 +1300,46 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'child_account_id' => $childAccountId
             ]);
 
+            // Фильтровать комплекты ПЕРЕД синхронизацией групп
+            $filteredBundles = [];
+            foreach ($bundles as $bundle) {
+                // Используем SyncHelpers::passesFilters для проверки
+                if ($bundleSyncService->passesFilters($bundle, $syncSettings, 'bundle')) {
+                    $filteredBundles[] = $bundle;
+                }
+            }
+
+            if (empty($filteredBundles)) {
+                Log::info('All bundles filtered out in batch', [
+                    'task_id' => $task->id,
+                    'total_bundles' => count($bundles),
+                    'filtered_out' => count($bundles)
+                ]);
+                return;
+            }
+
+            Log::info('Bundles filtered for batch sync', [
+                'task_id' => $task->id,
+                'total_bundles' => count($bundles),
+                'filtered_bundles' => count($filteredBundles),
+                'filtered_out' => count($bundles) - count($filteredBundles)
+            ]);
+
+            // Pre-sync групп товаров (если настройка включена)
+            if ($syncSettings->create_product_folders) {
+                $productFolderSyncService = app(\App\Services\ProductFolderSyncService::class);
+                $productFolderSyncService->syncFoldersForEntities(
+                    $mainAccountId,
+                    $childAccountId,
+                    $filteredBundles
+                );
+            }
+
             // Подготовить комплекты для batch POST (используя только кеш)
             $preparedBundles = [];
             $skippedCount = 0;
 
-            foreach ($bundles as $bundle) {
+            foreach ($filteredBundles as $bundle) {
                 $prepared = $bundleSyncService->prepareBundleForBatch(
                     $bundle,
                     $mainAccountId,
@@ -1241,14 +1350,14 @@ class ProcessSyncQueueJob implements ShouldQueue
                 if ($prepared) {
                     $preparedBundles[] = $prepared;
                 } else {
-                    $skippedCount++; // Filtered out or missing components
+                    $skippedCount++; // Skipped during preparation or missing components
                 }
             }
 
             if (empty($preparedBundles)) {
-                Log::info('All bundles filtered out in batch', [
+                Log::info('All bundles skipped during preparation', [
                     'task_id' => $task->id,
-                    'total_bundles' => count($bundles),
+                    'filtered_bundles' => count($filteredBundles),
                     'skipped' => $skippedCount
                 ]);
                 return;

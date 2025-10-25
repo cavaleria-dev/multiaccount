@@ -165,8 +165,9 @@ class BatchEntityLoader
             $attributesMetadata
         );
 
-        // 3. Разделить по типам и создать задачи для каждого типа
+        // 3. Разделить по типам и применить фильтры
         $totalTasksCreated = 0;
+        $allFilteredEntities = []; // Собираем все отфильтрованные сущности для pre-sync групп
 
         foreach ($entityTypes as $entityType) {
             // 3.1 Отфильтровать сущности по типу
@@ -189,7 +190,10 @@ class BatchEntityLoader
                 $entitiesOfType = $this->filterByMatchField($entitiesOfType, $entityType, $syncSettings);
             }
 
-            // 3.3 Создать batch задачи для этого типа
+            // 3.3 Собрать все отфильтрованные сущности для pre-sync групп
+            $allFilteredEntities = array_merge($allFilteredEntities, $entitiesOfType);
+
+            // 3.4 Создать batch задачи для этого типа
             $tasksCreated = $this->createBatchTasks(
                 $entitiesOfType,
                 $entityType,
@@ -198,6 +202,29 @@ class BatchEntityLoader
             );
 
             $totalTasksCreated += $tasksCreated;
+        }
+
+        // 4. Pre-sync групп товаров для ВСЕХ отфильтрованных сущностей (если настройка включена)
+        if ($syncSettings && $syncSettings->create_product_folders && !empty($allFilteredEntities)) {
+            try {
+                $productFolderSyncService = app(\App\Services\ProductFolderSyncService::class);
+                $productFolderSyncService->syncFoldersForEntities(
+                    $mainAccountId,
+                    $childAccountId,
+                    $allFilteredEntities
+                );
+                Log::info('Product folders pre-synced for all filtered entities', [
+                    'total_entities' => count($allFilteredEntities),
+                    'entity_types' => $entityTypes
+                ]);
+            } catch (\Exception $e) {
+                Log::error('Failed to pre-sync product folders', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'error' => $e->getMessage()
+                ]);
+                // Не прерываем выполнение - группы будут синхронизированы индивидуально в batch job
+            }
         }
 
         Log::info("Assortment batch tasks created", [

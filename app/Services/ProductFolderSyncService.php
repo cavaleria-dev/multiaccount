@@ -140,6 +140,212 @@ class ProductFolderSyncService
     }
 
     /**
+     * Синхронизировать группы товаров для набора сущностей (batch-оптимизация)
+     *
+     * Собирает уникальные productFolder из всех сущностей, строит дерево зависимостей
+     * и синхронизирует группы в правильном порядке (родители → дети)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param array $entities Массив товаров/комплектов/услуг с productFolder
+     * @return array Маппинги [mainFolderId => childFolderId]
+     */
+    public function syncFoldersForEntities(string $mainAccountId, string $childAccountId, array $entities): array
+    {
+        try {
+            // 1. Собрать уникальные productFolder hrefs из всех сущностей
+            $folderHrefs = [];
+            foreach ($entities as $entity) {
+                if (!empty($entity['productFolder']['meta']['href'])) {
+                    $folderHrefs[] = $entity['productFolder']['meta']['href'];
+                }
+            }
+
+            if (empty($folderHrefs)) {
+                Log::debug('No product folders found in entities', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entities_count' => count($entities)
+                ]);
+                return [];
+            }
+
+            // Удалить дубликаты
+            $folderHrefs = array_unique($folderHrefs);
+
+            // 2. Извлечь folder IDs из hrefs
+            $folderIds = [];
+            foreach ($folderHrefs as $href) {
+                $folderId = $this->extractEntityId($href);
+                if ($folderId) {
+                    $folderIds[] = $folderId;
+                }
+            }
+
+            if (empty($folderIds)) {
+                return [];
+            }
+
+            Log::info('Syncing product folders for entities', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'unique_folders_count' => count($folderIds),
+                'total_entities' => count($entities)
+            ]);
+
+            // 3. Загрузить все папки из главного аккаунта
+            $mainAccount = Account::where('account_id', $mainAccountId)->firstOrFail();
+            $folders = [];
+
+            foreach ($folderIds as $folderId) {
+                try {
+                    $folderResult = $this->moySkladService
+                        ->setAccessToken($mainAccount->access_token)
+                        ->get("entity/productfolder/{$folderId}");
+
+                    $folders[$folderId] = $folderResult['data'];
+                } catch (\Exception $e) {
+                    Log::warning('Failed to load product folder, skipping', [
+                        'folder_id' => $folderId,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            if (empty($folders)) {
+                return [];
+            }
+
+            // 4. Построить дерево зависимостей (найти родительские папки)
+            $allFolderIds = array_keys($folders);
+            $parentFolderIds = [];
+
+            foreach ($folders as $folderId => $folder) {
+                if (!empty($folder['productFolder']['meta']['href'])) {
+                    $parentId = $this->extractEntityId($folder['productFolder']['meta']['href']);
+                    if ($parentId && !in_array($parentId, $allFolderIds)) {
+                        $parentFolderIds[] = $parentId;
+                    }
+                }
+            }
+
+            // Рекурсивно загрузить родительские папки (если они не в списке)
+            if (!empty($parentFolderIds)) {
+                foreach (array_unique($parentFolderIds) as $parentId) {
+                    $this->loadFolderWithParents($mainAccount, $parentId, $folders);
+                }
+            }
+
+            // 5. Отсортировать папки: сначала родители, потом дети
+            $sortedFolders = $this->sortFoldersByHierarchy($folders);
+
+            // 6. Синхронизировать папки в правильном порядке
+            $mappings = [];
+            foreach ($sortedFolders as $folderId => $folder) {
+                $childFolderId = $this->syncProductFolder($mainAccountId, $childAccountId, $folderId);
+                if ($childFolderId) {
+                    $mappings[$folderId] = $childFolderId;
+                }
+            }
+
+            Log::info('Product folders synced successfully', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'synced_count' => count($mappings)
+            ]);
+
+            return $mappings;
+
+        } catch (\Exception $e) {
+            Log::error('Failed to sync folders for entities', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'error' => $e->getMessage()
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Рекурсивно загрузить папку и всех её родителей
+     */
+    protected function loadFolderWithParents(Account $mainAccount, string $folderId, array &$folders): void
+    {
+        // Если уже загружена - пропустить
+        if (isset($folders[$folderId])) {
+            return;
+        }
+
+        try {
+            $folderResult = $this->moySkladService
+                ->setAccessToken($mainAccount->access_token)
+                ->get("entity/productfolder/{$folderId}");
+
+            $folder = $folderResult['data'];
+            $folders[$folderId] = $folder;
+
+            // Если у папки есть родитель - загрузить его тоже
+            if (!empty($folder['productFolder']['meta']['href'])) {
+                $parentId = $this->extractEntityId($folder['productFolder']['meta']['href']);
+                if ($parentId) {
+                    $this->loadFolderWithParents($mainAccount, $parentId, $folders);
+                }
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to load parent folder, skipping', [
+                'folder_id' => $folderId,
+                'error' => $e->getMessage()
+            ]);
+        }
+    }
+
+    /**
+     * Отсортировать папки по иерархии (родители → дети)
+     *
+     * @param array $folders Ассоциативный массив [folderId => folderData]
+     * @return array Отсортированный массив [folderId => folderData]
+     */
+    protected function sortFoldersByHierarchy(array $folders): array
+    {
+        $sorted = [];
+        $processed = [];
+
+        // Функция для рекурсивной обработки папки и её родителей
+        $addWithParents = function($folderId) use ($folders, &$sorted, &$processed, &$addWithParents) {
+            // Если уже обработана - пропустить
+            if (isset($processed[$folderId])) {
+                return;
+            }
+
+            // Если папки нет в списке - пропустить
+            if (!isset($folders[$folderId])) {
+                return;
+            }
+
+            $folder = $folders[$folderId];
+
+            // Сначала добавить родителя (если есть)
+            if (!empty($folder['productFolder']['meta']['href'])) {
+                $parentId = $this->extractEntityId($folder['productFolder']['meta']['href']);
+                if ($parentId) {
+                    $addWithParents($parentId);
+                }
+            }
+
+            // Затем добавить текущую папку
+            $sorted[$folderId] = $folder;
+            $processed[$folderId] = true;
+        };
+
+        // Обработать все папки
+        foreach (array_keys($folders) as $folderId) {
+            $addWithParents($folderId);
+        }
+
+        return $sorted;
+    }
+
+    /**
      * Извлечь ID сущности из href
      */
     protected function extractEntityId(string $href): ?string
