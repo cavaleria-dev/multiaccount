@@ -24,6 +24,30 @@ class AppServiceProvider extends ServiceProvider
                 $app->make(\App\Services\ApiLogService::class)
             );
         });
+
+        // Регистрация TaskDispatcher с handlers (singleton)
+        $this->app->singleton(\App\Services\Sync\TaskDispatcher::class, function ($app) {
+            $dispatcher = new \App\Services\Sync\TaskDispatcher();
+
+            // Зарегистрировать все handlers
+            $dispatcher->registerHandlers([
+                $app->make(\App\Services\Sync\Handlers\ProductSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\BatchProductSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\VariantSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\BatchVariantSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\ServiceSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\BatchServiceSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\BundleSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\BatchBundleSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\CustomerOrderSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\RetailDemandSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\PurchaseOrderSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\ImageSyncHandler::class),
+                $app->make(\App\Services\Sync\Handlers\WebhookCheckHandler::class),
+            ]);
+
+            return $dispatcher;
+        });
     }
 
     /**
