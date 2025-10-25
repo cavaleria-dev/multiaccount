@@ -3,24 +3,24 @@
 namespace App\Services\Sync\Handlers;
 
 use App\Models\SyncQueue;
-use App\Services\ProductSyncService;
+use App\Services\BatchVariantSyncService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Handler для пакетной синхронизации модификаций товара
+ * Handler для пакетной синхронизации модификаций
  *
- * Обрабатывает entity_type: 'product_variants'
+ * Обрабатывает entity_type: 'batch_variants'
  */
 class BatchVariantSyncHandler extends SyncTaskHandler
 {
     public function __construct(
-        protected ProductSyncService $productSyncService
+        protected BatchVariantSyncService $batchVariantSyncService
     ) {}
 
     public function getEntityType(): string
     {
-        return 'product_variants';
+        return 'batch_variants';
     }
 
     protected function handleSync(
@@ -31,28 +31,44 @@ class BatchVariantSyncHandler extends SyncTaskHandler
     ): void {
         $mainAccountId = $payload['main_account_id'];
         $childAccountId = $task->account_id;
-        $productId = $task->entity_id; // Для product_variants это ID товара
+
+        // Новый формат: массив variants в payload
+        $variants = $payload['variants'] ?? [];
+
+        // Graceful degradation: старый формат (product_variants с productId)
+        if (empty($variants) && $task->entity_id) {
+            Log::warning('Old format batch variant task detected, skipping', [
+                'task_id' => $task->id,
+                'entity_id' => $task->entity_id,
+                'entity_type' => $task->entity_type
+            ]);
+            return;
+        }
+
+        if (empty($variants)) {
+            throw new \Exception('Invalid payload: missing variants array');
+        }
 
         Log::info('Batch variant sync started', [
             'task_id' => $task->id,
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'product_id' => $productId
+            'variants_count' => count($variants)
         ]);
 
-        // Синхронизировать все модификации товара
-        $result = $this->productSyncService->syncProductVariants(
+        // Выполнить batch синхронизацию
+        $result = $this->batchVariantSyncService->batchSyncVariants(
             $mainAccountId,
             $childAccountId,
-            $productId
+            $variants
         );
 
         $this->logSuccess($task, [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'product_id' => $productId,
-            'variants_synced' => $result['synced'] ?? 0,
-            'variants_failed' => $result['failed'] ?? 0
+            'variants_count' => count($variants),
+            'success_count' => $result['success'] ?? 0,
+            'failed_count' => $result['failed'] ?? 0
         ]);
     }
 }

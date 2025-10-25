@@ -21,6 +21,7 @@ class EntityConfig
             'endpoint' => '/entity/product',
             'expand' => 'attributes,productFolder,uom,country,packs.uom,salePrices,images',
             'batch_entity_type' => 'batch_products',
+            'batch_priority' => 10,  // Highest priority - синхронизируются первыми
             'filter_metadata_type' => 'product',
             'supports_filters' => true,
             'use_assortment_for_filters' => true,  // Использовать /entity/assortment для фильтрации
@@ -34,6 +35,7 @@ class EntityConfig
             'endpoint' => '/entity/service',
             'expand' => 'attributes,uom,salePrices',
             'batch_entity_type' => 'batch_services',
+            'batch_priority' => 8,  // High priority
             'filter_metadata_type' => 'product',  // Service использует product metadata (общие атрибуты)
             'supports_filters' => true,
             'use_assortment_for_filters' => true,  // Использовать /entity/assortment для фильтрации
@@ -47,6 +49,7 @@ class EntityConfig
             'endpoint' => '/entity/bundle',
             'expand' => 'attributes,productFolder,components.product,components.variant,images',
             'batch_entity_type' => 'batch_bundles',
+            'batch_priority' => 6,  // Medium priority
             'filter_metadata_type' => 'product',  // Bundles используют product metadata
             'supports_filters' => true,
             'use_assortment_for_filters' => true,  // Использовать /entity/assortment для фильтрации
@@ -58,12 +61,13 @@ class EntityConfig
 
         'variant' => [
             'endpoint' => '/entity/variant',
-            'expand' => 'attributes,product,characteristics,images',
+            'expand' => 'attributes,product,characteristics,packs.uom,salePrices,images',  // Добавлены packs.uom, salePrices
             'batch_entity_type' => 'batch_variants',
+            'batch_priority' => 4,  // Lowest priority - синхронизируются последними (после products)
             'filter_metadata_type' => 'product',  // Variants используют product metadata
-            'supports_filters' => false,  // Variants не фильтруются напрямую (группируются по product)
-            'use_assortment_for_filters' => false,  // Variants не используют assortment
-            'group_by' => 'product_id',  // Группировка по родительскому товару
+            'supports_filters' => true,  // Variants теперь фильтруются через assortment
+            'use_assortment_for_filters' => true,  // Variants используют assortment
+            'assortment_type' => 'variant',  // Тип для параметра type=
             'match_field_setting' => 'product_match_field',
             'default_match_field' => 'code',
             'has_match_field_check' => false,

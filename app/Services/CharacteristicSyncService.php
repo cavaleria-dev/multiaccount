@@ -442,4 +442,79 @@ class CharacteristicSyncService
 
         return null;
     }
+
+    /**
+     * Проверить и очистить stale маппинги характеристик
+     *
+     * Загружает все characteristics из child аккаунта и проверяет,
+     * существуют ли child_characteristic_id из маппингов.
+     * Удаляет stale маппинги (где характеристика удалена в child).
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @return array ['checked' => int, 'deleted' => int]
+     */
+    public function cleanupStaleMappings(
+        string $mainAccountId,
+        string $childAccountId
+    ): array {
+        Log::info('Starting characteristic stale mappings cleanup', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId
+        ]);
+
+        // 1. Загрузить ВСЕ characteristics из child аккаунта
+        $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
+
+        $childCharacteristics = $this->moySkladService
+            ->setAccessToken($childAccount->access_token)
+            ->get('/entity/product/metadata/characteristics');
+
+        $childCharacteristicIds = collect($childCharacteristics['data']['rows'] ?? [])
+            ->pluck('id')
+            ->toArray();
+
+        Log::debug('Loaded child characteristics', [
+            'count' => count($childCharacteristicIds)
+        ]);
+
+        // 2. Получить все маппинги для этой пары аккаунтов
+        $mappings = CharacteristicMapping::where('parent_account_id', $mainAccountId)
+            ->where('child_account_id', $childAccountId)
+            ->get();
+
+        $checkedCount = $mappings->count();
+        $deletedCount = 0;
+
+        // 3. Проверить каждый маппинг
+        foreach ($mappings as $mapping) {
+            $childCharId = $mapping->child_characteristic_id;
+
+            // Если child_characteristic_id НЕ существует в child аккаунте
+            if (!in_array($childCharId, $childCharacteristicIds)) {
+                Log::warning('Stale characteristic mapping detected', [
+                    'mapping_id' => $mapping->id,
+                    'parent_characteristic_id' => $mapping->parent_characteristic_id,
+                    'child_characteristic_id' => $childCharId,
+                    'characteristic_name' => $mapping->characteristic_name
+                ]);
+
+                // Удалить stale маппинг
+                $mapping->delete();
+                $deletedCount++;
+            }
+        }
+
+        Log::info('Characteristic stale mappings cleanup completed', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'checked_count' => $checkedCount,
+            'deleted_count' => $deletedCount
+        ]);
+
+        return [
+            'checked' => $checkedCount,
+            'deleted' => $deletedCount
+        ];
+    }
 }

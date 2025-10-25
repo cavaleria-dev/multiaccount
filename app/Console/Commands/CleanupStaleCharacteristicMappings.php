@@ -86,12 +86,12 @@ class CleanupStaleCharacteristicMappings extends Command
             try {
                 // Получить все характеристики из child account одним запросом
                 $response = $moysklad->setAccessToken($childAccount->access_token)
-                    ->get('entity/variant/metadata/characteristics', ['limit' => 1000]);
+                    ->get('/entity/product/metadata/characteristics', ['limit' => 1000]);
 
                 $existingChars = $response['data']['rows'] ?? [];
                 $existingCharIds = array_column($existingChars, 'id');
 
-                $this->line("  Found {$existingChars->count()} existing characteristics in child account");
+                $this->line("  Found " . count($existingChars) . " existing characteristics in child account");
 
                 // Проверить каждый маппинг
                 foreach ($mappings as $mapping) {

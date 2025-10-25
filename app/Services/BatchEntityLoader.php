@@ -832,6 +832,7 @@ class BatchEntityLoader
             'batch_products' => 'products',
             'batch_services' => 'services',
             'batch_bundles' => 'bundles',
+            'batch_variants' => 'variants',  // Добавлено для batch variant sync
             default => 'entities'  // Fallback для других типов
         };
 
@@ -841,13 +842,13 @@ class BatchEntityLoader
                 'entity_type' => $batchEntityType,
                 'entity_id' => null,  // Not used for batch
                 'operation' => 'batch_sync',
-                'priority' => 10,  // High priority (manual sync)
+                'priority' => $config['batch_priority'] ?? 10,  // Динамический приоритет из config
                 'scheduled_at' => now(),
                 'status' => 'pending',
                 'attempts' => 0,
                 'payload' => [
                     'main_account_id' => $mainAccountId,
-                    $payloadKey => $batch  // Динамический ключ (products/services/bundles)
+                    $payloadKey => $batch  // Динамический ключ (products/services/bundles/variants)
                 ]
             ]);
 

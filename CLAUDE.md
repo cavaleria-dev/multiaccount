@@ -22,6 +22,7 @@ This project uses modular documentation for better maintainability. See specific
 14. **[Product Folder Synchronization](docs/14-product-folder-sync.md)** ⭐ - Filtered folder sync (95% fewer folders synced)
 15. **[Characteristic Synchronization](docs/15-characteristic-sync.md)** ⭐ - Proactive characteristic sync (fixes error 10002)
 16. **[Sync Task Handlers](docs/16-sync-handlers.md)** 🆕 - Modular handler architecture (76% code reduction)
+17. **[Variant Assortment Sync](docs/17-variant-assortment-sync.md)** 🆕 - Unified variant sync via /entity/assortment
 
 ## Quick Reference
 

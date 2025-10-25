@@ -1287,4 +1287,113 @@ class VariantSyncService
             return null;
         }
     }
+
+    /**
+     * Подготовить данные variant для batch POST
+     *
+     * Аналог prepareProductForBatch() из ProductSyncService.
+     * Подготавливает данные БЕЗ выполнения POST запроса.
+     *
+     * @param array $variant Данные variant из МойСклад (с expand)
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param SyncSetting $syncSettings Настройки синхронизации
+     * @return array|null Подготовленные данные или null если невозможно
+     */
+    public function prepareVariantForBatch(
+        array $variant,
+        string $mainAccountId,
+        string $childAccountId,
+        SyncSetting $syncSettings
+    ): ?array {
+        // Проверить маппинг parent product (должен существовать)
+        $productId = $this->extractProductId($variant['product']['meta']['href'] ?? '');
+        if (!$productId) {
+            return null;
+        }
+
+        $productMapping = EntityMapping::where('parent_account_id', $mainAccountId)
+            ->where('child_account_id', $childAccountId)
+            ->where('parent_entity_id', $productId)
+            ->where('entity_type', 'product')
+            ->first();
+
+        if (!$productMapping) {
+            return null; // Parent product не синхронизирован
+        }
+
+        // Подготовить данные (аналогично syncVariantData, но без POST)
+        $variantData = [
+            'name' => $variant['name'],
+            'product' => [
+                'meta' => [
+                    'href' => $this->buildChildProductHref($childAccountId, $productMapping->child_entity_id),
+                    'type' => 'product',
+                    'mediaType' => 'application/json'
+                ]
+            ],
+        ];
+
+        // Добавить характеристики
+        if (isset($variant['characteristics']) && !empty($variant['characteristics'])) {
+            $variantData['characteristics'] = $this->prepareCharacteristics(
+                $variant['characteristics'],
+                $mainAccountId,
+                $childAccountId
+            );
+        }
+
+        // Добавить packs
+        if (isset($variant['packs']) && !empty($variant['packs'])) {
+            $variantData['packs'] = $this->productSyncService->syncPacks(
+                $mainAccountId,
+                $childAccountId,
+                $variant['packs']
+            );
+        }
+
+        // Добавить salePrices
+        if (isset($variant['salePrices'])) {
+            $variantData['salePrices'] = $variant['salePrices'];
+        }
+
+        // Добавить code, article, barcode если есть
+        if (isset($variant['code'])) {
+            $variantData['code'] = $variant['code'];
+        }
+        if (isset($variant['article'])) {
+            $variantData['article'] = $variant['article'];
+        }
+        if (isset($variant['barcode'])) {
+            $variantData['barcode'] = $variant['barcode'];
+        }
+
+        return $variantData;
+    }
+
+    /**
+     * Построить href для child product
+     *
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param string $childProductId UUID child product
+     * @return string
+     */
+    protected function buildChildProductHref(string $childAccountId, string $childProductId): string
+    {
+        return "https://api.moysklad.ru/api/remap/1.2/entity/product/{$childProductId}";
+    }
+
+    /**
+     * Извлечь product ID из href
+     *
+     * @param string $href URL вида https://api.moysklad.ru/api/remap/1.2/entity/product/UUID
+     * @return string|null UUID или null
+     */
+    protected function extractProductId(string $href): ?string
+    {
+        if (preg_match('/\/([a-f0-9-]{36})$/', $href, $matches)) {
+            return $matches[1];
+        }
+        return null;
+    }
 }
