@@ -215,7 +215,7 @@ class CharacteristicSyncService
                     'limit' => 1000 // МойСклад лимит для metadata
                 ]);
 
-            $characteristics = $response['data']['rows'] ?? [];
+            $characteristics = $response['data']['characteristics'] ?? [];
 
             // Преобразовать в ассоциативный массив [name => id] для быстрого поиска
             $characteristicsMap = [];
@@ -470,7 +470,7 @@ class CharacteristicSyncService
             ->setAccessToken($childAccount->access_token)
             ->get('/entity/variant/metadata/characteristics');
 
-        $childCharacteristicIds = collect($childCharacteristics['data']['rows'] ?? [])
+        $childCharacteristicIds = collect($childCharacteristics['data']['characteristics'] ?? [])
             ->pluck('id')
             ->toArray();
 
