@@ -50,11 +50,11 @@
 
 | Service | Entity Types | Dependencies | Methods |
 |---------|-------------|--------------|---------|
-| `ProductFolderSyncService` | productfolder | None | `syncProductFolder()` (recursive) |
-| `ProductSyncService` | product | ProductFolderSyncService, **ProductFilterService** | `syncProduct()`, `archiveProduct()` |
+| `ProductFolderSyncService` | productfolder | None | `syncProductFolder()` (recursive), `syncFoldersForEntities()` ⭐ **NEW** (batch) |
+| `ProductSyncService` | product | ProductFolderSyncService, **ProductFilterService** | `syncProduct()`, `prepareProductForBatch()`, `archiveProduct()` |
 | `VariantSyncService` | variant | ProductSyncService | `syncVariant()`, `syncCharacteristics()`, `archiveVariant()` |
-| `BundleSyncService` | bundle | ProductSyncService, VariantSyncService | `syncBundle()`, `syncBundleComponents()`, `archiveBundle()` |
-| `ServiceSyncService` | service | **ProductFilterService** | `syncService()`, `archiveService()` |
+| `BundleSyncService` | bundle | ProductSyncService, VariantSyncService | `syncBundle()`, `prepareBundleForBatch()`, `syncBundleComponents()`, `archiveBundle()` |
+| `ServiceSyncService` | service | **ProductFilterService** | `syncService()`, `prepareServiceForBatch()`, `archiveService()` |
 
 **Circular Dependency Resolution:**
 
@@ -112,6 +112,109 @@ This allows existing code (ProcessSyncQueueJob, webhooks) to continue calling `P
 - **Better readability**: Smaller files, clearer responsibilities
 - **Proper sync order**: Can ensure ProductFolder → Product → Variant → Bundle
 - **Maintainability**: Changes to variant logic don't affect product logic
+
+### Product Folder Sync Service
+
+**Purpose:** Synchronize product groups (productFolder) between main and child accounts with support for filtering and hierarchy preservation.
+
+**Added:** 2025-10 (Major refactoring to support filtered folder sync)
+
+**Key Methods:**
+
+1. **`syncProductFolder()`** - Individual recursive sync:
+   - Syncs single folder with all parent folders (hierarchy)
+   - Used for individual product/bundle/service sync
+   - Creates mappings in `entity_mappings` table
+   - Returns child folder ID
+
+2. **`syncFoldersForEntities()` ⭐ NEW** - Batch sync for filtered entities:
+   - Syncs ONLY folders needed for filtered products/bundles/services
+   - Respects `create_product_folders` setting
+   - Builds complete dependency tree (parent → child hierarchy)
+   - Returns array of mappings: `[mainFolderId => childFolderId]`
+   - Called in PHASE 2.5 of batch sync (after filtering, before entity POST)
+
+**Batch Sync Algorithm:**
+
+```php
+public function syncFoldersForEntities(string $mainAccountId, string $childAccountId, array $entities): array
+{
+    // 1. Collect unique productFolder IDs from filtered entities
+    $folderIds = collect($entities)
+        ->pluck('productFolder.meta.href')
+        ->filter()
+        ->map(fn($href) => $this->extractEntityId($href))
+        ->unique()
+        ->values()
+        ->all();
+
+    // 2. Load folders from main account (batch GET with expand)
+    $folders = $this->moySkladService->getList(
+        $mainAccountId,
+        'entity/productfolder',
+        ['filter' => 'id=' . implode(';', $folderIds), 'expand' => 'productFolder']
+    );
+
+    // 3. Build dependency tree - find ALL parent folders
+    $allFolders = [];
+    foreach ($folders as $folder) {
+        $allFolders[$folder['id']] = $folder;
+        // Walk up parent chain
+        $parent = $folder['productFolder'] ?? null;
+        while ($parent) {
+            $parentId = $this->extractEntityId($parent['meta']['href']);
+            if (!isset($allFolders[$parentId])) {
+                // Load parent folder
+                $parentFolder = $this->moySkladService->getEntity(...);
+                $allFolders[$parentId] = $parentFolder;
+                $parent = $parentFolder['productFolder'] ?? null;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // 4. Sort folders by hierarchy (parents first, then children)
+    $sorted = $this->sortFoldersByHierarchy($allFolders);
+
+    // 5. Sync folders in correct order, create mappings
+    $mappings = [];
+    foreach ($sorted as $folder) {
+        $childFolderId = $this->syncProductFolder(...);
+        $mappings[$folder['id']] = $childFolderId;
+    }
+
+    return $mappings;
+}
+```
+
+**Integration with Batch Sync:**
+
+Folders are now synced in **PHASE 2.5** (new phase added in October 2025):
+
+1. **PHASE 1**: Pre-cache dependencies (attributes, price types) - NO folder caching
+2. **PHASE 2**: Load entities in batches, apply filters
+3. **PHASE 2.5**: ⭐ **Pre-sync folders for filtered entities** (if `create_product_folders = true`)
+4. **PHASE 3**: Prepare batch using CACHED folder mappings
+5. **PHASE 4**: Batch POST to МойСклад
+
+**Used by:**
+- `ProcessSyncQueueJob::processBatchProductSync()` - Pre-sync folders before batch product POST
+- `ProcessSyncQueueJob::processBatchBundleSync()` - Pre-sync folders before batch bundle POST
+- `ProcessSyncQueueJob::processBatchServiceSync()` - Pre-sync folders before batch service POST
+- `BatchEntityLoader::loadAndCreateAssortmentBatchTasks()` - Pre-sync folders after filtering
+
+**Respects Settings:**
+- `create_product_folders = true` → Sync only folders for filtered entities
+- `create_product_folders = false` → Skip folder sync entirely, create entities without groups
+
+**Performance:**
+- Syncs folders ONCE per batch (not per entity)
+- Builds complete hierarchy tree in single pass
+- Uses cached mappings in prepare methods → 0 additional GET requests per entity
+- Typical: ~50 folders synced for 1000 filtered products (vs 1000 folders without filtering)
+
+**See also:** [Batch Synchronization - PHASE 2.5](04-batch-sync.md#phase-25-pre-sync-product-folders)
 
 ### Product Filter Service
 

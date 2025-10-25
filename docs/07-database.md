@@ -7,7 +7,7 @@
 
 `child_accounts` - Parent-child links (parent_account_id, child_account_id, invitation_code, status)
 
-`sync_settings` - Per-account sync config (35+ fields: sync_enabled, sync_products, sync_services, sync_orders, sync_images, product_match_field, create_product_folders, price_mappings JSON, attribute_sync_list JSON, counterparty IDs, priorities, delays)
+`sync_settings` - Per-account sync config (35+ fields: sync_enabled, sync_products, sync_services, sync_orders, sync_images, product_match_field, service_match_field, create_product_folders, price_mappings JSON, attribute_sync_list JSON, product_filters JSON, product_filters_enabled, counterparty IDs, priorities, delays)
 
 `sync_queue` - Task queue (entity_type, entity_id, operation: create/update/delete, priority, scheduled_at, status: pending/processing/completed/failed, attempts, error_message)
 
@@ -114,4 +114,67 @@ Webhooks handled in `WebhookController`:
 6. For purchaseorder: Only sync if `applicable=true` (проведенные)
 
 **Important:** TariffChanged event does NOT include access_token - must fetch from DB.
+
+### Sync Settings: create_product_folders
+
+**Field:** `create_product_folders` (boolean, default: `true`)
+
+**Purpose:** Controls whether product groups (productFolder) are synchronized to child accounts.
+
+**Behavior:**
+
+- `true` (default):
+  - Sync ONLY folders containing at least ONE filtered product/bundle/service
+  - Preserve complete folder hierarchy (parent folders created before children)
+  - Folders synced in **PHASE 2.5** of batch sync (after filtering, before entity POST)
+  - Mappings cached and reused in prepare methods → 0 additional GET requests per entity
+
+- `false`:
+  - Skip folder synchronization entirely
+  - Create all entities (products/bundles/services) WITHOUT `productFolder` field
+  - Entities appear in root level of child account
+
+**Why This Matters:**
+
+1. **Filter Integration**: Only folders with filtered entities are synced (respects `product_filters`)
+2. **Performance**: ~50 folders synced for 1000 filtered products (vs 1000 folders without filtering)
+3. **Flexibility**: Some franchises don't need folder structure replication
+
+**Implementation:**
+
+```php
+// In ProcessSyncQueueJob::processBatchProductSync()
+if ($syncSettings->create_product_folders) {
+    // Pre-sync folders for filtered products
+    $productFolderSyncService->syncFoldersForEntities(
+        $mainAccountId,
+        $childAccountId,
+        $filteredProducts  // Only products that passed filters!
+    );
+}
+
+// In ProductSyncService::prepareProductForBatch()
+if ($settings->create_product_folders && isset($product['productFolder']['id'])) {
+    // Use CACHED folder mapping (already synced)
+    $folderMapping = EntityMapping::where([...])->first();
+    if ($folderMapping) {
+        $productData['productFolder'] = ['meta' => ['href' => ".../{$folderMapping->child_entity_id}"]];
+    }
+} else {
+    // Don't include productFolder in payload
+    // Entity will be created in root level
+}
+```
+
+**Database:**
+
+```sql
+ALTER TABLE sync_settings
+ADD COLUMN create_product_folders BOOLEAN DEFAULT true
+COMMENT 'Sync product folders (only for filtered entities). If false - create entities without groups';
+```
+
+**See also:**
+- [Product Folder Sync Service](05-services.md#product-folder-sync-service)
+- [Batch Sync - PHASE 2.5](04-batch-sync.md#phase-25-pre-sync-product-folders)
 

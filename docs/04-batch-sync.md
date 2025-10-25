@@ -32,9 +32,9 @@ DependencyCacheService::cacheAll($mainAccountId, $childAccountId)
     │   └─ Country (страны): Load from both accounts → Map by code → DB
     │   └─ 6-20 GET requests
     │
-    ├─ cacheProductFolders()
-    │   └─ Product folders (группы товаров): Recursive sync → DB mappings
-    │   └─ 5-10 GET requests
+    ├─ [REMOVED] cacheProductFolders()
+    │   └─ Product folders now synced AFTER filtering (see Phase 2.5)
+    │   └─ Only folders for FILTERED entities are synced
     │
     ├─ cacheAttributes($mainAccountId, $childAccountId, 'product')
     │   └─ Attributes metadata: Load from main + child → Create attribute in child → DB
@@ -46,7 +46,7 @@ DependencyCacheService::cacheAll($mainAccountId, $childAccountId)
         └─ Critical: Avoids N GET requests for new elements
         └─ 5-10 GET requests
 
-TOTAL: 6-35 GET requests (executes ONCE per "Sync All" operation)
+TOTAL: 6-30 GET requests (executes ONCE per "Sync All" operation)
     ↓
 ─────────────────────────────────────────────────────────────────
 PHASE 2: Batch Load Entities (Controller)
@@ -75,6 +75,30 @@ SyncActionsController::syncAllProducts()
 TOTAL: 1-2 GET requests per 100 entities (pages of 100 with expand)
     ↓
 ─────────────────────────────────────────────────────────────────
+PHASE 2.5: Pre-sync Product Folders (NEW! After filtering)
+─────────────────────────────────────────────────────────────────
+BatchEntityLoader::loadAndCreateAssortmentBatchTasks()
+    │
+    ├─ Load entities via /entity/assortment (with filters)
+    ├─ Apply ProductFilterService (client-side filtering)
+    │
+    └─ ✨ Pre-sync product folders for FILTERED entities ONLY
+        └─ ProductFolderSyncService::syncFoldersForEntities($entities)
+            ├─ Collect unique productFolder IDs from filtered entities
+            ├─ Load folders from main account
+            ├─ Build dependency tree (find parent folders)
+            ├─ Sort folders by hierarchy (parents → children)
+            └─ Sync folders in correct order → DB mappings
+
+        Benefits:
+        - Only folders with filtered products/bundles/services are synced
+        - Each folder synced ONCE (no duplicates)
+        - Hierarchy preserved (parents before children)
+        - Respects create_product_folders setting
+
+TOTAL: N GET requests (N = unique folders after filtering, typically 5-50)
+    ↓
+─────────────────────────────────────────────────────────────────
 PHASE 3: Prepare & Batch POST (ProcessSyncQueueJob)
 ─────────────────────────────────────────────────────────────────
 ProcessSyncQueueJob::processBatchProductSync($task) / processBatchServiceSync($task)
@@ -87,7 +111,7 @@ ProcessSyncQueueJob::processBatchProductSync($task) / processBatchServiceSync($t
     │       ├─ Check mapping (create or update?) → DB lookup
     │       ├─ Sync UOM → getCachedUomMapping() → DB lookup
     │       ├─ Sync Country → getCachedCountryMapping() → DB lookup
-    │       ├─ Sync ProductFolder → DB lookup
+    │       ├─ Sync ProductFolder → CACHED mapping (synced in Phase 2.5!) → DB lookup
     │       ├─ Sync Attributes → DB lookup (AttributeMapping)
     │       ├─ For customentity attributes → DB lookup (CustomEntityElementMapping)
     │       ├─ Sync Prices → getCachedCurrencyMapping() → DB lookup
@@ -116,12 +140,12 @@ TOTAL: 1 POST request per 100 entities (batch POST)
 
 | Entity Type | Batch Size | Entity Type in Queue | Pre-cache Dependencies | Individual Retry |
 |-------------|-----------|---------------------|------------------------|-----------------|
-| **Products (товары)** | 100 | `batch_products` | UOM, Country, ProductFolder, Attributes, CustomEntity elements | ✅ Yes |
+| **Products (товары)** | 100 | `batch_products` | UOM, Country, Attributes, CustomEntity elements<br>ProductFolder synced after filtering (Phase 2.5) | ✅ Yes |
 | **Variants (модификации)** | Per parent (up to 1000) | `product_variants` | Characteristics, UOM (for packs), Price types | ✅ Yes |
 | **Services (услуги)** | 100 | `batch_services` | UOM, Attributes, CustomEntity elements | ✅ Yes |
+| **Bundles (комплекты)** | 100 | `batch_bundles` | UOM, Attributes, CustomEntity elements<br>ProductFolder synced after filtering (Phase 2.5) | ✅ Yes |
 
 **NOT using batch sync:**
-- **Bundles (комплекты)** - Complex dependencies (components can be products/variants), low volume
 - **Orders** - Time-sensitive, low volume, immediate sync without queue
 
 ## Performance Comparison
@@ -152,7 +176,7 @@ Similar logic: 2.5 requests/service × 500 = 1250 requests
 **Pre-cache (once):**
 ```
 Standard entities (UOM, Country): 6-20 requests
-Product folders: 5-10 requests
+Product folders: REMOVED (now synced after filtering)
 Attributes: 2-5 requests
 Custom entity elements: 5-10 requests
 
@@ -162,22 +186,27 @@ Total: ~30 requests (once)
 **Products (1000):**
 ```
 Phase 2 (load): GET × 10 (pages of 100) = 10 requests
+Phase 2.5 (folders): GET × N (unique folders after filtering, typically 5-50) = ~20 requests
 Phase 3 (batch POST): POST × 10 (batches of 100) = 10 requests
 
-Total: 20 requests
+Total: 40 requests
 ```
 
 **Services (500):**
 ```
 Phase 2 (load): GET × 5 (pages of 100) = 5 requests
+Phase 2.5 (folders): Services don't use folders = 0 requests
 Phase 3 (batch POST): POST × 5 (batches of 100) = 5 requests
 
 Total: 10 requests
 ```
 
-**Grand Total: ~30 (pre-cache) + 20 (products) + 10 (services) = ~60 requests**
+**Grand Total: ~30 (pre-cache) + 40 (products) + 10 (services) = ~80 requests**
 
-**Savings: 3750 → 60 requests (↓98.4%)**
+**Note:** Product folders now synced after filtering (Phase 2.5), only for entities that pass filters.
+This adds ~5-50 requests but ensures only relevant folders are created in child accounts.
+
+**Savings: 3750 → 80 requests (↓97.9%)**
 
 ## Batch POST Error Handling
 
@@ -428,7 +457,7 @@ ORDER BY created_at DESC;
 **DependencyCacheService** (`app/Services/DependencyCacheService.php`):
 - `cacheAll($mainAccountId, $childAccountId)` - Orchestrates all pre-caching
 - `cacheStandardEntities()` - UOM, Country mappings
-- `cacheProductFolders()` - Recursive folder sync
+- ~~`cacheProductFolders()` - Recursive folder sync~~ **[REMOVED]** - Folders now synced after filtering
 - `cacheAttributes()` - Attributes + custom entities
 - `cacheCustomEntityElements()` - Elements within custom entities
 
@@ -441,8 +470,19 @@ ORDER BY created_at DESC;
 - `getCachedCountryMapping()` - DB lookup without GET
 - `getCachedCurrencyMapping()` - DB lookup without GET
 
+**ProductFolderSyncService** (`app/Services/ProductFolderSyncService.php`): ⭐ **NEW**
+- `syncFoldersForEntities($mainAccountId, $childAccountId, $entities)` - Batch sync folders for filtered entities
+  * Collects unique productFolder IDs from entities
+  * Builds dependency tree (finds parent folders)
+  * Syncs in correct order (parents → children)
+  * Returns mappings for use in batch preparation
+
+**BatchEntityLoader** (`app/Services/BatchEntityLoader.php`):
+- `loadAndCreateAssortmentBatchTasks()` - Loads entities, applies filters, pre-syncs folders (Phase 2.5)
+
 **ProductSyncService** (`app/Services/ProductSyncService.php`):
 - `prepareProductForBatch()` - Prepares product using only cached mappings (0 GET)
+  * Now uses cached folder mappings from Phase 2.5
 
 **ServiceSyncService** (`app/Services/ServiceSyncService.php`):
 - `prepareServiceForBatch()` - Prepares service using only cached mappings (0 GET)

@@ -19,6 +19,7 @@ This project uses modular documentation for better maintainability. See specific
 11. **[Admin Monitoring](docs/11-admin-monitoring.md)** - API monitoring system
 12. **[Configuration & Resources](docs/12-configuration.md)** - Environment setup, Git workflow
 13. **[Image Synchronization](docs/13-image-sync.md)** - Image sync with batch upload optimization
+14. **[Product Folder Synchronization](docs/14-product-folder-sync.md)** ⭐ - Filtered folder sync (95% fewer folders synced)
 
 ## Quick Reference
 
@@ -68,11 +69,14 @@ Full list: [Common Patterns & Gotchas](docs/10-common-patterns.md)
 ### Synchronization Flow
 
 **Products/Services (Main → Child):**
-1. User clicks "Sync All" → Pre-cache dependencies (once)
-2. Load entities in batches of 100 with expand
-3. Prepare batch using cached mappings (0 additional GET requests!)
-4. Batch POST to МойСклад (100 entities per request)
-5. Create mappings + individual retry for failures
+1. **Pre-cache dependencies** - Attributes, price types (NOT folders!) - done once
+2. **Load entities** - Batches of 100 with expand, apply filters
+3. **Pre-sync folders** - ONLY for filtered entities (if `create_product_folders = true`)
+4. **Prepare batch** - Use cached mappings (0 additional GET requests!)
+5. **Batch POST** - 100 entities per request to МойСклад
+6. **Create mappings** - Store entity mappings + individual retry for failures
+
+**Key optimization:** Product folders synced in **PHASE 2.5** (after filtering, before batch POST) - only folders with filtered entities, not all 1000 folders!
 
 **See:** [Batch Synchronization](docs/04-batch-sync.md) for detailed architecture.
 
@@ -163,3 +167,4 @@ Each section above links to detailed documentation in the `docs/` folder. Start 
 - Debugging issues? → [Common Patterns & Gotchas](docs/10-common-patterns.md)
 - Frontend work? → [Frontend Architecture](docs/06-frontend.md)
 - Image sync? → [Image Synchronization](docs/13-image-sync.md)
+- Product folder sync? → [Product Folder Synchronization](docs/14-product-folder-sync.md)
