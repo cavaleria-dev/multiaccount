@@ -560,21 +560,47 @@ class VariantSyncService
             return $updatedVariantResult['data'];
 
         } catch (\Exception $e) {
+            $errorMessage = $e->getMessage();
+
             // 404 fallback: variant не существует в child (устаревший маппинг)
             // Удаляем маппинг и создаём variant заново
-            if (str_contains($e->getMessage(), '404') || str_contains($e->getMessage(), 'Not Found')) {
-                Log::warning('Variant not found in child account (404), deleting stale mapping and creating new', [
+            if (str_contains($errorMessage, '404') || str_contains($errorMessage, 'Not Found')) {
+                Log::warning('Variant not found in child account (404), deleting stale mappings', [
                     'main_account_id' => $mainAccountId,
                     'child_account_id' => $childAccountId,
                     'main_variant_id' => $variant['id'],
                     'stale_child_variant_id' => $variantMapping->child_entity_id,
-                    'error' => $e->getMessage()
+                    'error' => $errorMessage
                 ]);
 
-                // Удалить устаревший маппинг
+                // Удалить устаревший variant mapping
                 $variantMapping->delete();
 
+                // Удалить устаревшие characteristic mappings
+                $this->cleanupStaleCharacteristicMappings($mainAccountId, $childAccountId, $variant['characteristics'] ?? []);
+
                 // Создать variant заново
+                return $this->createVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $settings);
+            }
+
+            // 10001 fallback: характеристика не существует в child (устаревший маппинг)
+            // Удаляем characteristic mappings и пересоздаём variant
+            if (str_contains($errorMessage, '10001') || str_contains($errorMessage, 'несуществующую характеристику')) {
+                Log::warning('Characteristic not found (10001), cleaning up stale characteristic mappings', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'main_variant_id' => $variant['id'],
+                    'child_variant_id' => $variantMapping->child_entity_id,
+                    'error' => $errorMessage
+                ]);
+
+                // Удалить ВСЕ stale characteristic mappings для этого child account
+                $this->cleanupStaleCharacteristicMappings($mainAccountId, $childAccountId, $variant['characteristics'] ?? []);
+
+                // Удалить variant mapping (т.к. variant тоже может быть удален)
+                $variantMapping->delete();
+
+                // Повторить попытку создания variant (characteristics будут созданы заново)
                 return $this->createVariant($childAccount, $mainAccountId, $childAccountId, $variant, $productMapping, $settings);
             }
 
@@ -625,6 +651,63 @@ class VariantSyncService
         }
 
         return $syncedCharacteristics;
+    }
+
+    /**
+     * Очистить устаревшие маппинги характеристик
+     *
+     * Удаляет characteristic mappings для характеристик, которые присутствуют
+     * в main account, но не существуют в child account (stale mappings).
+     * Это исправляет ошибку 10001 при попытке использовать несуществующий ID.
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param array $characteristics Массив характеристик из main account
+     * @return int Количество удаленных mappings
+     */
+    protected function cleanupStaleCharacteristicMappings(
+        string $mainAccountId,
+        string $childAccountId,
+        array $characteristics
+    ): int {
+        $deletedCount = 0;
+
+        foreach ($characteristics as $characteristic) {
+            $charName = $characteristic['name'] ?? null;
+
+            if (!$charName) {
+                continue;
+            }
+
+            // Найти маппинг для этой характеристики
+            $charMapping = CharacteristicMapping::where('parent_account_id', $mainAccountId)
+                ->where('child_account_id', $childAccountId)
+                ->where('characteristic_name', $charName)
+                ->first();
+
+            if ($charMapping) {
+                // Удалить stale mapping (будет создан заново при следующей попытке)
+                $charMapping->delete();
+                $deletedCount++;
+
+                Log::info('Deleted stale characteristic mapping', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'characteristic_name' => $charName,
+                    'stale_child_characteristic_id' => $charMapping->child_characteristic_id
+                ]);
+            }
+        }
+
+        if ($deletedCount > 0) {
+            Log::info('Cleanup stale characteristic mappings completed', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'deleted_count' => $deletedCount
+            ]);
+        }
+
+        return $deletedCount;
     }
 
     /**
