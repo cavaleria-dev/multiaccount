@@ -66,6 +66,7 @@ class CleanupStaleVariantMappings extends Command
 
         $totalChecked = 0;
         $totalStale = 0;
+        $totalErrors = 0;
         $staleDetails = [];
 
         // Проверить каждый дочерний аккаунт
@@ -81,6 +82,7 @@ class CleanupStaleVariantMappings extends Command
             }
 
             $staleCount = 0;
+            $errorCount = 0;
 
             // Проверить каждый маппинг
             foreach ($mappings as $mapping) {
@@ -94,9 +96,14 @@ class CleanupStaleVariantMappings extends Command
                     // Variant существует - маппинг валиден
                     // Ничего не делаем
 
+                    // Задержка между запросами для избежания rate limits (100ms)
+                    usleep(100000);
+
                 } catch (\Exception $e) {
+                    $errorMessage = $e->getMessage();
+
                     // Проверить, это 404 или другая ошибка
-                    if (str_contains($e->getMessage(), '404') || str_contains($e->getMessage(), 'Not Found')) {
+                    if (str_contains($errorMessage, '404') || str_contains($errorMessage, 'Not Found')) {
                         // Variant не существует - устаревший маппинг
                         $staleCount++;
                         $totalStale++;
@@ -118,16 +125,33 @@ class CleanupStaleVariantMappings extends Command
                                 'child_variant_id' => $mapping->child_entity_id
                             ]);
                         }
+                    } elseif (str_contains($errorMessage, '502') || str_contains($errorMessage, '503') || str_contains($errorMessage, 'Bad Gateway') || str_contains($errorMessage, 'Service Unavailable')) {
+                        // Временная ошибка сервера - пропускаем и продолжаем
+                        $errorCount++;
+                        $totalErrors++;
+                        $this->warn("  ⚠ Temporary server error (502/503), skipping variant " . substr($mapping->child_entity_id, 0, 8) . '...');
+
+                        // Небольшая задержка при ошибке сервера (500ms)
+                        usleep(500000);
                     } else {
                         // Другая ошибка (rate limit, network, etc.) - пропускаем
-                        $this->warn("  ⚠ Error checking variant {$mapping->child_entity_id}: " . $e->getMessage());
+                        $errorCount++;
+                        $totalErrors++;
+                        $this->warn("  ⚠ Error checking variant " . substr($mapping->child_entity_id, 0, 8) . "...: " . substr($errorMessage, 0, 100));
+
+                        // Задержка при ошибке (300ms)
+                        usleep(300000);
                     }
                 }
             }
 
             if ($staleCount > 0) {
                 $this->warn("  Found {$staleCount} stale mapping(s)");
-            } else {
+            }
+            if ($errorCount > 0) {
+                $this->warn("  Encountered {$errorCount} error(s) (temporary server issues)");
+            }
+            if ($staleCount === 0 && $errorCount === 0) {
                 $this->info("  ✓ All mappings are valid");
             }
         }
@@ -135,6 +159,9 @@ class CleanupStaleVariantMappings extends Command
         $this->newLine();
         $this->info("Checked: {$totalChecked} variant mapping(s)");
         $this->warn("Stale: {$totalStale} variant mapping(s)");
+        if ($totalErrors > 0) {
+            $this->warn("Errors: {$totalErrors} (temporary server issues - 502/503)");
+        }
         $this->newLine();
 
         if ($totalStale > 0) {
