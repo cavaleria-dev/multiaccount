@@ -744,29 +744,59 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'skipped_count' => $skippedCount
             ]);
 
+            // Проверить размер JSON и разбить на sub-batches если нужно (защита от 20MB limit)
+            $subBatches = $this->splitBatchIfNeeded($preparedProducts);
+
             // Получить child account для access token
             $childAccount = \App\Models\Account::where('account_id', $childAccountId)->firstOrFail();
             $moysklad = app(\App\Services\MoySkladService::class);
 
-            // Отправить batch POST
-            $response = $moysklad
-                ->setAccessToken($childAccount->access_token)
-                ->setLogContext(
-                    accountId: $childAccountId,
-                    direction: 'main_to_child',
-                    relatedAccountId: $mainAccountId,
-                    entityType: 'batch_products',
-                    entityId: null  // Batch - нет конкретного ID
-                )
-                ->setOperationContext(
-                    operationType: 'batch_create',
-                    operationResult: 'success'
-                )
-                ->batchCreateProducts($preparedProducts);
+            // Обработать каждый sub-batch (обычно это один batch, но может быть несколько)
+            $allCreatedProducts = [];
+            $subBatchIndex = 0;
 
-            $createdProducts = $response['data'] ?? [];
+            foreach ($subBatches as $subBatch) {
+                $subBatchIndex++;
 
-            Log::info('Batch POST completed', [
+                Log::info('Sending sub-batch to МойСклад', [
+                    'task_id' => $task->id,
+                    'sub_batch_index' => $subBatchIndex,
+                    'sub_batch_count' => count($subBatch),
+                    'total_sub_batches' => count($subBatches)
+                ]);
+
+                // Отправить batch POST
+                $response = $moysklad
+                    ->setAccessToken($childAccount->access_token)
+                    ->setLogContext(
+                        accountId: $childAccountId,
+                        direction: 'main_to_child',
+                        relatedAccountId: $mainAccountId,
+                        entityType: 'batch_products',
+                        entityId: null  // Batch - нет конкретного ID
+                    )
+                    ->setOperationContext(
+                        operationType: 'batch_create',
+                        operationResult: 'success'
+                    )
+                    ->batchCreateProducts($subBatch);
+
+                $createdProducts = $response['data'] ?? [];
+
+                // Merge results from all sub-batches
+                $allCreatedProducts = array_merge($allCreatedProducts, $createdProducts);
+
+                Log::info('Sub-batch POST completed', [
+                    'task_id' => $task->id,
+                    'sub_batch_index' => $subBatchIndex,
+                    'sent_count' => count($subBatch),
+                    'received_count' => count($createdProducts)
+                ]);
+            }
+
+            $createdProducts = $allCreatedProducts;
+
+            Log::info('All batch POSTs completed', [
                 'task_id' => $task->id,
                 'sent_count' => count($preparedProducts),
                 'received_count' => count($createdProducts)
@@ -862,6 +892,105 @@ class ProcessSyncQueueJob implements ShouldQueue
                         'original_task_id' => $task->id,
                         'product_id' => $originalId
                     ]);
+                } elseif ($errorCode === 1056 || stripos($errorMessage, 'уже существует') !== false || stripos($errorMessage, 'already exists') !== false) {
+                    // Код 1056 или сообщение "уже существует" - сущность уже есть в child account
+                    // Нужно найти существующую сущность и создать mapping
+                    Log::info('Entity already exists in child account, searching for existing entity', [
+                        'task_id' => $task->id,
+                        'original_id' => $originalId,
+                        'error_code' => $errorCode,
+                        'error_message' => $errorMessage
+                    ]);
+
+                    try {
+                        // Попытаться найти существующую сущность по имени или артикулу
+                        $originalProduct = $preparedProducts[$index];
+                        $searchFilters = [];
+
+                        if (isset($originalProduct['article'])) {
+                            $searchFilters[] = "article={$originalProduct['article']}";
+                        } elseif (isset($originalProduct['name'])) {
+                            // Поиск по имени менее надёжен, но лучше чем ничего
+                            $searchFilters[] = "name={$originalProduct['name']}";
+                        }
+
+                        if (!empty($searchFilters)) {
+                            $childAccount = $accountsCache[$childAccountId] ?? null;
+                            if ($childAccount) {
+                                $moysklad = app(\App\Services\MoySkladService::class);
+                                $moysklad->setAccessToken($childAccount->access_token)
+                                         ->setAccountId($childAccountId);
+
+                                $searchQuery = implode(';', $searchFilters);
+                                $searchResults = $moysklad->get("entity/product?filter={$searchQuery}");
+
+                                if (isset($searchResults['rows'][0])) {
+                                    $existingProduct = $searchResults['rows'][0];
+
+                                    // Создать mapping для существующей сущности
+                                    \App\Models\EntityMapping::updateOrCreate(
+                                        [
+                                            'parent_account_id' => $mainAccountId,
+                                            'child_account_id' => $childAccountId,
+                                            'entity_type' => 'product',
+                                            'parent_entity_id' => $originalId
+                                        ],
+                                        [
+                                            'child_entity_id' => $existingProduct['id'],
+                                            'last_synced_at' => now()
+                                        ]
+                                    );
+
+                                    $mappingCount++;
+
+                                    Log::info('Created mapping for existing product', [
+                                        'task_id' => $task->id,
+                                        'original_id' => $originalId,
+                                        'child_entity_id' => $existingProduct['id']
+                                    ]);
+
+                                    // Синхронизировать изображения (если включено)
+                                    if ($syncSettings->sync_images || $syncSettings->sync_images_all) {
+                                        $this->queueImageSyncForEntity(
+                                            $mainAccountId,
+                                            $childAccountId,
+                                            $originalId,
+                                            $existingProduct['id'],
+                                            'product'
+                                        );
+                                    }
+
+                                    continue; // Не создавать retry задачу
+                                }
+                            }
+                        }
+                    } catch (\Throwable $searchError) {
+                        Log::warning('Failed to search for existing entity', [
+                            'task_id' => $task->id,
+                            'original_id' => $originalId,
+                            'error' => $searchError->getMessage()
+                        ]);
+                    }
+
+                    // Если не нашли - создать retry задачу
+                    SyncQueue::create([
+                        'account_id' => $childAccountId,
+                        'entity_type' => 'product',
+                        'entity_id' => $originalId,
+                        'operation' => 'update',
+                        'priority' => 5,
+                        'scheduled_at' => now()->addMinutes(5),
+                        'status' => 'pending',
+                        'attempts' => 0,
+                        'payload' => [
+                            'main_account_id' => $mainAccountId,
+                            'batch_retry' => true,
+                            'error_code' => $errorCode,
+                            'retry_reason' => 'uniqueness_violation'
+                        ]
+                    ]);
+
+                    $retryTasksCount++;
                 } else {
                     // Другие ошибки - создать retry как UPDATE
                     SyncQueue::create([
@@ -2295,6 +2424,10 @@ class ProcessSyncQueueJob implements ShouldQueue
         // Создать индивидуальные retry задачи для ВСЕХ сущностей
         $createdRetryTasks = 0;
         $deletedMappingsCount = 0;
+        $skippedExisting = 0;
+
+        // Получить child account для проверки существующих сущностей
+        $childAccount = \App\Models\Account::where('account_id', $task->account_id)->first();
 
         foreach ($entities as $entity) {
             $entityId = $entity['id'] ?? null;
@@ -2307,15 +2440,56 @@ class ProcessSyncQueueJob implements ShouldQueue
                 continue;
             }
 
-            // Удалить stale mapping (если существует)
-            $deleted = \App\Models\EntityMapping::where([
+            // Проверить существующий mapping
+            $existingMapping = \App\Models\EntityMapping::where([
                 'parent_account_id' => $mainAccountId,
                 'child_account_id' => $task->account_id,
                 'entity_type' => $entityTypeSingular,
                 'parent_entity_id' => $entityId
-            ])->delete();
+            ])->first();
 
-            if ($deleted > 0) {
+            if ($existingMapping && $childAccount) {
+                // Mapping существует - проверить существует ли сущность в child account
+                try {
+                    $moysklad = app(\App\Services\MoySkladService::class);
+                    $moysklad->setAccessToken($childAccount->access_token)
+                             ->setAccountId($task->account_id);
+
+                    // Определить endpoint для проверки
+                    $endpoint = match($entityTypeSingular) {
+                        'product' => "entity/product/{$existingMapping->child_entity_id}",
+                        'service' => "entity/service/{$existingMapping->child_entity_id}",
+                        'bundle' => "entity/bundle/{$existingMapping->child_entity_id}",
+                        default => null
+                    };
+
+                    if ($endpoint) {
+                        $existingEntity = $moysklad->get($endpoint);
+
+                        if ($existingEntity && !($existingEntity['archived'] ?? false)) {
+                            // Сущность существует и не архивирована - пропустить retry
+                            Log::info('Entity already exists in child account, skipping retry', [
+                                'task_id' => $task->id,
+                                'entity_type' => $entityTypeSingular,
+                                'parent_entity_id' => $entityId,
+                                'child_entity_id' => $existingMapping->child_entity_id
+                            ]);
+                            $skippedExisting++;
+                            continue;
+                        }
+                    }
+                } catch (\Throwable $checkError) {
+                    // Ошибка при проверке (404, network, etc.) - будем создавать retry
+                    Log::warning('Failed to check existing entity in child account', [
+                        'task_id' => $task->id,
+                        'entity_type' => $entityTypeSingular,
+                        'entity_id' => $entityId,
+                        'error' => $checkError->getMessage()
+                    ]);
+                }
+
+                // Удалить stale mapping
+                $existingMapping->delete();
                 $deletedMappingsCount++;
             }
 
@@ -2345,6 +2519,7 @@ class ProcessSyncQueueJob implements ShouldQueue
             'entity_type' => $task->entity_type,
             'entities_count' => count($entities),
             'deleted_stale_mappings' => $deletedMappingsCount,
+            'skipped_existing' => $skippedExisting,
             'retry_tasks_created' => $createdRetryTasks
         ]);
 
@@ -2502,5 +2677,74 @@ class ProcessSyncQueueJob implements ShouldQueue
             'postponed_count' => $postponed,
             'retry_after_seconds' => $retryAfter
         ]);
+    }
+
+    /**
+     * Разбить массив сущностей на sub-batches если JSON размер превышает лимит
+     *
+     * МойСклад API имеет лимит 20MB на batch запрос.
+     * Этот метод разбивает большие batches на smaller chunks если нужно.
+     *
+     * @param array $entities Массив подготовленных сущностей
+     * @param int $maxSizeBytes Максимальный размер в байтах (default: 18MB для безопасности)
+     * @return array[] Массив sub-batches
+     */
+    protected function splitBatchIfNeeded(array $entities, int $maxSizeBytes = 18874368): array
+    {
+        // 18MB = 18 * 1024 * 1024 = 18874368 байт (оставляем запас)
+
+        $jsonEncoded = json_encode($entities);
+        $totalSize = strlen($jsonEncoded);
+
+        if ($totalSize <= $maxSizeBytes) {
+            // Размер в пределах нормы - возвращаем один batch
+            Log::debug('Batch size within limits', [
+                'entities_count' => count($entities),
+                'size_bytes' => $totalSize,
+                'size_mb' => round($totalSize / 1024 / 1024, 2)
+            ]);
+            return [$entities];
+        }
+
+        // Размер превышает лимит - нужно разбить
+        Log::warning('Batch size exceeds limit, splitting into sub-batches', [
+            'entities_count' => count($entities),
+            'size_bytes' => $totalSize,
+            'size_mb' => round($totalSize / 1024 / 1024, 2),
+            'max_size_mb' => round($maxSizeBytes / 1024 / 1024, 2)
+        ]);
+
+        $subBatches = [];
+        $currentBatch = [];
+        $currentSize = 0;
+
+        foreach ($entities as $entity) {
+            $entityJson = json_encode($entity);
+            $entitySize = strlen($entityJson);
+
+            // Проверить: поместится ли entity в текущий batch?
+            if ($currentSize + $entitySize > $maxSizeBytes && !empty($currentBatch)) {
+                // Текущий batch заполнен - сохранить и начать новый
+                $subBatches[] = $currentBatch;
+                $currentBatch = [$entity];
+                $currentSize = $entitySize + 2; // +2 для [] в JSON array
+            } else {
+                $currentBatch[] = $entity;
+                $currentSize += $entitySize + 1; // +1 для запятой в JSON array
+            }
+        }
+
+        // Добавить последний batch
+        if (!empty($currentBatch)) {
+            $subBatches[] = $currentBatch;
+        }
+
+        Log::info('Split batch into sub-batches', [
+            'original_count' => count($entities),
+            'sub_batches_count' => count($subBatches),
+            'sub_batch_sizes' => array_map(fn($b) => count($b), $subBatches)
+        ]);
+
+        return $subBatches;
     }
 }
