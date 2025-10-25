@@ -29,6 +29,16 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
         // Статистика
         Route::get('statistics', [ApiLogsController::class, 'statistics'])->name('statistics');
+
+        // Очереди синхронизации
+        Route::prefix('queue')->name('queue.')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Admin\QueueController::class, 'dashboard'])->name('dashboard');
+            Route::get('/tasks', [\App\Http\Controllers\Admin\QueueController::class, 'index'])->name('tasks');
+            Route::get('/tasks/{id}', [\App\Http\Controllers\Admin\QueueController::class, 'show'])->name('tasks.show');
+            Route::post('/tasks/{id}/retry', [\App\Http\Controllers\Admin\QueueController::class, 'retry'])->name('tasks.retry');
+            Route::delete('/tasks/{id}', [\App\Http\Controllers\Admin\QueueController::class, 'delete'])->name('tasks.delete');
+            Route::get('/rate-limits', [\App\Http\Controllers\Admin\QueueController::class, 'rateLimits'])->name('rate-limits');
+        });
     });
 });
 

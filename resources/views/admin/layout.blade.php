@@ -16,6 +16,7 @@
                     <h1 class="text-xl font-bold">API Мониторинг</h1>
                     <a href="{{ route('admin.logs.index') }}" class="hover:text-indigo-200">Логи</a>
                     <a href="{{ route('admin.statistics') }}" class="hover:text-indigo-200">Статистика</a>
+                    <a href="{{ route('admin.queue.dashboard') }}" class="hover:text-indigo-200">Очереди</a>
                 </div>
                 <div class="flex items-center space-x-4">
                     <span>{{ Auth::guard('admin')->user()->name }}</span>
