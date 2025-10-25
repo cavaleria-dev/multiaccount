@@ -468,7 +468,7 @@ class CharacteristicSyncService
 
         $childCharacteristics = $this->moySkladService
             ->setAccessToken($childAccount->access_token)
-            ->get('/entity/product/metadata/characteristics');
+            ->get('/entity/variant/metadata/characteristics');
 
         $childCharacteristicIds = collect($childCharacteristics['data']['rows'] ?? [])
             ->pluck('id')
