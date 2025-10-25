@@ -1322,6 +1322,13 @@ class VariantSyncService
             return null; // Parent product не синхронизирован
         }
 
+        // Проверить маппинг variant (create or update?)
+        $variantMapping = EntityMapping::where('parent_account_id', $mainAccountId)
+            ->where('child_account_id', $childAccountId)
+            ->where('parent_entity_id', $variant['id'])
+            ->where('entity_type', 'variant')
+            ->first();
+
         // Подготовить данные (аналогично syncVariantData, но без POST)
         $variantData = [
             'name' => $variant['name'],
@@ -1333,6 +1340,26 @@ class VariantSyncService
                 ]
             ],
         ];
+
+        // Если обновление - добавить meta
+        if ($variantMapping) {
+            $variantData['meta'] = [
+                'href' => config('moysklad.api_url') . "/entity/variant/{$variantMapping->child_entity_id}",
+                'type' => 'variant',
+                'mediaType' => 'application/json'
+            ];
+
+            Log::debug('Variant prepared for update (batch)', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id'],
+                'child_variant_id' => $variantMapping->child_entity_id
+            ]);
+        } else {
+            Log::debug('Variant prepared for create (batch)', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id']
+            ]);
+        }
 
         // Добавить характеристики
         if (isset($variant['characteristics']) && !empty($variant['characteristics'])) {
