@@ -49,7 +49,7 @@ PHASE 2: Batch Load Variants
 ─────────────────────────────────────────────────────────────────
 ProcessSyncQueueJob::processBatchVariantSync($task, $payload)
     │
-    ├─ GET /entity/variant?filter=productid={productId}&expand=characteristics
+    ├─ GET /entity/variant?filter=product=https://api.moysklad.ru/api/remap/1.2/entity/product/{productId}&expand=characteristics
     │   └─ Load all variants for product (batches of 100)
     │
     └─ Create SyncQueue tasks:

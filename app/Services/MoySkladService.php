@@ -747,7 +747,7 @@ class MoySkladService
     public function getCharacteristics(string $productId): array
     {
         $response = $this->get("entity/variant", [
-            'filter' => "product={$productId}"
+            'filter' => "product=https://api.moysklad.ru/api/remap/1.2/entity/product/{$productId}"
         ]);
 
         return $response['rows'] ?? [];
