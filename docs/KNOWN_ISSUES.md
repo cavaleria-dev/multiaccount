@@ -102,6 +102,145 @@ foreach ($priceTypes as $priceType) {
 
 ---
 
+## Проблема: Ошибка 1021 при batch синхронизации модификаций (2025-10-26)
+
+### Симптомы
+- При batch синхронизации модификаций (variants) МойСклад API возвращает ошибку 1021
+- Множественные ошибки вида:
+  ```json
+  {
+    "error": "Объект с типом 'pricetype' и идентификатором 'bcce9661-9d9c-11ee-0a80-153f0024c570' не найден",
+    "code": 1021
+  }
+  ```
+- Продукты (products) и услуги (services) синхронизируются без ошибок
+- Проблема появляется только при синхронизации variants
+
+### Причины
+
+**Корневая причина:** В методе `VariantSyncService::prepareVariantForBatch()` цены модификаций копировались напрямую с ID типов цен из главного аккаунта без маппинга на соответствующие ID в дочернем аккаунте.
+
+**Проблемный код:**
+```php
+// ❌ БЫЛО (app/Services/VariantSyncService.php:1356-1358)
+if (isset($variant['salePrices'])) {
+    $variantData['salePrices'] = $variant['salePrices'];  // ID из main account!
+}
+```
+
+**Что происходило:**
+1. Загружался variant из **main account** с expand: `expand=product.salePrices`
+2. В `salePrices` приходила структура с ID типа цены из main account:
+   ```json
+   {
+     "value": 1000,
+     "priceType": {
+       "meta": {
+         "href": "https://.../pricetype/bcce9661-9d9c-11ee-0a80-153f0024c570"
+       },
+       "id": "bcce9661-9d9c-11ee-0a80-153f0024c570"  // ← ID из main account!
+     }
+   }
+   ```
+3. Эта структура **копировалась как есть** в POST запрос в **child account**
+4. Child account не находил ID `bcce9661-...` у себя → **ошибка 1021**
+
+**Почему это работало для products/services:**
+- В `ProductSyncService::prepareProductForBatch()` и `ServiceSyncService::prepareServiceForBatch()` использовался метод `syncPrices()` из трейта `SyncHelpers`
+- `syncPrices()` выполняет маппинг ID типов цен через таблицу `price_type_mappings` или настройки `price_mappings`
+
+### Решение
+
+Заменено прямое копирование `salePrices` на вызов метода `syncPrices()` с логикой проверки custom prices (аналогично методам `createVariant()` и `updateVariant()`).
+
+**Исправленный код:**
+```php
+// ✅ СТАЛО (app/Services/VariantSyncService.php:1374-1428)
+
+// 1. Проверить, имеет ли variant собственные цены (отличные от parent product)
+$mainProduct = $variant['product'] ?? null;
+$hasCustomPrices = false;
+
+if ($mainProduct && isset($mainProduct['salePrices'])) {
+    $hasCustomPrices = $this->variantHasCustomPrices($variant, $mainProduct);
+} else {
+    // Если parent product не expand-нут - безопасный fallback (синхронизируем цены)
+    $hasCustomPrices = true;
+}
+
+// 2. Синхронизировать цены ТОЛЬКО если variant имеет собственные цены
+if ($hasCustomPrices) {
+    // Использовать syncPrices() для маппинга ID типов цен
+    $prices = $this->syncPrices(
+        $mainAccountId,
+        $childAccountId,
+        $variant,
+        $syncSettings
+    );
+
+    if (!empty($prices['salePrices'])) {
+        $variantData['salePrices'] = $prices['salePrices'];  // ← Замапленные ID из child account
+    }
+
+    if (isset($prices['buyPrice'])) {
+        $variantData['buyPrice'] = $prices['buyPrice'];
+    }
+} else {
+    // Variant наследует цены от product - НЕ отправляем salePrices/buyPrice
+    // НЕ добавляем salePrices и buyPrice в $variantData
+}
+```
+
+**Дополнительные улучшения:**
+- Добавлены недостающие поля: `externalCode`, `description`
+- Исправлен вызов `syncPacks()` с параметром `baseUomId`
+- Добавлена обработка `buyPrice` (ранее отсутствовала)
+- Добавлен вызов `addAdditionalFields()` для НДС, маркировки и т.д.
+- Добавлено подробное логирование для отладки
+
+### Исправленные файлы
+
+1. **app/Services/VariantSyncService.php** (метод `prepareVariantForBatch()`, строки 1303-1437)
+   - Заменено прямое копирование `salePrices` на вызов `syncPrices()`
+   - Добавлена проверка custom prices через `variantHasCustomPrices()`
+   - Добавлены недостающие поля и логирование
+
+### Коммиты
+- `8a99bd4` - fix: Исправлена ошибка 1021 при batch синхронизации модификаций
+
+### Как избежать в будущем
+
+1. **Всегда используйте `syncPrices()` для синхронизации цен** - этот метод обеспечивает корректный маппинг ID типов цен между аккаунтами
+2. **Не копируйте данные напрямую из main в child account** - всегда проверяйте, нужен ли маппинг ID (для типов цен, атрибутов, характеристик и т.д.)
+3. **Проверяйте работающие аналоги** - если добавляете новый метод синхронизации, посмотрите как это реализовано для других типов сущностей
+4. **Тестируйте на реальных данных** - ошибки маппинга проявляются только при синхронизации между разными аккаунтами
+
+### Пример правильного использования
+
+```php
+// ❌ НЕПРАВИЛЬНО - прямое копирование
+$variantData['salePrices'] = $variant['salePrices'];
+
+// ✅ ПРАВИЛЬНО - через syncPrices() с маппингом
+$prices = $this->syncPrices(
+    $mainAccountId,
+    $childAccountId,
+    $variant,
+    $syncSettings
+);
+
+if (!empty($prices['salePrices'])) {
+    $variantData['salePrices'] = $prices['salePrices'];
+}
+```
+
+### Связанные документы
+- [17-variant-assortment-sync.md](17-variant-assortment-sync.md) - архитектура синхронизации модификаций
+- [04-batch-sync.md](04-batch-sync.md) - batch синхронизация
+- [10-common-patterns.md](10-common-patterns.md) - общие паттерны
+
+---
+
 ## Шаблон для новых проблем
 
 ### Проблема: [Краткое описание]
@@ -132,4 +271,4 @@ foreach ($priceTypes as $priceType) {
 
 ---
 
-**Последнее обновление:** 14 октября 2025
+**Последнее обновление:** 26 октября 2025
