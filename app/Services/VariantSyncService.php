@@ -1343,30 +1343,96 @@ class VariantSyncService
             );
         }
 
-        // Добавить packs
+        // Синхронизировать упаковки (если есть)
+        // Для variant используем UOM родительского товара (product.uom)
         if (isset($variant['packs']) && !empty($variant['packs'])) {
+            $baseUomId = $this->extractEntityId($variant['product']['uom']['meta']['href'] ?? '');
             $variantData['packs'] = $this->productSyncService->syncPacks(
                 $mainAccountId,
                 $childAccountId,
-                $variant['packs']
+                $variant['packs'],
+                $baseUomId
             );
         }
 
-        // Добавить salePrices
-        if (isset($variant['salePrices'])) {
-            $variantData['salePrices'] = $variant['salePrices'];
-        }
-
-        // Добавить code, article, barcode если есть
+        // Добавить базовые поля
         if (isset($variant['code'])) {
             $variantData['code'] = $variant['code'];
         }
-        if (isset($variant['article'])) {
-            $variantData['article'] = $variant['article'];
+        if (isset($variant['externalCode'])) {
+            $variantData['externalCode'] = $variant['externalCode'];
         }
-        if (isset($variant['barcode'])) {
-            $variantData['barcode'] = $variant['barcode'];
+        if (isset($variant['description'])) {
+            $variantData['description'] = $variant['description'];
         }
+
+        // Добавить штрихкоды
+        if (isset($variant['barcodes'])) {
+            $variantData['barcodes'] = $variant['barcodes'];
+        }
+
+        // Проверить, имеет ли variant собственные цены (отличные от parent product)
+        $mainProduct = $variant['product'] ?? null;
+        $hasCustomPrices = false;
+
+        if ($mainProduct && isset($mainProduct['salePrices'])) {
+            $hasCustomPrices = $this->variantHasCustomPrices($variant, $mainProduct);
+        } else {
+            // Если parent product не expand-нут - безопасный fallback (синхронизируем цены)
+            $hasCustomPrices = true;
+            Log::warning('Parent product not expanded in variant batch, assuming custom prices', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id']
+            ]);
+        }
+
+        Log::debug('Variant custom prices check (batch prepare)', [
+            'child_account_id' => $childAccountId,
+            'main_variant_id' => $variant['id'],
+            'has_custom_prices' => $hasCustomPrices,
+            'variant_prices_count' => count($variant['salePrices'] ?? []),
+            'product_prices_count' => count($mainProduct['salePrices'] ?? [])
+        ]);
+
+        // Синхронизировать цены ТОЛЬКО если variant имеет собственные цены
+        if ($hasCustomPrices) {
+            // Цены (используя трейт SyncHelpers с маппингом ID типов цен)
+            $prices = $this->syncPrices(
+                $mainAccountId,
+                $childAccountId,
+                $variant,
+                $syncSettings
+            );
+
+            Log::debug('Variant prices synced (batch prepare)', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id'],
+                'main_sale_prices_count' => count($variant['salePrices'] ?? []),
+                'synced_sale_prices_count' => count($prices['salePrices']),
+                'has_buy_price' => isset($prices['buyPrice']),
+                'price_mappings_enabled' => !empty($syncSettings->price_mappings)
+            ]);
+
+            if (!empty($prices['salePrices'])) {
+                $variantData['salePrices'] = $prices['salePrices'];
+            }
+
+            if (isset($prices['buyPrice'])) {
+                $variantData['buyPrice'] = $prices['buyPrice'];
+            }
+        } else {
+            // Variant наследует цены от product - НЕ отправляем salePrices/buyPrice
+            Log::debug('Variant prepared without custom prices (inherits from product, batch)', [
+                'child_account_id' => $childAccountId,
+                'main_variant_id' => $variant['id'],
+                'variant_prices_match_product' => true
+            ]);
+            // НЕ добавляем salePrices и buyPrice в $variantData
+        }
+
+        // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
+        // Используем метод из ProductSyncService через композицию
+        $variantData = $this->productSyncService->addAdditionalFields($variantData, $variant, $syncSettings);
 
         return $variantData;
     }
