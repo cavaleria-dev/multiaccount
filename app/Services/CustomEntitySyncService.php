@@ -57,15 +57,19 @@ class CustomEntitySyncService
                 $customEntityName
             );
 
-            // Создать маппинг
-            CustomEntityMapping::create([
-                'parent_account_id' => $parentAccountId,
-                'child_account_id' => $childAccountId,
-                'parent_custom_entity_id' => $parentEntity['id'],
-                'child_custom_entity_id' => $childEntity['id'],
-                'custom_entity_name' => $customEntityName,
-                'auto_created' => true,
-            ]);
+            // Создать маппинг (atomic operation to prevent race conditions)
+            CustomEntityMapping::firstOrCreate(
+                [
+                    'parent_account_id' => $parentAccountId,
+                    'child_account_id' => $childAccountId,
+                    'custom_entity_name' => $customEntityName,
+                ],
+                [
+                    'parent_custom_entity_id' => $parentEntity['id'],
+                    'child_custom_entity_id' => $childEntity['id'],
+                    'auto_created' => true,
+                ]
+            );
 
             Log::info('Custom entity synced', [
                 'parent_account_id' => $parentAccountId,

@@ -75,16 +75,20 @@ class StandardEntitySyncService
                 $childUom = $childUoms['rows'][0];
                 $childUomId = $this->extractId($childUom['meta']['href']);
 
-                // Сохраняем маппинг
-                StandardEntityMapping::create([
-                    'parent_account_id' => $parentAccountId,
-                    'child_account_id' => $childAccountId,
-                    'entity_type' => 'uom',
-                    'parent_entity_id' => $parentUomId,
-                    'child_entity_id' => $childUomId,
-                    'code' => $code,
-                    'name' => $parentUom['name'] ?? null,
-                ]);
+                // Сохраняем маппинг (atomic operation to prevent race conditions)
+                StandardEntityMapping::firstOrCreate(
+                    [
+                        'parent_account_id' => $parentAccountId,
+                        'child_account_id' => $childAccountId,
+                        'entity_type' => 'uom',
+                        'code' => $code,
+                    ],
+                    [
+                        'parent_entity_id' => $parentUomId,
+                        'child_entity_id' => $childUomId,
+                        'name' => $parentUom['name'] ?? null,
+                    ]
+                );
 
                 $this->uomCache[$cacheKey] = $childUomId;
 
@@ -115,16 +119,20 @@ class StandardEntitySyncService
 
             $childUomId = $this->extractId($createdUom['meta']['href']);
 
-            // Сохраняем маппинг
-            StandardEntityMapping::create([
-                'parent_account_id' => $parentAccountId,
-                'child_account_id' => $childAccountId,
-                'entity_type' => 'uom',
-                'parent_entity_id' => $parentUomId,
-                'child_entity_id' => $childUomId,
-                'code' => $code,
-                'name' => $parentUom['name'] ?? null,
-            ]);
+            // Сохраняем маппинг (atomic operation to prevent race conditions)
+            StandardEntityMapping::firstOrCreate(
+                [
+                    'parent_account_id' => $parentAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => 'uom',
+                    'code' => $code,
+                ],
+                [
+                    'parent_entity_id' => $parentUomId,
+                    'child_entity_id' => $childUomId,
+                    'name' => $parentUom['name'] ?? null,
+                ]
+            );
 
             $this->uomCache[$cacheKey] = $childUomId;
 
@@ -198,19 +206,23 @@ class StandardEntitySyncService
                 $childCurrency = $childCurrencies['rows'][0];
                 $childCurrencyId = $this->extractId($childCurrency['meta']['href']);
 
-                // Сохраняем маппинг
-                StandardEntityMapping::create([
-                    'parent_account_id' => $parentAccountId,
-                    'child_account_id' => $childAccountId,
-                    'entity_type' => 'currency',
-                    'parent_entity_id' => $parentCurrencyId,
-                    'child_entity_id' => $childCurrencyId,
-                    'code' => $isoCode,
-                    'name' => $parentCurrency['name'] ?? null,
-                    'metadata' => [
-                        'symbol' => $parentCurrency['symbol'] ?? null,
+                // Сохраняем маппинг (atomic operation to prevent race conditions)
+                StandardEntityMapping::firstOrCreate(
+                    [
+                        'parent_account_id' => $parentAccountId,
+                        'child_account_id' => $childAccountId,
+                        'entity_type' => 'currency',
+                        'code' => $isoCode,
                     ],
-                ]);
+                    [
+                        'parent_entity_id' => $parentCurrencyId,
+                        'child_entity_id' => $childCurrencyId,
+                        'name' => $parentCurrency['name'] ?? null,
+                        'metadata' => [
+                            'symbol' => $parentCurrency['symbol'] ?? null,
+                        ],
+                    ]
+                );
 
                 $this->currencyCache[$cacheKey] = $childCurrencyId;
 
@@ -293,16 +305,20 @@ class StandardEntitySyncService
                 $childCountry = $childCountries['rows'][0];
                 $childCountryId = $this->extractId($childCountry['meta']['href']);
 
-                // Сохраняем маппинг
-                StandardEntityMapping::create([
-                    'parent_account_id' => $parentAccountId,
-                    'child_account_id' => $childAccountId,
-                    'entity_type' => 'country',
-                    'parent_entity_id' => $parentCountryId,
-                    'child_entity_id' => $childCountryId,
-                    'code' => $code,
-                    'name' => $parentCountry['name'] ?? null,
-                ]);
+                // Сохраняем маппинг (atomic operation to prevent race conditions)
+                StandardEntityMapping::firstOrCreate(
+                    [
+                        'parent_account_id' => $parentAccountId,
+                        'child_account_id' => $childAccountId,
+                        'entity_type' => 'country',
+                        'code' => $code,
+                    ],
+                    [
+                        'parent_entity_id' => $parentCountryId,
+                        'child_entity_id' => $childCountryId,
+                        'name' => $parentCountry['name'] ?? null,
+                    ]
+                );
 
                 $this->countryCache[$cacheKey] = $childCountryId;
 
@@ -348,28 +364,25 @@ class StandardEntitySyncService
             // Ставки НДС одинаковы во всех аккаунтах, но для полноты сохраняем маппинг
             $code = $vatRate !== null ? (string)$vatRate : 'null';
 
-            // Проверяем существующий маппинг в БД
-            $mapping = StandardEntityMapping::where('parent_account_id', $parentAccountId)
-                ->where('child_account_id', $childAccountId)
-                ->where('entity_type', 'vat')
-                ->where('code', $code)
-                ->first();
-
-            if (!$mapping) {
-                // Сохраняем маппинг для отслеживания
-                StandardEntityMapping::create([
+            // Создаем маппинг (atomic operation to prevent race conditions)
+            $mapping = StandardEntityMapping::firstOrCreate(
+                [
                     'parent_account_id' => $parentAccountId,
                     'child_account_id' => $childAccountId,
                     'entity_type' => 'vat',
+                    'code' => $code,
+                ],
+                [
                     'parent_entity_id' => $code,
                     'child_entity_id' => $code,
-                    'code' => $code,
                     'name' => $vatRate !== null ? "НДС {$vatRate}%" : 'Без НДС',
                     'metadata' => [
                         'rate' => $vatRate,
                     ],
-                ]);
+                ]
+            );
 
+            if ($mapping->wasRecentlyCreated) {
                 Log::info('StandardEntitySync: VAT mapped', [
                     'rate' => $vatRate,
                     'code' => $code

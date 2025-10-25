@@ -209,16 +209,20 @@ class DependencyCacheService
                 continue;
             }
 
-            // Создать маппинг
-            StandardEntityMapping::create([
-                'parent_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'entity_type' => 'uom',
-                'parent_entity_id' => $mainUom['id'],
-                'child_entity_id' => $childUom['id'],
-                'code' => $code,
-                'name' => $mainUom['name']
-            ]);
+            // Создать маппинг (atomic operation to prevent race conditions)
+            StandardEntityMapping::firstOrCreate(
+                [
+                    'parent_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => 'uom',
+                    'code' => $code,
+                ],
+                [
+                    'parent_entity_id' => $mainUom['id'],
+                    'child_entity_id' => $childUom['id'],
+                    'name' => $mainUom['name']
+                ]
+            );
 
             $created++;
         }
@@ -284,18 +288,6 @@ class DependencyCacheService
                 continue;
             }
 
-            // Проверить существующий маппинг
-            $exists = StandardEntityMapping::where([
-                'parent_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'entity_type' => 'country',
-                'code' => $code
-            ])->exists();
-
-            if ($exists) {
-                continue;
-            }
-
             // Найти соответствующую Country в child
             $childCountry = $childCountriesByCode[$code] ?? null;
             if (!$childCountry) {
@@ -303,18 +295,25 @@ class DependencyCacheService
                 continue;
             }
 
-            // Создать маппинг
-            StandardEntityMapping::create([
-                'parent_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'entity_type' => 'country',
-                'parent_entity_id' => $mainCountry['id'],
-                'child_entity_id' => $childCountry['id'],
-                'code' => $code,
-                'name' => $mainCountry['name']
-            ]);
+            // Создать маппинг (atomic operation to prevent race conditions)
+            $mapping = StandardEntityMapping::firstOrCreate(
+                [
+                    'parent_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => 'country',
+                    'code' => $code,
+                ],
+                [
+                    'parent_entity_id' => $mainCountry['id'],
+                    'child_entity_id' => $childCountry['id'],
+                    'name' => $mainCountry['name']
+                ]
+            );
 
-            $created++;
+            // Only count if it was newly created (not found existing)
+            if ($mapping->wasRecentlyCreated) {
+                $created++;
+            }
         }
 
         Log::info('Country mappings created', ['count' => $created]);

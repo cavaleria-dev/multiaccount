@@ -172,19 +172,23 @@ class CustomerOrderSyncService
 
             $newOrder = $newOrderResult['data'];
 
-            // Сохранить маппинг
-            EntityMapping::create([
-                'parent_account_id' => $parentAccount->account_id,
-                'child_account_id' => $childAccountId,
-                'entity_type' => 'customerorder',
-                'parent_entity_id' => $newOrder['id'],
-                'child_entity_id' => $customerOrderId,
-                'sync_direction' => 'child_to_main',
-                'source_document_type' => 'customerorder',
-                'metadata' => [
-                    'synced_at' => now()->toIso8601String(),
+            // Сохранить маппинг (atomic operation to prevent race conditions)
+            EntityMapping::firstOrCreate(
+                [
+                    'parent_account_id' => $parentAccount->account_id,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => 'customerorder',
+                    'child_entity_id' => $customerOrderId,
+                    'sync_direction' => 'child_to_main',
+                ],
+                [
+                    'parent_entity_id' => $newOrder['id'],
+                    'source_document_type' => 'customerorder',
+                    'metadata' => [
+                        'synced_at' => now()->toIso8601String(),
+                    ]
                 ]
-            ]);
+            );
 
             Log::info('Customer order synced successfully', [
                 'child_account_id' => $childAccountId,

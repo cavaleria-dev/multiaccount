@@ -15,13 +15,16 @@ class Account extends Model
 
     /**
      * The attributes that are mass assignable.
+     *
+     * SECURITY: access_token removed from fillable to prevent mass assignment
+     * Use explicit setter: $account->access_token = $value
      */
     protected $fillable = [
         'app_id',
         'account_id',
         'account_name',
         'account_type',
-        'access_token',
+        // 'access_token', // REMOVED: Security - not mass assignable
         'status',
         'subscription_status',
         'subscription_expires_at',
@@ -38,9 +41,24 @@ class Account extends Model
     ];
 
     /**
+     * The attributes that should be hidden for serialization.
+     *
+     * SECURITY: Prevents access_token from being exposed in:
+     * - JSON responses
+     * - Array conversion
+     * - Logging
+     */
+    protected $hidden = [
+        'access_token',
+    ];
+
+    /**
      * The attributes that should be cast.
+     *
+     * SECURITY: access_token encrypted at rest using Laravel's encryption
      */
     protected $casts = [
+        'access_token' => 'encrypted', // SECURITY: Automatic encryption/decryption
         'price_per_month' => 'decimal:2',
         'subscription_expires_at' => 'datetime',
         'installed_at' => 'datetime',

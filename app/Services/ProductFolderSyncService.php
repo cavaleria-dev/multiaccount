@@ -108,15 +108,19 @@ class ProductFolderSyncService
 
             $newFolder = $newFolderResult['data'];
 
-            // Сохранить маппинг
-            EntityMapping::create([
-                'parent_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'entity_type' => 'productfolder',
-                'parent_entity_id' => $folderId,
-                'child_entity_id' => $newFolder['id'],
-                'sync_direction' => 'main_to_child',
-            ]);
+            // Сохранить маппинг (atomic operation to prevent race conditions)
+            EntityMapping::firstOrCreate(
+                [
+                    'parent_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => 'productfolder',
+                    'parent_entity_id' => $folderId,
+                    'sync_direction' => 'main_to_child',
+                ],
+                [
+                    'child_entity_id' => $newFolder['id'],
+                ]
+            );
 
             Log::info('Product folder created in child account', [
                 'main_account_id' => $mainAccountId,

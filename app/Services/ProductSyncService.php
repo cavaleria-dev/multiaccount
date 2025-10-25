@@ -618,17 +618,21 @@ class ProductSyncService
                 'response_data' => json_encode($newProduct, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             ]);
 
-            // Сохранить маппинг
-            EntityMapping::create([
-                'parent_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'entity_type' => 'product',
-                'parent_entity_id' => $product['id'],
-                'child_entity_id' => $newProduct['id'],
-                'sync_direction' => 'main_to_child',
-                'match_field' => $matchField,
-                'match_value' => $matchValue,
-            ]);
+            // Сохранить маппинг (atomic operation to prevent race conditions)
+            EntityMapping::firstOrCreate(
+                [
+                    'parent_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => 'product',
+                    'parent_entity_id' => $product['id'],
+                    'sync_direction' => 'main_to_child',
+                ],
+                [
+                    'child_entity_id' => $newProduct['id'],
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue,
+                ]
+            );
 
             Log::info('Product created in child account', [
                 'main_account_id' => $mainAccountId,

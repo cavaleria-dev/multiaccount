@@ -113,60 +113,32 @@ class VariantSyncService
             }
 
             // Предварительная синхронизация характеристик (если есть)
+            // Note: Retries are handled by the queue system (ProcessSyncQueueJob) with exponential backoff
+            // to avoid blocking the worker thread with sleep()
             if (isset($variant['characteristics']) && !empty($variant['characteristics'])) {
-                $maxAttempts = 3;
-                $charSyncSuccess = false;
+                try {
+                    $characteristicSyncService = app(\App\Services\CharacteristicSyncService::class);
+                    $charStats = $characteristicSyncService->syncCharacteristics(
+                        $mainAccountId,
+                        $childAccountId,
+                        $variant['characteristics']
+                    );
 
-                for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-                    try {
-                        if ($attempt > 1) {
-                            // Задержка перед повторной попыткой: 1s, 2s
-                            $delay = $attempt - 1; // 1, 2
-                            sleep($delay);
-                            Log::debug('Retrying characteristics pre-sync for single variant', [
-                                'variant_id' => $variantId,
-                                'attempt' => $attempt,
-                                'delay_seconds' => $delay
-                            ]);
-                        }
+                    Log::debug('Characteristics pre-synced for single variant', [
+                        'variant_id' => $variantId,
+                        'characteristics_count' => count($variant['characteristics']),
+                        'stats' => $charStats
+                    ]);
 
-                        $characteristicSyncService = app(\App\Services\CharacteristicSyncService::class);
-                        $charStats = $characteristicSyncService->syncCharacteristics(
-                            $mainAccountId,
-                            $childAccountId,
-                            $variant['characteristics']
-                        );
-
-                        Log::debug('Characteristics pre-synced for single variant', [
-                            'variant_id' => $variantId,
-                            'characteristics_count' => count($variant['characteristics']),
-                            'stats' => $charStats,
-                            'attempt' => $attempt
-                        ]);
-
-                        $charSyncSuccess = true;
-                        break; // Успех - выходим из цикла retry
-
-                    } catch (\Exception $e) {
-                        Log::error('Failed to pre-sync characteristics for single variant', [
-                            'variant_id' => $variantId,
-                            'attempt' => $attempt,
-                            'max_attempts' => $maxAttempts,
-                            'error' => $e->getMessage()
-                        ]);
-
-                        // Если это последняя попытка - логируем финальную ошибку
-                        if ($attempt === $maxAttempts) {
-                            Log::warning('Characteristics pre-sync failed after all retries, will use fallback', [
-                                'variant_id' => $variantId,
-                                'attempts' => $maxAttempts
-                            ]);
-                        }
-                        // Иначе продолжаем retry
-                    }
+                } catch (\Exception $e) {
+                    Log::warning('Failed to pre-sync characteristics for single variant, will use fallback', [
+                        'variant_id' => $variantId,
+                        'error' => $e->getMessage()
+                    ]);
+                    // Don't throw - variant sync can still succeed with fallback logic
                 }
 
-                // Не выбрасываем исключение даже если все попытки упали
+                // Не выбрасываем исключение даже если попытка упала
                 // Характеристики будут синхронизированы через fallback в VariantSyncService::syncCharacteristics()
             }
 
@@ -444,15 +416,19 @@ class VariantSyncService
 
         $newVariant = $newVariantResult['data'];
 
-        // Сохранить маппинг
-        EntityMapping::create([
-            'parent_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'entity_type' => 'variant',
-            'parent_entity_id' => $variant['id'],
-            'child_entity_id' => $newVariant['id'],
-            'sync_direction' => 'main_to_child',
-        ]);
+        // Сохранить маппинг (atomic operation to prevent race conditions)
+        EntityMapping::firstOrCreate(
+            [
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'variant',
+                'parent_entity_id' => $variant['id'],
+                'sync_direction' => 'main_to_child',
+            ],
+            [
+                'child_entity_id' => $newVariant['id'],
+            ]
+        );
 
         Log::info('Variant created in child account', [
             'main_account_id' => $mainAccountId,
@@ -1280,15 +1256,19 @@ class VariantSyncService
                 return null;
             }
 
-            // Создать маппинг
-            $mapping = EntityMapping::create([
-                'parent_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'entity_type' => 'product',
-                'parent_entity_id' => $productId,
-                'child_entity_id' => $childProductId,
-                'sync_direction' => 'main_to_child',
-            ]);
+            // Создать маппинг (atomic operation to prevent race conditions)
+            $mapping = EntityMapping::firstOrCreate(
+                [
+                    'parent_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'entity_type' => 'product',
+                    'parent_entity_id' => $productId,
+                    'sync_direction' => 'main_to_child',
+                ],
+                [
+                    'child_entity_id' => $childProductId,
+                ]
+            );
 
             Log::info('Created product mapping via fallback search', [
                 'main_product_id' => $productId,
