@@ -34,7 +34,9 @@ Supervisor-managed queue:work picks up job from queue
     ↓
 ProcessSyncQueueJob::handle() - processes 50 tasks from sync_queue
     ↓
-For each task: Call ProductSyncService->syncProduct()
+TaskDispatcher routes to appropriate handler based on entity_type
+    ↓
+Handler calls corresponding service (e.g., ProductSyncService->syncProduct())
     ↓
 MoySkladService makes API calls with RateLimitHandler (45 req/sec control)
     ↓

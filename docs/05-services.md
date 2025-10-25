@@ -3,6 +3,20 @@
 
 **IMPORTANT:** After refactoring (2025-01), synchronization services are split by entity type for better maintainability.
 
+**Sync Task Handlers** (`app/Services/Sync/Handlers/`):
+- `SyncTaskHandler` - Abstract base class for all handlers
+- `ProductSyncHandler`, `BatchProductSyncHandler` - Product synchronization
+- `VariantSyncHandler`, `BatchVariantSyncHandler` - Variant synchronization
+- `ServiceSyncHandler`, `BatchServiceSyncHandler` - Service synchronization
+- `BundleSyncHandler`, `BatchBundleSyncHandler` - Bundle synchronization
+- `CustomerOrderSyncHandler` - Customer orders (child → main)
+- `RetailDemandSyncHandler` - Retail sales (child → main)
+- `PurchaseOrderSyncHandler` - Purchase orders (child → main)
+- `ImageSyncHandler` - Image synchronization
+- `WebhookCheckHandler` - Webhook setup/verification
+
+**See:** [Sync Task Handlers Architecture](16-sync-handlers.md) for detailed documentation.
+
 **Core Services** (`app/Services/`):
 - `MoySkladService` - Low-level API client, rate limit handling
   * **New methods (added for StandardEntitySyncService):**
@@ -34,8 +48,10 @@
   - `syncPrices()` / `getOrCreatePriceType()` - Price synchronization with currency mapping
   - `passesFilters()` - Product filter validation
 
-**Key Jobs:**
-- `ProcessSyncQueueJob` - Runs every minute via scheduler, processes 50 tasks per batch
+**Sync Task Processing** (🆕 Refactored Oct 2025):
+- `ProcessSyncQueueJob` - Orchestrates queue processing (688 lines, down from 2,842)
+- `TaskDispatcher` - Routes tasks to appropriate handlers (Strategy Pattern)
+- **13 Sync Handlers** - Modular handlers for each entity type (see [Sync Handlers](16-sync-handlers.md))
 
 ### Sync Services Architecture (After Refactoring)
 

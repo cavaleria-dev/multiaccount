@@ -21,6 +21,7 @@ This project uses modular documentation for better maintainability. See specific
 13. **[Image Synchronization](docs/13-image-sync.md)** - Image sync with batch upload optimization
 14. **[Product Folder Synchronization](docs/14-product-folder-sync.md)** ⭐ - Filtered folder sync (95% fewer folders synced)
 15. **[Characteristic Synchronization](docs/15-characteristic-sync.md)** ⭐ - Proactive characteristic sync (fixes error 10002)
+16. **[Sync Task Handlers](docs/16-sync-handlers.md)** 🆕 - Modular handler architecture (76% code reduction)
 
 ## Quick Reference
 
@@ -50,6 +51,7 @@ php artisan migrate           # Run migrations
 - **Franchise management** - Main account → Child accounts synchronization
 - **Batch optimization** - 97% fewer API requests for products/services ([details](docs/04-batch-sync.md))
 - **Queue-based sync** - Supervisor + ProcessSyncQueueJob (50 tasks/minute)
+- **Modular handlers** - 13 sync task handlers (76% code reduction) ([details](docs/16-sync-handlers.md))
 - **Context caching** - 30min cache for МойСклад authentication context
 
 ### Top 10 Critical Gotchas
