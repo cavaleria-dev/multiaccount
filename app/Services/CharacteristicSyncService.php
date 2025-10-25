@@ -305,22 +305,41 @@ class CharacteristicSyncService
 
             // Fallback для ошибки 10002 (duplicate characteristic name)
             if (str_contains($errorMessage, '10002') || str_contains($errorMessage, 'уже существуют')) {
-                Log::warning('Characteristic already exists (10002), trying to find and map', [
+                Log::warning('Characteristic already exists (10002), attempting fallback with retry', [
                     'main_account_id' => $mainAccountId,
                     'child_account_id' => $childAccountId,
-                    'characteristic_name' => $characteristic['name']
+                    'characteristic_name' => $characteristic['name'],
+                    'error_code' => '10002'
                 ]);
 
-                // Попытаться найти существующую характеристику и создать маппинг
-                return $this->findAndMapExistingCharacteristic(
+                // Попытаться найти существующую характеристику и создать маппинг (с retry)
+                $mapping = $this->findAndMapExistingCharacteristic(
                     $mainAccountId,
                     $childAccountId,
                     $childAccount,
                     $characteristic
                 );
+
+                if ($mapping) {
+                    Log::info('10002 fallback succeeded - characteristic mapped', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'characteristic_name' => $characteristic['name'],
+                        'child_characteristic_id' => $mapping->child_characteristic_id
+                    ]);
+                    return $mapping;
+                } else {
+                    Log::error('10002 fallback failed - characteristic not found after retries', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'characteristic_name' => $characteristic['name'],
+                        'original_error' => $errorMessage
+                    ]);
+                    return null;
+                }
             }
 
-            Log::error('Failed to create characteristic in child account', [
+            Log::error('Failed to create characteristic in child account (non-10002 error)', [
                 'main_account_id' => $mainAccountId,
                 'child_account_id' => $childAccountId,
                 'characteristic' => $characteristic,
@@ -337,69 +356,107 @@ class CharacteristicSyncService
      * Используется как fallback при ошибке 10002 (race condition: характеристика
      * была создана между GET и POST запросами).
      *
+     * Алгоритм с retry:
+     * 1. Попытка 1: Получить свежий список характеристик, найти и смапить
+     * 2. Если не найдена: подождать 200ms (характеристика может дорепликироваться)
+     * 3. Попытка 2: Повторить GET запрос, найти и смапить
+     * 4. Если не найдена: подождать 500ms
+     * 5. Попытка 3: Финальная попытка
+     *
      * @param string $mainAccountId UUID главного аккаунта
      * @param string $childAccountId UUID дочернего аккаунта
      * @param Account $childAccount Модель дочернего аккаунта
      * @param array $characteristic Данные характеристики из main account
      * @return CharacteristicMapping|null Созданный маппинг или null при ошибке
      */
-    protected function findAndMapExistingCharacteristic(
+    public function findAndMapExistingCharacteristic(
         string $mainAccountId,
         string $childAccountId,
         Account $childAccount,
         array $characteristic
     ): ?CharacteristicMapping {
-        try {
-            // Получить свежий список характеристик из child
-            $existingCharacteristics = $this->fetchExistingCharacteristics(
-                $childAccount,
-                $childAccountId,
-                $mainAccountId
-            );
+        $charName = $characteristic['name'];
+        $maxAttempts = 3;
+        $delays = [0, 200000, 500000]; // Задержки в микросекундах (0ms, 200ms, 500ms)
 
-            $charName = $characteristic['name'];
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                // Задержка перед повторной попыткой (кроме первой)
+                if ($attempt > 1) {
+                    usleep($delays[$attempt - 1]);
+                    Log::debug('Retrying to find characteristic after 10002', [
+                        'characteristic_name' => $charName,
+                        'attempt' => $attempt,
+                        'delay_ms' => $delays[$attempt - 1] / 1000
+                    ]);
+                }
 
-            // Найти характеристику по name
-            if (isset($existingCharacteristics[$charName])) {
-                $childCharId = $existingCharacteristics[$charName];
+                // Получить свежий список характеристик из child
+                $existingCharacteristics = $this->fetchExistingCharacteristics(
+                    $childAccount,
+                    $childAccountId,
+                    $mainAccountId
+                );
 
-                // Создать маппинг
-                $mapping = CharacteristicMapping::create([
-                    'parent_account_id' => $mainAccountId,
-                    'child_account_id' => $childAccountId,
-                    'parent_characteristic_id' => $characteristic['id'],
-                    'child_characteristic_id' => $childCharId,
-                    'characteristic_name' => $charName,
-                    'auto_created' => false // Нашли существующую, а не создали
-                ]);
+                // Найти характеристику по name
+                if (isset($existingCharacteristics[$charName])) {
+                    $childCharId = $existingCharacteristics[$charName];
 
-                Log::info('Found and mapped existing characteristic after 10002 error', [
+                    // Создать маппинг
+                    $mapping = CharacteristicMapping::create([
+                        'parent_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'parent_characteristic_id' => $characteristic['id'],
+                        'child_characteristic_id' => $childCharId,
+                        'characteristic_name' => $charName,
+                        'auto_created' => false // Нашли существующую, а не создали
+                    ]);
+
+                    Log::info('Found and mapped existing characteristic after 10002 error', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'characteristic_name' => $charName,
+                        'child_characteristic_id' => $childCharId,
+                        'attempt' => $attempt
+                    ]);
+
+                    return $mapping;
+                }
+
+                // Характеристика не найдена - продолжить retry
+                Log::warning('Characteristic not found in child, will retry', [
                     'main_account_id' => $mainAccountId,
                     'child_account_id' => $childAccountId,
                     'characteristic_name' => $charName,
-                    'child_characteristic_id' => $childCharId
+                    'attempt' => $attempt,
+                    'max_attempts' => $maxAttempts
                 ]);
 
-                return $mapping;
-            } else {
-                Log::error('Characteristic not found in child after 10002 error', [
+            } catch (\Exception $e) {
+                Log::error('Error during characteristic search attempt', [
                     'main_account_id' => $mainAccountId,
                     'child_account_id' => $childAccountId,
-                    'characteristic_name' => $charName
+                    'characteristic_name' => $charName,
+                    'attempt' => $attempt,
+                    'error' => $e->getMessage()
                 ]);
 
-                return null;
+                // Если это последняя попытка - вернуть null
+                if ($attempt === $maxAttempts) {
+                    return null;
+                }
+                // Иначе продолжить retry
             }
-
-        } catch (\Exception $e) {
-            Log::error('Failed to find and map existing characteristic', [
-                'main_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId,
-                'characteristic' => $characteristic,
-                'error' => $e->getMessage()
-            ]);
-
-            return null;
         }
+
+        // Все попытки исчерпаны - характеристика не найдена
+        Log::error('Characteristic not found in child after all retry attempts (10002 fallback failed)', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'characteristic_name' => $charName,
+            'attempts' => $maxAttempts
+        ]);
+
+        return null;
     }
 }
