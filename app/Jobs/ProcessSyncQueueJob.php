@@ -521,6 +521,43 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'api_requests' => ceil(count($variants) / $limit)
             ]);
 
+            // PHASE 2.5: Синхронизировать характеристики перед синхронизацией variants
+            // Собрать все уникальные характеристики из всех variants
+            $allCharacteristics = collect($variants)
+                ->pluck('characteristics')
+                ->flatten(1)
+                ->unique('name')
+                ->filter(fn($char) => !empty($char['name']))
+                ->values()
+                ->toArray();
+
+            // Синхронизировать характеристики один раз для всех variants
+            if (!empty($allCharacteristics)) {
+                try {
+                    $characteristicSyncService = app(\App\Services\CharacteristicSyncService::class);
+                    $charStats = $characteristicSyncService->syncCharacteristics(
+                        $mainAccountId,
+                        $childAccountId,
+                        $allCharacteristics
+                    );
+
+                    Log::info('Characteristics pre-synced for variants', [
+                        'task_id' => $task->id,
+                        'product_id' => $productId,
+                        'characteristics_count' => count($allCharacteristics),
+                        'stats' => $charStats
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Failed to pre-sync characteristics, will retry per variant', [
+                        'task_id' => $task->id,
+                        'product_id' => $productId,
+                        'error' => $e->getMessage()
+                    ]);
+                    // Не выбрасываем исключение - продолжаем синхронизацию variants
+                    // Характеристики будут созданы через fallback в createCharacteristicInChild()
+                }
+            }
+
             $successCount = 0;
             $failedCount = 0;
 

@@ -112,6 +112,31 @@ class VariantSyncService
                 }
             }
 
+            // Предварительная синхронизация характеристик (если есть)
+            if (isset($variant['characteristics']) && !empty($variant['characteristics'])) {
+                try {
+                    $characteristicSyncService = app(\App\Services\CharacteristicSyncService::class);
+                    $charStats = $characteristicSyncService->syncCharacteristics(
+                        $mainAccountId,
+                        $childAccountId,
+                        $variant['characteristics']
+                    );
+
+                    Log::debug('Characteristics pre-synced for single variant', [
+                        'variant_id' => $variantId,
+                        'characteristics_count' => count($variant['characteristics']),
+                        'stats' => $charStats
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error('Failed to pre-sync characteristics for single variant, will retry via fallback', [
+                        'variant_id' => $variantId,
+                        'error' => $e->getMessage()
+                    ]);
+                    // Не выбрасываем исключение - продолжаем синхронизацию variant
+                    // Характеристики будут созданы через fallback в createCharacteristicInChild()
+                }
+            }
+
             // Проверить маппинг модификации
             $variantMapping = EntityMapping::where('parent_account_id', $mainAccountId)
                 ->where('child_account_id', $childAccountId)
@@ -759,11 +784,71 @@ class VariantSyncService
             return $mapping;
 
         } catch (\Exception $e) {
+            $errorMessage = $e->getMessage();
+
+            // 10002 fallback: характеристика с таким именем уже существует в child
+            // Попытаться найти существующую и создать маппинг
+            if (str_contains($errorMessage, '10002') || str_contains($errorMessage, 'уже существуют')) {
+                Log::warning('Characteristic already exists in child (10002), trying to find and map', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'characteristic_name' => $characteristic['name'] ?? 'unknown',
+                    'error' => $errorMessage
+                ]);
+
+                try {
+                    // Использовать CharacteristicSyncService для поиска и маппинга
+                    $characteristicSyncService = app(\App\Services\CharacteristicSyncService::class);
+
+                    // Получить child account
+                    $childAccount = Account::where('account_id', $childAccountId)->first();
+
+                    if ($childAccount) {
+                        // Попытаться найти и смапить существующую характеристику
+                        $existingChars = $characteristicSyncService->fetchExistingCharacteristics(
+                            $childAccount,
+                            $childAccountId,
+                            $mainAccountId
+                        );
+
+                        $charName = $characteristic['name'] ?? null;
+
+                        if ($charName && isset($existingChars[$charName])) {
+                            // Характеристика найдена - создать маппинг
+                            $mapping = CharacteristicMapping::create([
+                                'parent_account_id' => $mainAccountId,
+                                'child_account_id' => $childAccountId,
+                                'parent_characteristic_id' => $characteristic['id'],
+                                'child_characteristic_id' => $existingChars[$charName],
+                                'characteristic_name' => $charName,
+                                'auto_created' => false
+                            ]);
+
+                            Log::info('Characteristic found and mapped after 10002 error', [
+                                'main_account_id' => $mainAccountId,
+                                'child_account_id' => $childAccountId,
+                                'characteristic_name' => $charName,
+                                'child_characteristic_id' => $existingChars[$charName]
+                            ]);
+
+                            return $mapping;
+                        }
+                    }
+                } catch (\Exception $fallbackError) {
+                    Log::error('Fallback failed for 10002 error', [
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'characteristic' => $characteristic,
+                        'fallback_error' => $fallbackError->getMessage()
+                    ]);
+                }
+            }
+
             Log::error('Failed to create characteristic in child account', [
                 'main_account_id' => $mainAccountId,
                 'child_account_id' => $childAccountId,
                 'characteristic' => $characteristic,
-                'error' => $e->getMessage()
+                'error' => $errorMessage
             ]);
             return null;
         }
