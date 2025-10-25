@@ -113,6 +113,10 @@ tail -f storage/logs/laravel.log | grep -E "Batch|sync"
 # View detailed API logs (REQUEST/RESPONSE)
 tail -f storage/logs/sync.log
 
+# Cleanup stale characteristic mappings (fixes error 10001)
+php artisan sync:cleanup-stale-characteristic-mappings --dry-run
+php artisan sync:cleanup-stale-characteristic-mappings
+
 # Admin panel
 open https://app.cavaleria.ru/admin/logs
 ```

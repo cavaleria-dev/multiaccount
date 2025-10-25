@@ -508,15 +508,21 @@ if (isset($buyPrice['currency']['meta']['href'])) {
     'payload' => ['main_account_id' => $id]  // Array (works with create)
     ```
 
+20. **Stale characteristic mappings cause error 10001** - When a variant is deleted in child account, МойСклад also deletes its characteristics. If characteristic mappings remain in database, next sync will fail with error 10001: "поле 'id' ссылается на несуществующую характеристику". This is now handled automatically:
+    - Error 10001 is caught in `VariantSyncService::updateVariant()`
+    - Stale characteristic mappings are deleted
+    - Variant is recreated with new characteristics
+    - Manual cleanup command available: `php artisan sync:cleanup-stale-characteristic-mappings`
+
 ### Frontend
 
-20. **useMoyskladEntities Caching** - Always check if data is loaded before calling `load()`. Use `reload()` to force refresh. The composable prevents duplicate API calls automatically.
-21. **Component Emit Events** - Section components (ProductSyncSection, etc.) only emit events, they don't call APIs directly. Parent component (FranchiseSettings.vue) handles all API calls and state management.
-22. **Batch Loading First** - Use `getBatch()` for initial page load, then use individual endpoints only when user interacts (opens dropdown, clicks create, etc.)
-23. **Price Types Structure** - priceTypes endpoint returns `{main: [...], child: [...]}`, NOT a flat array. Always destructure correctly.
-24. **SimpleSelect Loading State** - Always pass `:loading` prop when data is being fetched asynchronously. This shows spinner and improves UX during API calls.
-25. **CustomEntity ID Extraction** - Use `extractCustomEntityId()` helper to extract UUID from `customEntityMeta.href`. Supports both full URL and relative paths. UUID format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (36 chars).
-26. **EXCLUDED_ATTRIBUTE_TYPES** - Constants in `SyncSettingsController` define attribute types that should NOT be synced (`counterparty`, `employee`, `store`, `organization`, `product`). These are filtered at API level in `getAttributes()` and `getBatchData()`. Never show these types in UI - they are managed via target objects settings.
-27. **MoySkladService New Methods** - Three convenience methods added for `StandardEntitySyncService`: `getEntity()`, `getList()`, `createEntity()`. These accept `accountId` (not token), fetch token from DB automatically, and return only data (not full response with rate limit info). Use these instead of direct `get()`/`post()` when you need simple entity operations.
-28. **auto_create_attributes is DEPRECATED** - Attribute synchronization is now controlled ONLY by `attribute_sync_list` (frontend selection of specific attributes). If `attribute_sync_list` is empty → NO attributes synced at all. If filled → ONLY selected attributes synced. The `auto_create_attributes` database field is ignored by sync services (`ProductSyncService`, `ServiceSyncService`, `BundleSyncService` call `syncAttributes()` unconditionally - the filtering happens inside `syncAttributes()` based on `attribute_sync_list`).
+21. **useMoyskladEntities Caching** - Always check if data is loaded before calling `load()`. Use `reload()` to force refresh. The composable prevents duplicate API calls automatically.
+22. **Component Emit Events** - Section components (ProductSyncSection, etc.) only emit events, they don't call APIs directly. Parent component (FranchiseSettings.vue) handles all API calls and state management.
+23. **Batch Loading First** - Use `getBatch()` for initial page load, then use individual endpoints only when user interacts (opens dropdown, clicks create, etc.)
+24. **Price Types Structure** - priceTypes endpoint returns `{main: [...], child: [...]}`, NOT a flat array. Always destructure correctly.
+25. **SimpleSelect Loading State** - Always pass `:loading` prop when data is being fetched asynchronously. This shows spinner and improves UX during API calls.
+26. **CustomEntity ID Extraction** - Use `extractCustomEntityId()` helper to extract UUID from `customEntityMeta.href`. Supports both full URL and relative paths. UUID format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (36 chars).
+27. **EXCLUDED_ATTRIBUTE_TYPES** - Constants in `SyncSettingsController` define attribute types that should NOT be synced (`counterparty`, `employee`, `store`, `organization`, `product`). These are filtered at API level in `getAttributes()` and `getBatchData()`. Never show these types in UI - they are managed via target objects settings.
+28. **MoySkladService New Methods** - Three convenience methods added for `StandardEntitySyncService`: `getEntity()`, `getList()`, `createEntity()`. These accept `accountId` (not token), fetch token from DB automatically, and return only data (not full response with rate limit info). Use these instead of direct `get()`/`post()` when you need simple entity operations.
+29. **auto_create_attributes is DEPRECATED** - Attribute synchronization is now controlled ONLY by `attribute_sync_list` (frontend selection of specific attributes). If `attribute_sync_list` is empty → NO attributes synced at all. If filled → ONLY selected attributes synced. The `auto_create_attributes` database field is ignored by sync services (`ProductSyncService`, `ServiceSyncService`, `BundleSyncService` call `syncAttributes()` unconditionally - the filtering happens inside `syncAttributes()` based on `attribute_sync_list`).
 
