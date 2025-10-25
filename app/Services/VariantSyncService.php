@@ -114,27 +114,60 @@ class VariantSyncService
 
             // Предварительная синхронизация характеристик (если есть)
             if (isset($variant['characteristics']) && !empty($variant['characteristics'])) {
-                try {
-                    $characteristicSyncService = app(\App\Services\CharacteristicSyncService::class);
-                    $charStats = $characteristicSyncService->syncCharacteristics(
-                        $mainAccountId,
-                        $childAccountId,
-                        $variant['characteristics']
-                    );
+                $maxAttempts = 3;
+                $charSyncSuccess = false;
 
-                    Log::debug('Characteristics pre-synced for single variant', [
-                        'variant_id' => $variantId,
-                        'characteristics_count' => count($variant['characteristics']),
-                        'stats' => $charStats
-                    ]);
-                } catch (\Exception $e) {
-                    Log::error('Failed to pre-sync characteristics for single variant, will retry via fallback', [
-                        'variant_id' => $variantId,
-                        'error' => $e->getMessage()
-                    ]);
-                    // Не выбрасываем исключение - продолжаем синхронизацию variant
-                    // Характеристики будут созданы через fallback в createCharacteristicInChild()
+                for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                    try {
+                        if ($attempt > 1) {
+                            // Задержка перед повторной попыткой: 1s, 2s
+                            $delay = $attempt - 1; // 1, 2
+                            sleep($delay);
+                            Log::debug('Retrying characteristics pre-sync for single variant', [
+                                'variant_id' => $variantId,
+                                'attempt' => $attempt,
+                                'delay_seconds' => $delay
+                            ]);
+                        }
+
+                        $characteristicSyncService = app(\App\Services\CharacteristicSyncService::class);
+                        $charStats = $characteristicSyncService->syncCharacteristics(
+                            $mainAccountId,
+                            $childAccountId,
+                            $variant['characteristics']
+                        );
+
+                        Log::debug('Characteristics pre-synced for single variant', [
+                            'variant_id' => $variantId,
+                            'characteristics_count' => count($variant['characteristics']),
+                            'stats' => $charStats,
+                            'attempt' => $attempt
+                        ]);
+
+                        $charSyncSuccess = true;
+                        break; // Успех - выходим из цикла retry
+
+                    } catch (\Exception $e) {
+                        Log::error('Failed to pre-sync characteristics for single variant', [
+                            'variant_id' => $variantId,
+                            'attempt' => $attempt,
+                            'max_attempts' => $maxAttempts,
+                            'error' => $e->getMessage()
+                        ]);
+
+                        // Если это последняя попытка - логируем финальную ошибку
+                        if ($attempt === $maxAttempts) {
+                            Log::warning('Characteristics pre-sync failed after all retries, will use fallback', [
+                                'variant_id' => $variantId,
+                                'attempts' => $maxAttempts
+                            ]);
+                        }
+                        // Иначе продолжаем retry
+                    }
                 }
+
+                // Не выбрасываем исключение даже если все попытки упали
+                // Характеристики будут синхронизированы через fallback в VariantSyncService::syncCharacteristics()
             }
 
             // Проверить маппинг модификации
@@ -643,6 +676,7 @@ class VariantSyncService
         array $characteristics
     ): array {
         $syncedCharacteristics = [];
+        $existingCharacteristicsCache = null; // Кеш для GET запроса (загружаем один раз)
 
         foreach ($characteristics as $characteristic) {
             $charName = $characteristic['name'] ?? null;
@@ -659,12 +693,83 @@ class VariantSyncService
                 ->first();
 
             if (!$charMapping) {
-                // Создать характеристику в дочернем (через метаданные)
-                $charMapping = $this->createCharacteristicInChild(
-                    $mainAccountId,
-                    $childAccountId,
-                    $characteristic
-                );
+                // Маппинг не найден - проактивная синхронизация не сработала или упала
+                Log::warning('Characteristic mapping not found after proactive sync, attempting fallback', [
+                    'characteristic_name' => $charName,
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId
+                ]);
+
+                try {
+                    // Fallback 1: Проверить существование характеристики в child (через GET)
+                    if ($existingCharacteristicsCache === null) {
+                        // Загрузить существующие характеристики из child (ОДИН раз для всех характеристик)
+                        $childAccount = Account::where('account_id', $childAccountId)->first();
+                        if ($childAccount) {
+                            $characteristicSyncService = app(\App\Services\CharacteristicSyncService::class);
+                            $existingCharacteristicsCache = $characteristicSyncService->fetchExistingCharacteristics(
+                                $childAccount,
+                                $childAccountId,
+                                $mainAccountId
+                            );
+
+                            Log::info('Loaded existing characteristics from child for fallback', [
+                                'child_account_id' => $childAccountId,
+                                'characteristics_count' => count($existingCharacteristicsCache)
+                            ]);
+                        } else {
+                            $existingCharacteristicsCache = []; // Child account не найден
+                        }
+                    }
+
+                    // Проверить, существует ли характеристика в child
+                    if (isset($existingCharacteristicsCache[$charName])) {
+                        // Характеристика существует - создать mapping (БЕЗ POST)
+                        $charMapping = CharacteristicMapping::create([
+                            'parent_account_id' => $mainAccountId,
+                            'child_account_id' => $childAccountId,
+                            'parent_characteristic_id' => $characteristic['id'],
+                            'child_characteristic_id' => $existingCharacteristicsCache[$charName],
+                            'characteristic_name' => $charName,
+                            'auto_created' => false // Не создавали, а нашли существующую
+                        ]);
+
+                        Log::info('Characteristic mapping created from existing in child (fallback)', [
+                            'characteristic_name' => $charName,
+                            'main_account_id' => $mainAccountId,
+                            'child_account_id' => $childAccountId,
+                            'child_characteristic_id' => $existingCharacteristicsCache[$charName]
+                        ]);
+                    } else {
+                        // Fallback 2: Характеристика НЕ существует - создать через POST
+                        Log::info('Characteristic not found in child, creating via POST (fallback)', [
+                            'characteristic_name' => $charName,
+                            'main_account_id' => $mainAccountId,
+                            'child_account_id' => $childAccountId
+                        ]);
+
+                        $charMapping = $this->createCharacteristicInChild(
+                            $mainAccountId,
+                            $childAccountId,
+                            $characteristic
+                        );
+
+                        // Обновить кеш после успешного создания
+                        if ($charMapping) {
+                            $existingCharacteristicsCache[$charName] = $charMapping->child_characteristic_id;
+                        }
+                    }
+
+                } catch (\Exception $e) {
+                    Log::error('Failed to sync characteristic via fallback', [
+                        'characteristic_name' => $charName,
+                        'main_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'error' => $e->getMessage()
+                    ]);
+                    // Продолжаем без этой характеристики
+                    $charMapping = null;
+                }
             }
 
             if ($charMapping) {
@@ -672,6 +777,13 @@ class VariantSyncService
                     'id' => $charMapping->child_characteristic_id,
                     'value' => $charValue
                 ];
+            } else {
+                // Характеристика не синхронизирована - логировать
+                Log::warning('Characteristic not synced, skipping', [
+                    'characteristic_name' => $charName,
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId
+                ]);
             }
         }
 

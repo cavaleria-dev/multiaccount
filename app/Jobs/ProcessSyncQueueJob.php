@@ -533,29 +533,65 @@ class ProcessSyncQueueJob implements ShouldQueue
 
             // Синхронизировать характеристики один раз для всех variants
             if (!empty($allCharacteristics)) {
-                try {
-                    $characteristicSyncService = app(\App\Services\CharacteristicSyncService::class);
-                    $charStats = $characteristicSyncService->syncCharacteristics(
-                        $mainAccountId,
-                        $childAccountId,
-                        $allCharacteristics
-                    );
+                $maxAttempts = 3;
+                $charSyncSuccess = false;
 
-                    Log::info('Characteristics pre-synced for variants', [
-                        'task_id' => $task->id,
-                        'product_id' => $productId,
-                        'characteristics_count' => count($allCharacteristics),
-                        'stats' => $charStats
-                    ]);
-                } catch (\Exception $e) {
-                    Log::error('Failed to pre-sync characteristics, will retry per variant', [
-                        'task_id' => $task->id,
-                        'product_id' => $productId,
-                        'error' => $e->getMessage()
-                    ]);
-                    // Не выбрасываем исключение - продолжаем синхронизацию variants
-                    // Характеристики будут созданы через fallback в createCharacteristicInChild()
+                for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+                    try {
+                        if ($attempt > 1) {
+                            // Задержка перед повторной попыткой: 1s, 2s
+                            $delay = $attempt - 1; // 1, 2
+                            sleep($delay);
+                            Log::info('Retrying characteristics pre-sync', [
+                                'task_id' => $task->id,
+                                'product_id' => $productId,
+                                'attempt' => $attempt,
+                                'delay_seconds' => $delay
+                            ]);
+                        }
+
+                        $characteristicSyncService = app(\App\Services\CharacteristicSyncService::class);
+                        $charStats = $characteristicSyncService->syncCharacteristics(
+                            $mainAccountId,
+                            $childAccountId,
+                            $allCharacteristics
+                        );
+
+                        Log::info('Characteristics pre-synced for variants', [
+                            'task_id' => $task->id,
+                            'product_id' => $productId,
+                            'characteristics_count' => count($allCharacteristics),
+                            'stats' => $charStats,
+                            'attempt' => $attempt
+                        ]);
+
+                        $charSyncSuccess = true;
+                        break; // Успех - выходим из цикла retry
+
+                    } catch (\Exception $e) {
+                        Log::error('Failed to pre-sync characteristics', [
+                            'task_id' => $task->id,
+                            'product_id' => $productId,
+                            'attempt' => $attempt,
+                            'max_attempts' => $maxAttempts,
+                            'error' => $e->getMessage(),
+                            'trace' => $e->getTraceAsString()
+                        ]);
+
+                        // Если это последняя попытка - логируем финальную ошибку
+                        if ($attempt === $maxAttempts) {
+                            Log::warning('Characteristics pre-sync failed after all retries, will use fallback per variant', [
+                                'task_id' => $task->id,
+                                'product_id' => $productId,
+                                'attempts' => $maxAttempts
+                            ]);
+                        }
+                        // Иначе продолжаем retry
+                    }
                 }
+
+                // Не выбрасываем исключение даже если все попытки упали
+                // Характеристики будут синхронизированы через fallback в VariantSyncService::syncCharacteristics()
             }
 
             $successCount = 0;
