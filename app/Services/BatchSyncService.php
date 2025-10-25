@@ -392,7 +392,7 @@ class BatchSyncService
     public function batchCheckWebhooks(?string $parentAccountId = null): int
     {
         try {
-            $query = DB::table('accounts');
+            $query = Account::query();
 
             if ($parentAccountId) {
                 $query->where('account_id', $parentAccountId)

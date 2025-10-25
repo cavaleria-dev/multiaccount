@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use App\Services\MoySkladService;
+use App\Models\Account;
 
 /**
  * Контроллер для работы с Vendor API МойСклад
@@ -100,7 +101,7 @@ class MoySkladController extends Controller
             }
 
             // Ищем существующий аккаунт
-            $account = DB::table('accounts')->where('account_id', $accountId)->first();
+            $account = Account::where('account_id', $accountId)->first();
 
             // Базовые данные для обновления
             $accountData = [
@@ -144,9 +145,17 @@ class MoySkladController extends Controller
                 if ($account) {
                     // Переустановка - обновляем существующую запись
                     $accountData['installed_at'] = $account->installed_at; // Сохраняем дату первой установки
-                    DB::table('accounts')
-                        ->where('account_id', $accountId)
-                        ->update($accountData);
+
+                    // Extract access_token for separate assignment (not mass assignable)
+                    $accessTokenToSet = $accountData['access_token'] ?? null;
+                    unset($accountData['access_token']);
+
+                    $account->update($accountData);
+
+                    if ($accessTokenToSet) {
+                        $account->access_token = $accessTokenToSet;
+                        $account->save();
+                    }
 
                     Log::info('МойСклад: Приложение переустановлено', [
                         'accountId' => $accountId,
@@ -156,8 +165,17 @@ class MoySkladController extends Controller
                     // Первая установка - создаем новую запись
                     $accountData['account_id'] = $accountId;
                     $accountData['installed_at'] = now();
-                    $accountData['created_at'] = now();
-                    DB::table('accounts')->insert($accountData);
+
+                    // Extract access_token for separate assignment (not mass assignable)
+                    $accessTokenToSet = $accountData['access_token'] ?? null;
+                    unset($accountData['access_token']);
+
+                    $account = Account::create($accountData);
+
+                    if ($accessTokenToSet) {
+                        $account->access_token = $accessTokenToSet;
+                        $account->save();
+                    }
 
                     Log::info('МойСклад: Новая установка приложения', [
                         'accountId' => $accountId
@@ -178,10 +196,8 @@ class MoySkladController extends Controller
                         'updated_at' => now()
                     ];
 
-                    // Добавляем access_token только если он есть
-                    if ($accessToken) {
-                        $updateData['access_token'] = $accessToken;
-                    }
+                    // Extract access_token for separate assignment (not mass assignable)
+                    $accessTokenToSet = $accessToken;
 
                     // Если был приостановлен или удален - активируем
                     if (in_array($account->status, ['suspended', 'uninstalled'])) {
@@ -196,9 +212,12 @@ class MoySkladController extends Controller
                         ]);
                     }
 
-                    DB::table('accounts')
-                        ->where('account_id', $accountId)
-                        ->update($updateData);
+                    $account->update($updateData);
+
+                    if ($accessTokenToSet) {
+                        $account->access_token = $accessTokenToSet;
+                        $account->save();
+                    }
                 } else {
                     Log::warning('МойСклад: Resume/StatusUpdate для несуществующего аккаунта', [
                         'accountId' => $accountId,
@@ -233,9 +252,7 @@ class MoySkladController extends Controller
                         }
                     }
 
-                    DB::table('accounts')
-                        ->where('account_id', $accountId)
-                        ->update($tariffData);
+                    $account->update($tariffData);
 
                     Log::info('МойСклад: Тариф изменен', [
                         'accountId' => $accountId,
@@ -251,9 +268,16 @@ class MoySkladController extends Controller
 
             // Неизвестный cause - просто обновляем данные
             if ($account) {
-                DB::table('accounts')
-                    ->where('account_id', $accountId)
-                    ->update($accountData);
+                // Extract access_token for separate assignment (not mass assignable)
+                $accessTokenToSet = $accountData['access_token'] ?? null;
+                unset($accountData['access_token']);
+
+                $account->update($accountData);
+
+                if ($accessTokenToSet) {
+                    $account->access_token = $accessTokenToSet;
+                    $account->save();
+                }
             }
 
             return response()->json([
@@ -303,9 +327,7 @@ class MoySkladController extends Controller
             Log::info('МойСклад: Причина удаления', ['cause' => $cause]);
 
             // Находим аккаунт
-            $account = DB::table('accounts')
-                ->where('account_id', $accountId)
-                ->first();
+            $account = Account::where('account_id', $accountId)->first();
 
             if (!$account) {
                 Log::warning('МойСклад: Аккаунт не найден при удалении', [
@@ -322,32 +344,26 @@ class MoySkladController extends Controller
             if ($cause === 'Suspend') {
                 // Приостановка (не оплачена подписка)
                 // Данные остаются в БД, только меняется статус
-                $updated = DB::table('accounts')
-                    ->where('account_id', $accountId)
-                    ->update([
-                        'status' => 'suspended',
-                        'suspended_at' => now(),
-                        'updated_at' => now()
-                    ]);
+                $account->update([
+                    'status' => 'suspended',
+                    'suspended_at' => now(),
+                    'updated_at' => now()
+                ]);
 
                 Log::info('МойСклад: Приложение приостановлено', [
-                    'accountId' => $accountId,
-                    'rows_affected' => $updated
+                    'accountId' => $accountId
                 ]);
             } else {
                 // Деактивация (пользователь удалил приложение)
                 // Данные остаются в БД, только меняется статус
-                $updated = DB::table('accounts')
-                    ->where('account_id', $accountId)
-                    ->update([
-                        'status' => 'uninstalled',
-                        'uninstalled_at' => now(),
-                        'updated_at' => now()
-                    ]);
+                $account->update([
+                    'status' => 'uninstalled',
+                    'uninstalled_at' => now(),
+                    'updated_at' => now()
+                ]);
 
                 Log::info('МойСклад: Приложение деактивировано', [
                     'accountId' => $accountId,
-                    'rows_affected' => $updated,
                     'cause' => $cause
                 ]);
             }
@@ -380,9 +396,7 @@ class MoySkladController extends Controller
                 return response()->json(['error' => 'Invalid appId'], 400);
             }
 
-            $account = DB::table('accounts')
-                ->where('account_id', $accountId)
-                ->first();
+            $account = Account::where('account_id', $accountId)->first();
 
             if (!$account) {
                 return response()->json(['status' => 'NotFound'], 200);
@@ -425,17 +439,24 @@ class MoySkladController extends Controller
         $accountId = $request->input('account_id');
         $status = $request->input('status');
 
-        DB::table('accounts')
-            ->where('account_id', $accountId)
-            ->update([
+        $account = Account::where('account_id', $accountId)->first();
+
+        if ($account) {
+            $account->update([
                 'status' => $status,
                 'updated_at' => now()
             ]);
 
-        Log::info('МойСклад: Статус обновлен из iframe', [
-            'accountId' => $accountId,
-            'status' => $status
-        ]);
+            Log::info('МойСклад: Статус обновлен из iframe', [
+                'accountId' => $accountId,
+                'status' => $status
+            ]);
+        } else {
+            Log::warning('МойСклад: Попытка обновить статус несуществующего аккаунта', [
+                'accountId' => $accountId,
+                'status' => $status
+            ]);
+        }
 
         return response()->json(['success' => true]);
     }

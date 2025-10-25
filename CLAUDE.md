@@ -55,7 +55,7 @@ php artisan migrate           # Run migrations
 - **Modular handlers** - 13 sync task handlers (76% code reduction) ([details](docs/16-sync-handlers.md))
 - **Context caching** - 30min cache for МойСклад authentication context
 
-### Top 10 Critical Gotchas
+### Top Critical Gotchas
 
 Full list: [Common Patterns & Gotchas](docs/10-common-patterns.md)
 
@@ -69,6 +69,7 @@ Full list: [Common Patterns & Gotchas](docs/10-common-patterns.md)
 8. ⚠️ **Scheduler + Queue are separate** - Cron dispatches jobs, Supervisor processes them
 9. ⚠️ **Worker holds DB connection** - Manual sync_queue updates may not be seen immediately
 10. ⚠️ **Failed tasks (3 attempts) stop retrying** - Must manually requeue or fix and requeue
+11. ⚠️ **NEVER use `DB::table('accounts')`** - Use `Account` model for encrypted access_token cast
 
 ### Synchronization Flow
 
@@ -120,6 +121,10 @@ tail -f storage/logs/sync.log
 # Cleanup stale characteristic mappings (fixes error 10001)
 php artisan sync:cleanup-stale-characteristic-mappings --dry-run
 php artisan sync:cleanup-stale-characteristic-mappings
+
+# Encrypt plaintext access_tokens (fixes "The payload is invalid" error)
+php artisan accounts:encrypt-tokens --dry-run
+php artisan accounts:encrypt-tokens
 
 # Admin panel
 open https://app.cavaleria.ru/admin/logs
