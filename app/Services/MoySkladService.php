@@ -16,6 +16,7 @@ class MoySkladService
     protected string $accessToken;
     protected int $timeout;
     protected RateLimitHandler $rateLimitHandler;
+    protected RateLimitTracker $rateLimitTracker;
     protected ?ApiLogService $apiLogService = null;
 
     // Контекст для логирования
@@ -27,11 +28,18 @@ class MoySkladService
     protected ?string $operationType = null;
     protected ?string $operationResult = null;
 
-    public function __construct(RateLimitHandler $rateLimitHandler, ?ApiLogService $apiLogService = null)
-    {
+    // Account ID для отслеживания rate limits
+    protected ?string $currentAccountId = null;
+
+    public function __construct(
+        RateLimitHandler $rateLimitHandler,
+        RateLimitTracker $rateLimitTracker,
+        ?ApiLogService $apiLogService = null
+    ) {
         $this->apiUrl = config('moysklad.api_url');
         $this->timeout = config('moysklad.timeout', 30);
         $this->rateLimitHandler = $rateLimitHandler;
+        $this->rateLimitTracker = $rateLimitTracker;
         $this->apiLogService = $apiLogService;
     }
 
@@ -41,6 +49,15 @@ class MoySkladService
     public function setAccessToken(string $token): self
     {
         $this->accessToken = $token;
+        return $this;
+    }
+
+    /**
+     * Установить account ID для отслеживания rate limits
+     */
+    public function setAccountId(string $accountId): self
+    {
+        $this->currentAccountId = $accountId;
         return $this;
     }
 
@@ -162,6 +179,35 @@ class MoySkladService
         $rateLimitInfo = [];
         $logged = false; // Флаг для предотвращения двойного логирования
 
+        // Проверить rate limit ПЕРЕД отправкой запроса
+        if ($this->currentAccountId) {
+            $check = $this->rateLimitTracker->checkAvailability($this->currentAccountId, 1);
+
+            if (!$check['available']) {
+                $errorMessage = sprintf(
+                    'Rate limit exhausted for account %s (remaining: %d, retry after: %ds)',
+                    substr($this->currentAccountId, 0, 8) . '...',
+                    $check['remaining'] ?? 0,
+                    $check['retry_after']
+                );
+
+                Log::warning($errorMessage, [
+                    'account_id' => $this->currentAccountId,
+                    'endpoint' => $endpoint,
+                    'method' => $method
+                ]);
+
+                throw new \App\Exceptions\RateLimitException(
+                    $errorMessage,
+                    $check['retry_after'] * 1000, // секунды → миллисекунды
+                    [
+                        'remaining' => $check['remaining'],
+                        'retry_after' => $check['retry_after'] * 1000
+                    ]
+                );
+            }
+        }
+
         try {
             // Увеличиваем максимальный размер ответа до 10MB (по умолчанию 2MB в Guzzle)
             $response = Http::withHeaders($headers)
@@ -196,6 +242,11 @@ class MoySkladService
             // Добавить метаинформацию о размере ответа
             $rateLimitInfo['response_size'] = $bodySize;
             $rateLimitInfo['response_truncated'] = isset($responseBody['_truncated']) ? true : false;
+
+            // Обновить tracker ПОСЛЕ каждого запроса
+            if ($this->currentAccountId) {
+                $this->rateLimitTracker->updateFromResponse($this->currentAccountId, $rateLimitInfo);
+            }
 
             // Проверить специальные HTTP статусы МойСклад
             $statusHandling = $this->handleSpecialHttpStatus($responseStatus, $rateLimitInfo);

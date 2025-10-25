@@ -54,15 +54,30 @@ class ProcessSyncQueueJob implements ShouldQueue
         ]);
 
         // Обработать задачи из очереди (порциями по 50)
-        $tasks = SyncQueue::where('status', 'pending')
-            ->where(function($query) {
-                $query->whereNull('scheduled_at')
-                      ->orWhere('scheduled_at', '<=', now());
-            })
-            ->orderBy('priority', 'desc')
-            ->orderBy('scheduled_at', 'asc')
-            ->limit(50)
-            ->get();
+        // Используем короткую транзакцию с lockForUpdate для защиты от race conditions
+        $tasks = \DB::transaction(function() {
+            $selectedTasks = SyncQueue::where('status', 'pending')
+                ->where(function($query) {
+                    $query->whereNull('scheduled_at')
+                          ->orWhere('scheduled_at', '<=', now());
+                })
+                ->orderBy('priority', 'desc')
+                ->orderByRaw("payload->>'main_account_id'")  // Группировать по main account для балансировки
+                ->orderBy('scheduled_at', 'asc')
+                ->limit(50)
+                ->lockForUpdate()  // Блокировка для предотвращения дублирования
+                ->get();
+
+            // Обновить статус ВНУТРИ транзакции (пока держим блокировку)
+            foreach ($selectedTasks as $task) {
+                $task->update([
+                    'status' => 'processing',
+                    'started_at' => now(),
+                ]);
+            }
+
+            return $selectedTasks;
+        }); // Транзакция завершается, блокировка снимается (~100ms)
 
         if ($tasks->isEmpty()) {
             Log::warning('ProcessSyncQueueJob: No tasks ready to process', [
@@ -77,16 +92,61 @@ class ProcessSyncQueueJob implements ShouldQueue
             'tasks_count' => $tasks->count()
         ]);
 
-        foreach ($tasks as $task) {
+        // Балансировка задач по main accounts для равномерного использования rate limits
+        $balancedTasks = $this->balanceTasksByMainAccount($tasks, 50);
+
+        // Предзагрузка accounts и settings для оптимизации (N+1 fix)
+        $accountIds = $balancedTasks->pluck('account_id')->unique();
+        $mainAccountIds = $balancedTasks->map(function($task) {
+            return $task->payload['main_account_id'] ?? null;
+        })->filter()->unique();
+
+        $allAccountIds = $accountIds->merge($mainAccountIds)->unique();
+
+        $accountsCache = \App\Models\Account::whereIn('account_id', $allAccountIds)
+            ->get()
+            ->keyBy('account_id');
+
+        $settingsCache = \App\Models\SyncSetting::whereIn('account_id', $accountIds)
+            ->get()
+            ->keyBy('account_id');
+
+        Log::info('Pre-loaded accounts and settings', [
+            'accounts_count' => $accountsCache->count(),
+            'settings_count' => $settingsCache->count(),
+            'tasks_count' => $balancedTasks->count()
+        ]);
+
+        // Кеш исчерпанных main accounts в пределах текущего batch
+        $exhaustedMainAccounts = [];
+
+        foreach ($balancedTasks as $task) {
             try {
-                $task->update([
-                    'status' => 'processing',
-                    'started_at' => now(),
-                ]);
+                // Проверить: не исчерпан ли main account для этой задачи?
+                $payload = $task->payload;
+                $mainAccountId = $payload['main_account_id'] ?? null;
+
+                if ($mainAccountId && isset($exhaustedMainAccounts[$mainAccountId])) {
+                    $retryAfter = $exhaustedMainAccounts[$mainAccountId];
+
+                    Log::debug('Skipping task for exhausted main account', [
+                        'task_id' => $task->id,
+                        'main_account_id' => substr($mainAccountId, 0, 8) . '...',
+                        'retry_after' => $retryAfter
+                    ]);
+
+                    $task->update([
+                        'status' => 'pending',
+                        'scheduled_at' => now()->addSeconds($retryAfter),
+                        'error' => 'Main account rate limit exhausted (batch skipped)'
+                    ]);
+
+                    continue;
+                }
 
                 $startTime = microtime(true);
 
-                // Обработать задачу
+                // Обработать задачу (передаём cache для оптимизации)
                 $this->processTask(
                     $task,
                     $productSyncService,
@@ -96,7 +156,9 @@ class ProcessSyncQueueJob implements ShouldQueue
                     $retailDemandSyncService,
                     $purchaseOrderSyncService,
                     $webhookService,
-                    $imageSyncService
+                    $imageSyncService,
+                    $accountsCache,
+                    $settingsCache
                 );
 
                 $duration = (int)((microtime(true) - $startTime) * 1000); // ms
@@ -136,21 +198,50 @@ class ProcessSyncQueueJob implements ShouldQueue
             } catch (RateLimitException $e) {
                 // Rate limit превышен - отложить задачу
                 $retryAfterSeconds = $e->getRetryAfterSeconds();
+                $rateLimitInfo = $e->getRateLimitInfo();
 
                 $task->update([
                     'status' => 'pending',
                     'error' => 'Rate limit exceeded',
-                    'rate_limit_info' => $e->getRateLimitInfo(),
+                    'rate_limit_info' => $rateLimitInfo,
                     'scheduled_at' => now()->addSeconds($retryAfterSeconds),
                 ]);
 
                 Log::warning('Task postponed due to rate limit', [
                     'task_id' => $task->id,
-                    'retry_after_seconds' => $retryAfterSeconds
+                    'retry_after_seconds' => $retryAfterSeconds,
+                    'rate_limit_info' => $rateLimitInfo
                 ]);
 
-                // Прервать обработку текущей порции
-                break;
+                // Определить scope rate limit и добавить в кеш если это main account
+                $payload = $task->payload;
+                $mainAccountId = $payload['main_account_id'] ?? null;
+                $isGlobalRateLimit = ($rateLimitInfo['remaining'] ?? 0) <= 1;
+
+                if ($isGlobalRateLimit && $mainAccountId) {
+                    // Глобальный rate limit на main account
+                    // Добавить в кеш исчерпанных accounts
+                    $exhaustedMainAccounts[$mainAccountId] = $retryAfterSeconds;
+
+                    Log::warning('Global rate limit detected on main account', [
+                        'main_account_id' => substr($mainAccountId, 0, 8) . '...',
+                        'retry_after' => $retryAfterSeconds
+                    ]);
+
+                    // Отложить ВСЕ задачи для этого main account
+                    $this->postponeAllMainAccountTasks($mainAccountId, $retryAfterSeconds, $task->id);
+
+                    // Прервать обработку текущего batch (все задачи для main account отложены)
+                    break;
+                } else {
+                    // Endpoint-specific rate limit или child account rate limit
+                    // Продолжить обработку других задач
+                    Log::info('Endpoint-specific rate limit, continuing with other tasks', [
+                        'task_id' => $task->id
+                    ]);
+
+                    continue;
+                }
 
             } catch (\Throwable $e) {
                 // Ловим и Exception, и Error (включая TypeError)
@@ -228,25 +319,27 @@ class ProcessSyncQueueJob implements ShouldQueue
         RetailDemandSyncService $retailDemandSyncService,
         PurchaseOrderSyncService $purchaseOrderSyncService,
         WebhookService $webhookService,
-        ImageSyncService $imageSyncService
+        ImageSyncService $imageSyncService,
+        \Illuminate\Support\Collection $accountsCache,
+        \Illuminate\Support\Collection $settingsCache
     ): void {
         // Гарантировать что payload это массив, а не null
         $payload = $task->payload ?? [];
 
         match($task->entity_type) {
-            'product' => $this->processProductSync($task, $payload, $productSyncService),
-            'variant' => $this->processVariantSync($task, $payload, $productSyncService),
-            'product_variants' => $this->processBatchVariantSync($task, $payload, $productSyncService),
-            'batch_products' => $this->processBatchProductSync($task, $payload, $productSyncService),
-            'bundle' => $this->processBundleSync($task, $payload, $bundleSyncService),
-            'batch_bundles' => $this->processBatchBundleSync($task, $payload, $bundleSyncService),
-            'service' => $this->processServiceSync($task, $payload, $serviceSyncService),
-            'batch_services' => $this->processBatchServiceSync($task, $payload, $serviceSyncService),
-            'customerorder' => $this->processCustomerOrderSync($task, $payload, $customerOrderSyncService),
-            'retaildemand' => $this->processRetailDemandSync($task, $payload, $retailDemandSyncService),
-            'purchaseorder' => $this->processPurchaseOrderSync($task, $payload, $purchaseOrderSyncService),
+            'product' => $this->processProductSync($task, $payload, $productSyncService, $accountsCache, $settingsCache),
+            'variant' => $this->processVariantSync($task, $payload, $productSyncService, $accountsCache, $settingsCache),
+            'product_variants' => $this->processBatchVariantSync($task, $payload, $productSyncService, $accountsCache, $settingsCache),
+            'batch_products' => $this->processBatchProductSync($task, $payload, $productSyncService, $accountsCache, $settingsCache),
+            'bundle' => $this->processBundleSync($task, $payload, $bundleSyncService, $accountsCache, $settingsCache),
+            'batch_bundles' => $this->processBatchBundleSync($task, $payload, $bundleSyncService, $accountsCache, $settingsCache),
+            'service' => $this->processServiceSync($task, $payload, $serviceSyncService, $accountsCache, $settingsCache),
+            'batch_services' => $this->processBatchServiceSync($task, $payload, $serviceSyncService, $accountsCache, $settingsCache),
+            'customerorder' => $this->processCustomerOrderSync($task, $payload, $customerOrderSyncService, $accountsCache, $settingsCache),
+            'retaildemand' => $this->processRetailDemandSync($task, $payload, $retailDemandSyncService, $accountsCache, $settingsCache),
+            'purchaseorder' => $this->processPurchaseOrderSync($task, $payload, $purchaseOrderSyncService, $accountsCache, $settingsCache),
             'webhook' => $this->processWebhookCheck($task, $webhookService),
-            'image_sync' => $this->processImageSync($task, $payload, $imageSyncService),
+            'image_sync' => $this->processImageSync($task, $payload, $imageSyncService, $accountsCache),
             default => Log::warning("Unknown entity type in queue: {$task->entity_type}")
         };
     }
@@ -499,7 +592,13 @@ class ProcessSyncQueueJob implements ShouldQueue
      * Получает готовые товары из payload, подготавливает их (используя только кеш),
      * отправляет batch POST в МойСклад и создает mappings.
      */
-    protected function processBatchProductSync(SyncQueue $task, array $payload, ProductSyncService $productSyncService): void
+    protected function processBatchProductSync(
+        SyncQueue $task,
+        array $payload,
+        ProductSyncService $productSyncService,
+        \Illuminate\Support\Collection $accountsCache,
+        \Illuminate\Support\Collection $settingsCache
+    ): void
     {
         // Проверить что payload содержит необходимые данные
         if (empty($payload) || !isset($payload['main_account_id'])) {
@@ -525,18 +624,55 @@ class ProcessSyncQueueJob implements ShouldQueue
         $products = $payload['products'];
 
         try {
-            // Получить настройки синхронизации
-            $syncSettings = \App\Models\SyncSetting::where('account_id', $childAccountId)->first();
+            // Получить accounts и settings из cache (N+1 optimization)
+            $mainAccount = $accountsCache[$mainAccountId] ?? null;
+            $childAccount = $accountsCache[$childAccountId] ?? null;
+            $syncSettings = $settingsCache[$childAccountId] ?? null;
+
+            if (!$mainAccount || !$childAccount) {
+                throw new \Exception("Account not found in cache: main={$mainAccountId}, child={$childAccountId}");
+            }
 
             if (!$syncSettings) {
                 throw new \Exception("Sync settings not found for child account {$childAccountId}");
+            }
+
+            // Проверить rate limit ПЕРЕД началом batch операции
+            $rateLimitTracker = app(\App\Services\RateLimitTracker::class);
+            $estimatedCost = $rateLimitTracker->estimateBatchCost('product', count($products), true);
+
+            $check = $rateLimitTracker->checkAvailability($mainAccountId, $estimatedCost);
+
+            if (!$check['available']) {
+                Log::warning('Batch product sync postponed: rate limit exhausted', [
+                    'task_id' => $task->id,
+                    'main_account_id' => substr($mainAccountId, 0, 8) . '...',
+                    'estimated_cost' => $estimatedCost,
+                    'remaining' => $check['remaining'],
+                    'retry_after' => $check['retry_after']
+                ]);
+
+                // Отложить задачу и все задачи для этого main account
+                $this->postponeAllMainAccountTasks($mainAccountId, $check['retry_after'], $task->id);
+
+                // Throw RateLimitException чтобы handle() мог обработать
+                throw new \App\Exceptions\RateLimitException(
+                    "Rate limit exhausted for main account",
+                    $check['retry_after'] * 1000,
+                    [
+                        'remaining' => $check['remaining'],
+                        'retry_after' => $check['retry_after'] * 1000
+                    ]
+                );
             }
 
             Log::info('Batch product sync started', [
                 'task_id' => $task->id,
                 'products_count' => count($products),
                 'main_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId
+                'child_account_id' => $childAccountId,
+                'estimated_cost' => $estimatedCost,
+                'rate_limit_remaining' => $check['remaining']
             ]);
 
             // Фильтровать товары ПЕРЕД синхронизацией групп
@@ -774,40 +910,52 @@ class ProcessSyncQueueJob implements ShouldQueue
                         continue;
                     }
 
-                    // Создать или обновить mapping
-                    \App\Models\EntityMapping::updateOrCreate(
-                        [
-                            'parent_account_id' => $mainAccountId,
-                            'child_account_id' => $childAccountId,
-                            'entity_type' => 'product',
-                            'parent_entity_id' => $originalId
-                        ],
-                        [
-                            'child_entity_id' => $createdProduct['id'],
-                            'sync_direction' => 'main_to_child',
-                            'match_field' => $syncSettings->product_match_field ?? 'code',
-                            'match_value' => $createdProduct['code'] ?? $createdProduct['name']
-                        ]
-                    );
+                    // Обернуть создание mapping и image sync задачи в транзакцию
+                    // для обеспечения атомарности (либо всё, либо ничего)
+                    \DB::transaction(function() use (
+                        $mainAccountId,
+                        $childAccountId,
+                        $originalId,
+                        $createdProduct,
+                        $syncSettings,
+                        $preparedProducts,
+                        $index
+                    ) {
+                        // Создать или обновить mapping
+                        \App\Models\EntityMapping::updateOrCreate(
+                            [
+                                'parent_account_id' => $mainAccountId,
+                                'child_account_id' => $childAccountId,
+                                'entity_type' => 'product',
+                                'parent_entity_id' => $originalId
+                            ],
+                            [
+                                'child_entity_id' => $createdProduct['id'],
+                                'sync_direction' => 'main_to_child',
+                                'match_field' => $syncSettings->product_match_field ?? 'code',
+                                'match_value' => $createdProduct['code'] ?? $createdProduct['name']
+                            ]
+                        );
+
+                        // Синхронизировать изображения (если включено)
+                        if ($syncSettings->sync_images || $syncSettings->sync_images_all) {
+                            $originalImages = $preparedProducts[$index]['_original_images'] ?? [];
+
+                            if (!empty($originalImages)) {
+                                $this->queueImageSyncForEntity(
+                                    $mainAccountId,
+                                    $childAccountId,
+                                    'product',
+                                    $originalId,
+                                    $createdProduct['id'],
+                                    $originalImages,
+                                    $syncSettings
+                                );
+                            }
+                        }
+                    }); // Транзакция завершается - либо всё создано, либо всё откачено
 
                     $mappingCount++;
-
-                    // Синхронизировать изображения (если включено)
-                    if ($syncSettings->sync_images || $syncSettings->sync_images_all) {
-                        $originalImages = $preparedProducts[$index]['_original_images'] ?? [];
-
-                        if (!empty($originalImages)) {
-                            $this->queueImageSyncForEntity(
-                                $mainAccountId,
-                                $childAccountId,
-                                'product',
-                                $originalId,
-                                $createdProduct['id'],
-                                $originalImages,
-                                $syncSettings
-                            );
-                        }
-                    }
 
                 } catch (\Exception $e) {
                     $failedCount++;
@@ -882,7 +1030,13 @@ class ProcessSyncQueueJob implements ShouldQueue
      * Получает готовые услуги из payload, подготавливает их (используя только кеш),
      * отправляет batch POST в МойСклад и создает mappings.
      */
-    protected function processBatchServiceSync(SyncQueue $task, array $payload, ServiceSyncService $serviceSyncService): void
+    protected function processBatchServiceSync(
+        SyncQueue $task,
+        array $payload,
+        ServiceSyncService $serviceSyncService,
+        \Illuminate\Support\Collection $accountsCache,
+        \Illuminate\Support\Collection $settingsCache
+    ): void
     {
         // Проверить что payload содержит необходимые данные
         if (empty($payload) || !isset($payload['main_account_id'])) {
@@ -908,18 +1062,55 @@ class ProcessSyncQueueJob implements ShouldQueue
         $services = $payload['services'];
 
         try {
-            // Получить настройки синхронизации
-            $syncSettings = \App\Models\SyncSetting::where('account_id', $childAccountId)->first();
+            // Получить accounts и settings из cache (N+1 optimization)
+            $mainAccount = $accountsCache[$mainAccountId] ?? null;
+            $childAccount = $accountsCache[$childAccountId] ?? null;
+            $syncSettings = $settingsCache[$childAccountId] ?? null;
+
+            if (!$mainAccount || !$childAccount) {
+                throw new \Exception("Account not found in cache: main={$mainAccountId}, child={$childAccountId}");
+            }
 
             if (!$syncSettings) {
                 throw new \Exception("Sync settings not found for child account {$childAccountId}");
+            }
+
+            // Проверить rate limit ПЕРЕД началом batch операции
+            $rateLimitTracker = app(\App\Services\RateLimitTracker::class);
+            $estimatedCost = $rateLimitTracker->estimateBatchCost('service', count($services), false);
+
+            $check = $rateLimitTracker->checkAvailability($mainAccountId, $estimatedCost);
+
+            if (!$check['available']) {
+                Log::warning('Batch service sync postponed: rate limit exhausted', [
+                    'task_id' => $task->id,
+                    'main_account_id' => substr($mainAccountId, 0, 8) . '...',
+                    'estimated_cost' => $estimatedCost,
+                    'remaining' => $check['remaining'],
+                    'retry_after' => $check['retry_after']
+                ]);
+
+                // Отложить задачу и все задачи для этого main account
+                $this->postponeAllMainAccountTasks($mainAccountId, $check['retry_after'], $task->id);
+
+                // Throw RateLimitException чтобы handle() мог обработать
+                throw new \App\Exceptions\RateLimitException(
+                    "Rate limit exhausted for main account",
+                    $check['retry_after'] * 1000,
+                    [
+                        'remaining' => $check['remaining'],
+                        'retry_after' => $check['retry_after'] * 1000
+                    ]
+                );
             }
 
             Log::info('Batch service sync started', [
                 'task_id' => $task->id,
                 'services_count' => count($services),
                 'main_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId
+                'child_account_id' => $childAccountId,
+                'estimated_cost' => $estimatedCost,
+                'rate_limit_remaining' => $check['remaining']
             ]);
 
             // Фильтровать услуги ПЕРЕД синхронизацией групп
@@ -1260,7 +1451,13 @@ class ProcessSyncQueueJob implements ShouldQueue
      * Получает готовые комплекты из payload, подготавливает их (используя только кеш),
      * отправляет batch POST в МойСклад и создает mappings.
      */
-    protected function processBatchBundleSync(SyncQueue $task, array $payload, BundleSyncService $bundleSyncService): void
+    protected function processBatchBundleSync(
+        SyncQueue $task,
+        array $payload,
+        BundleSyncService $bundleSyncService,
+        \Illuminate\Support\Collection $accountsCache,
+        \Illuminate\Support\Collection $settingsCache
+    ): void
     {
         // Проверить что payload содержит необходимые данные
         if (empty($payload) || !isset($payload['main_account_id'])) {
@@ -1286,18 +1483,55 @@ class ProcessSyncQueueJob implements ShouldQueue
         $bundles = $payload['bundles'];
 
         try {
-            // Получить настройки синхронизации
-            $syncSettings = \App\Models\SyncSetting::where('account_id', $childAccountId)->first();
+            // Получить accounts и settings из cache (N+1 optimization)
+            $mainAccount = $accountsCache[$mainAccountId] ?? null;
+            $childAccount = $accountsCache[$childAccountId] ?? null;
+            $syncSettings = $settingsCache[$childAccountId] ?? null;
+
+            if (!$mainAccount || !$childAccount) {
+                throw new \Exception("Account not found in cache: main={$mainAccountId}, child={$childAccountId}");
+            }
 
             if (!$syncSettings) {
                 throw new \Exception("Sync settings not found for child account {$childAccountId}");
+            }
+
+            // Проверить rate limit ПЕРЕД началом batch операции
+            $rateLimitTracker = app(\App\Services\RateLimitTracker::class);
+            $estimatedCost = $rateLimitTracker->estimateBatchCost('bundle', count($bundles), false);
+
+            $check = $rateLimitTracker->checkAvailability($mainAccountId, $estimatedCost);
+
+            if (!$check['available']) {
+                Log::warning('Batch bundle sync postponed: rate limit exhausted', [
+                    'task_id' => $task->id,
+                    'main_account_id' => substr($mainAccountId, 0, 8) . '...',
+                    'estimated_cost' => $estimatedCost,
+                    'remaining' => $check['remaining'],
+                    'retry_after' => $check['retry_after']
+                ]);
+
+                // Отложить задачу и все задачи для этого main account
+                $this->postponeAllMainAccountTasks($mainAccountId, $check['retry_after'], $task->id);
+
+                // Throw RateLimitException чтобы handle() мог обработать
+                throw new \App\Exceptions\RateLimitException(
+                    "Rate limit exhausted for main account",
+                    $check['retry_after'] * 1000,
+                    [
+                        'remaining' => $check['remaining'],
+                        'retry_after' => $check['retry_after'] * 1000
+                    ]
+                );
             }
 
             Log::info('Batch bundle sync started', [
                 'task_id' => $task->id,
                 'bundles_count' => count($bundles),
                 'main_account_id' => $mainAccountId,
-                'child_account_id' => $childAccountId
+                'child_account_id' => $childAccountId,
+                'estimated_cost' => $estimatedCost,
+                'rate_limit_remaining' => $check['remaining']
             ]);
 
             // Фильтровать комплекты ПЕРЕД синхронизацией групп
@@ -2178,5 +2412,95 @@ class ProcessSyncQueueJob implements ShouldQueue
 
         // По умолчанию - не retry (безопаснее)
         return false;
+    }
+
+    /**
+     * Сбалансировать задачи по main accounts для равномерного использования rate limits
+     *
+     * Вместо обработки 50 задач подряд для Main A,
+     * чередуем задачи разных main accounts: Main A → Main B → Main C → Main A → ...
+     *
+     * Результат: все main accounts обрабатываются параллельно в одном цикле
+     *
+     * @param Collection $tasks Исходные задачи
+     * @param int $limit Максимальное количество задач
+     * @return Collection Сбалансированные задачи
+     */
+    protected function balanceTasksByMainAccount(\Illuminate\Support\Collection $tasks, int $limit): \Illuminate\Support\Collection
+    {
+        // Группировать задачи по main_account_id
+        $grouped = $tasks->groupBy(function($task) {
+            return $task->payload['main_account_id'] ?? 'unknown';
+        });
+
+        $totalMainAccounts = $grouped->count();
+
+        Log::info('Balancing tasks across main accounts', [
+            'total_tasks' => $tasks->count(),
+            'main_accounts_count' => $totalMainAccounts,
+            'tasks_per_account' => $grouped->map->count()->toArray()
+        ]);
+
+        // Если только один main account → балансировка не нужна
+        if ($totalMainAccounts <= 1) {
+            return $tasks->take($limit);
+        }
+
+        // Интерливинг: брать по одной задаче из каждой группы циклически
+        $balanced = collect();
+        $maxIterations = (int)ceil($limit / $totalMainAccounts) + 1;
+
+        for ($i = 0; $i < $maxIterations && $balanced->count() < $limit; $i++) {
+            foreach ($grouped as $mainAccountId => $accountTasks) {
+                // Взять i-ю задачу из этой группы (если есть)
+                if (isset($accountTasks[$i])) {
+                    $balanced->push($accountTasks[$i]);
+
+                    if ($balanced->count() >= $limit) {
+                        break 2; // Достигли лимита
+                    }
+                }
+            }
+        }
+
+        Log::debug('Tasks balanced', [
+            'balanced_count' => $balanced->count(),
+            'distribution' => $balanced->groupBy(function($task) {
+                return $task->payload['main_account_id'] ?? 'unknown';
+            })->map->count()->toArray()
+        ]);
+
+        return $balanced;
+    }
+
+    /**
+     * Отложить ВСЕ pending задачи для main account из-за rate limit exhaustion
+     *
+     * Используется когда main account исчерпал свой rate limit,
+     * чтобы избежать бесполезных попыток обработки других задач для этого account.
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param int $retryAfter Время задержки в секундах
+     * @param int|null $excludeTaskId ID задачи которую НЕ нужно откладывать (уже обработана)
+     */
+    protected function postponeAllMainAccountTasks(string $mainAccountId, int $retryAfter, ?int $excludeTaskId = null): void
+    {
+        $query = SyncQueue::where('status', 'pending')
+            ->whereRaw("payload->>'main_account_id' = ?", [$mainAccountId]);
+
+        if ($excludeTaskId) {
+            $query->where('id', '!=', $excludeTaskId);
+        }
+
+        $postponed = $query->update([
+            'scheduled_at' => now()->addSeconds($retryAfter),
+            'error' => 'Main account rate limit - batch postponed'
+        ]);
+
+        Log::warning('Postponed all tasks for main account due to rate limit', [
+            'main_account_id' => substr($mainAccountId, 0, 8) . '...',
+            'postponed_count' => $postponed,
+            'retry_after_seconds' => $retryAfter
+        ]);
     }
 }
