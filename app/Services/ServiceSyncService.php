@@ -319,17 +319,17 @@ class ServiceSyncService
 
             $newService = $newServiceResult['data'];
 
-            // Сохранить маппинг (atomic operation to prevent race conditions)
-            EntityMapping::firstOrCreate(
+            // Сохранить маппинг (use updateOrCreate for consistency)
+            EntityMapping::updateOrCreate(
                 [
                     'parent_account_id' => $mainAccountId,
                     'child_account_id' => $childAccountId,
                     'entity_type' => 'service',
                     'parent_entity_id' => $service['id'],
-                    'sync_direction' => 'main_to_child',
                 ],
                 [
                     'child_entity_id' => $newService['id'],
+                    'sync_direction' => 'main_to_child',
                     'match_field' => $matchField,
                     'match_value' => $matchValue,
                 ]
@@ -529,13 +529,18 @@ class ServiceSyncService
             }
         }
 
-        // 3. Проверить mapping (create or update?)
-        $mapping = EntityMapping::where([
-            'parent_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'entity_type' => 'service',
-            'parent_entity_id' => $service['id']
-        ])->first();
+        // 3. Проверить mapping или найти существующую услугу в child (create or update?)
+        $matchValue = ($matchField === 'name')
+            ? ($service['name'] ?? null)
+            : ($service[$matchField] ?? null);
+
+        $mapping = $this->entityMappingService->findOrCreateServiceMapping(
+            $mainAccountId,
+            $childAccountId,
+            $service['id'],
+            $matchField,
+            $matchValue
+        );
 
         // 4. Build base service data
         $serviceData = [

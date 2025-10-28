@@ -239,13 +239,18 @@ class ProductSyncService
             }
         }
 
-        // 2. Проверить mapping (create or update?)
-        $mapping = EntityMapping::where([
-            'parent_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'entity_type' => 'product',
-            'parent_entity_id' => $product['id']
-        ])->first();
+        // 2. Проверить mapping или найти существующий товар в child (create or update?)
+        $matchValue = ($matchField === 'name')
+            ? ($product['name'] ?? null)
+            : ($product[$matchField] ?? null);
+
+        $mapping = $this->entityMappingService->findOrCreateProductMapping(
+            $mainAccountId,
+            $childAccountId,
+            $product['id'],
+            $matchField,
+            $matchValue
+        );
 
         // 3. Build base product data
         $productData = [
@@ -618,17 +623,17 @@ class ProductSyncService
                 'response_data' => json_encode($newProduct, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
             ]);
 
-            // Сохранить маппинг (atomic operation to prevent race conditions)
-            EntityMapping::firstOrCreate(
+            // Сохранить маппинг (use updateOrCreate for consistency)
+            EntityMapping::updateOrCreate(
                 [
                     'parent_account_id' => $mainAccountId,
                     'child_account_id' => $childAccountId,
                     'entity_type' => 'product',
                     'parent_entity_id' => $product['id'],
-                    'sync_direction' => 'main_to_child',
                 ],
                 [
                     'child_entity_id' => $newProduct['id'],
+                    'sync_direction' => 'main_to_child',
                     'match_field' => $matchField,
                     'match_value' => $matchValue,
                 ]

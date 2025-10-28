@@ -86,19 +86,19 @@ class EntityMappingService
             'match_value' => $matchValue
         ]);
 
-        // Use firstOrCreate to avoid race conditions
-        $mapping = EntityMapping::firstOrCreate(
+        // Use updateOrCreate to properly update existing mappings
+        $mapping = EntityMapping::updateOrCreate(
             [
-                // Unique keys
+                // Unique keys (must match unique constraint)
                 'parent_account_id' => $mainAccountId,
                 'child_account_id' => $childAccountId,
                 'entity_type' => 'service',
                 'parent_entity_id' => $mainServiceId,
-                'sync_direction' => 'main_to_child',
             ],
             [
-                // Additional fields
+                // Fields to update/create
                 'child_entity_id' => $childService['id'],
+                'sync_direction' => 'main_to_child',
                 'match_field' => $matchField,
                 'match_value' => $matchValue,
             ]
@@ -172,19 +172,19 @@ class EntityMappingService
             'match_value' => $matchValue
         ]);
 
-        // Use firstOrCreate to avoid race conditions
-        $mapping = EntityMapping::firstOrCreate(
+        // Use updateOrCreate to properly update existing mappings
+        $mapping = EntityMapping::updateOrCreate(
             [
-                // Unique keys
+                // Unique keys (must match unique constraint)
                 'parent_account_id' => $mainAccountId,
                 'child_account_id' => $childAccountId,
                 'entity_type' => 'product',
                 'parent_entity_id' => $mainProductId,
-                'sync_direction' => 'main_to_child',
             ],
             [
-                // Additional fields
+                // Fields to update/create
                 'child_entity_id' => $childProduct['id'],
+                'sync_direction' => 'main_to_child',
                 'match_field' => $matchField,
                 'match_value' => $matchValue,
             ]
@@ -258,19 +258,19 @@ class EntityMappingService
             'match_value' => $matchValue
         ]);
 
-        // Use firstOrCreate to avoid race conditions
-        $mapping = EntityMapping::firstOrCreate(
+        // Use updateOrCreate to properly update existing mappings
+        $mapping = EntityMapping::updateOrCreate(
             [
-                // Unique keys
+                // Unique keys (must match unique constraint)
                 'parent_account_id' => $mainAccountId,
                 'child_account_id' => $childAccountId,
                 'entity_type' => 'bundle',
                 'parent_entity_id' => $mainBundleId,
-                'sync_direction' => 'main_to_child',
             ],
             [
-                // Additional fields
+                // Fields to update/create
                 'child_entity_id' => $childBundle['id'],
+                'sync_direction' => 'main_to_child',
                 'match_field' => $matchField,
                 'match_value' => $matchValue,
             ]

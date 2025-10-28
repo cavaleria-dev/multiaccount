@@ -322,17 +322,17 @@ class BundleSyncService
 
             $newBundle = $newBundleResult['data'];
 
-            // Сохранить маппинг (atomic operation to prevent race conditions)
-            EntityMapping::firstOrCreate(
+            // Сохранить маппинг (use updateOrCreate for consistency)
+            EntityMapping::updateOrCreate(
                 [
                     'parent_account_id' => $mainAccountId,
                     'child_account_id' => $childAccountId,
                     'entity_type' => 'bundle',
                     'parent_entity_id' => $bundle['id'],
-                    'sync_direction' => 'main_to_child',
                 ],
                 [
                     'child_entity_id' => $newBundle['id'],
+                    'sync_direction' => 'main_to_child',
                     'match_field' => $matchField,
                     'match_value' => $matchValue,
                 ]
