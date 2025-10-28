@@ -545,7 +545,7 @@ class DependencyCacheService
                 Log::error('Cannot create mapping: child attribute missing or has no id', [
                     'attribute_name' => $attrName,
                     'has_child_attr' => isset($childAttr),
-                    'has_id' => isset($childAttr['id'] ?? null)
+                    'has_id' => isset($childAttr['id'])
                 ]);
                 continue;
             }
