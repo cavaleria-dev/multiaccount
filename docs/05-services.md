@@ -69,8 +69,8 @@
 | `ProductFolderSyncService` | productfolder | None | `syncProductFolder()` (recursive), `syncFoldersForEntities()` ⭐ **NEW** (batch) |
 | `ProductSyncService` | product | ProductFolderSyncService, **ProductFilterService** | `syncProduct()`, `prepareProductForBatch()`, `archiveProduct()` |
 | `VariantSyncService` | variant | ProductSyncService | `syncVariant()`, `syncCharacteristics()`, `archiveVariant()` |
-| `BundleSyncService` | bundle | ProductSyncService, VariantSyncService | `syncBundle()`, `prepareBundleForBatch()`, `syncBundleComponents()`, `archiveBundle()` |
-| `ServiceSyncService` | service | **ProductFilterService** | `syncService()`, `prepareServiceForBatch()`, `archiveService()` |
+| `BundleSyncService` | bundle | ProductSyncService, VariantSyncService, ProductFolderSyncService | `syncBundle()`, `prepareBundleForBatch()`, `syncBundleComponents()`, `archiveBundle()` |
+| `ServiceSyncService` | service | ProductFolderSyncService, **ProductFilterService** | `syncService()`, `prepareServiceForBatch()`, `archiveService()` |
 
 **Circular Dependency Resolution:**
 
