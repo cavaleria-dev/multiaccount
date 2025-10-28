@@ -735,7 +735,7 @@ folder_id: yyyyy
 - Products distributed between original and duplicate folders
 - Discovered when removing folder filters
 
-**Root Cause (Fixed in commit XXX):**
+**Root Cause (Fixed in commit [42a8d43](https://github.com/cavaleria-dev/multiaccount/commit/42a8d43)):**
 
 1. **No existence check before creation** - Code didn't search for existing folders by name+parent
 2. **Incorrect use of `firstOrCreate`** - Used `sync_direction` field not in unique constraint
