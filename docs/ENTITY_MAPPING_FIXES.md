@@ -292,6 +292,6 @@ After this fix:
 
 ## See Also
 
-- **Commit:** (TBD - будет добавлен после коммита)
+- **Commit:** [4bf831b](https://github.com/cavaleria-dev/multiaccount/commit/4bf831b)
 - **Issue:** Duplicate entities created when manually created entities exist in child account
 - **Fix Date:** 2025-10-28
