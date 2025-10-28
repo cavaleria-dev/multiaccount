@@ -122,6 +122,10 @@ tail -f storage/logs/sync.log
 php artisan sync:cleanup-stale-characteristic-mappings --dry-run
 php artisan sync:cleanup-stale-characteristic-mappings
 
+# Cleanup duplicate product folders (fixes duplicate groups)
+php artisan sync:cleanup-duplicate-folders --dry-run
+php artisan sync:cleanup-duplicate-folders --fix
+
 # Encrypt plaintext access_tokens (fixes "The payload is invalid" error)
 php artisan accounts:encrypt-tokens --dry-run
 php artisan accounts:encrypt-tokens

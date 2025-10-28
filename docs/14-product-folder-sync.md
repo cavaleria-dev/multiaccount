@@ -728,6 +728,145 @@ folder_id: yyyyy
 
 **Fix:** If undesired, manually delete empty folders in child account
 
+### Issue: Duplicate Folders in Child Account ⭐ FIXED (2025-10-28)
+
+**Symptom:**
+- Multiple folders with the same name and parent in child account
+- Products distributed between original and duplicate folders
+- Discovered when removing folder filters
+
+**Root Cause (Fixed in commit XXX):**
+
+1. **No existence check before creation** - Code didn't search for existing folders by name+parent
+2. **Incorrect use of `firstOrCreate`** - Used `sync_direction` field not in unique constraint
+3. **Race conditions** - Parallel sync of same folder could create duplicates
+
+**Example Scenario:**
+```
+Main account: "Категория А" → 50 products
+Child account: Already has "Категория А" (created manually or previous sync)
+
+Previous behavior:
+1. Mapping not found → create new "Категория А" (duplicate!)
+2. Some products linked to original, some to duplicate
+
+New behavior (fixed):
+1. Search for existing "Категория А" by name+parent
+2. If found → create mapping and use existing folder
+3. If not found → create new folder
+```
+
+**Fix Applied:**
+
+**File:** `app/Services/ProductFolderSyncService.php`
+
+**Changes:**
+
+1. **Added `findExistingFolder()` method:**
+   - Searches child account for folder by `name` + `productFolder` (parent)
+   - Returns existing folder if found
+   - Handles root-level folders (no parent)
+
+2. **Modified `syncProductFolder()` logic:**
+   ```php
+   // Before (would create duplicate):
+   1. Check mapping → not found
+   2. POST create folder → duplicate created!
+   3. firstOrCreate mapping → uses new duplicate
+
+   // After (prevents duplicates):
+   1. Check mapping → not found
+   2. Search existing folder by name+parent → found!
+   3. updateOrCreate mapping → links to existing folder
+   4. Return existing folder ID (no duplicate created)
+   ```
+
+3. **Replaced `firstOrCreate` with `updateOrCreate`:**
+   - Removed `sync_direction` from search criteria (not in unique constraint)
+   - Properly updates `child_entity_id` on subsequent calls
+   - Prevents mapping inconsistencies
+
+**Cleanup Utility:**
+
+**Command:** `php artisan sync:cleanup-duplicate-folders`
+
+```bash
+# Dry-run mode (show duplicates without changes)
+php artisan sync:cleanup-duplicate-folders --dry-run
+
+# Check specific child account
+php artisan sync:cleanup-duplicate-folders --dry-run --child-account=<uuid>
+
+# Fix duplicates (move products + delete empty duplicates)
+php artisan sync:cleanup-duplicate-folders --fix
+
+# Fix for specific child account
+php artisan sync:cleanup-duplicate-folders --fix --child-account=<uuid>
+```
+
+**What the command does:**
+
+1. **Find duplicates:** Groups folders by `name` + `parent` in each child account
+2. **Select main folder:** Prefers folder with mapping, or first by ID
+3. **Show statistics:** Counts products in each duplicate
+4. **Fix (with `--fix` flag):**
+   - Move products/services/bundles from duplicates to main folder
+   - Delete empty duplicate folders
+   - Update mappings to point to main folder
+
+**Output example:**
+```
+Searching for duplicate product folders...
+
+Checking child account: Franchise 1 (12345678-1234...)
+  Found 150 folders
+  ⚠ Found 3 duplicate folder group(s)
+
+  Duplicate: 'Категория А' (parent: ROOT)
+  Found 2 instances:
+    - ID: aaaaaaaa... | Products: 25 (MAIN)
+    - ID: bbbbbbbb... | Products: 15
+
+  Fixing duplicates...
+    ✓ Moved 15 products from duplicate to main folder
+    ✓ Deleted empty duplicate folder: bbbbbbbb
+
+=== Summary ===
+Duplicate folder groups found: 3
+Folder groups processed: 3
+Products moved: 45
+Duplicate folders deleted: 3
+```
+
+**Prevention (New Sync Behavior):**
+
+After this fix, new syncs will:
+- ✅ Check for existing folder before creating
+- ✅ Reuse existing folders (no duplicates)
+- ✅ Create proper mappings for existing folders
+- ✅ Log when existing folder is found
+
+**Monitoring:**
+
+```bash
+# Check for "found existing" messages
+tail -f storage/logs/laravel.log | grep "Found existing product folder"
+
+# Example log:
+[INFO] Found existing product folder in child account
+  main_folder_id: xxx
+  child_folder_id: yyy
+  folder_name: Категория А
+```
+
+**Recommendation:**
+
+1. Run `--dry-run` first to see duplicates
+2. Review output to ensure correct folders will be kept
+3. Run `--fix` to clean up duplicates
+4. Verify products moved to correct folders in МойСклад UI
+5. Future syncs will not create duplicates
+
 ## Testing
 
 ### Unit Tests (Future)

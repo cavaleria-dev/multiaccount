@@ -74,51 +74,86 @@ class ProductFolderSyncService
 
             $folder = $folderResult['data'];
 
-            // Подготовить данные для создания
-            $folderData = [
-                'name' => $folder['name'],
-                'externalCode' => $folder['externalCode'] ?? null,
-            ];
-
-            // Если у группы есть родитель - синхронизировать его сначала (рекурсия)
+            // Синхронизировать родительскую папку (если есть) перед поиском/созданием текущей
+            $childParentFolderId = null;
             if (isset($folder['productFolder'])) {
                 $parentFolderHref = $folder['productFolder']['meta']['href'] ?? null;
                 if ($parentFolderHref) {
                     $parentFolderId = $this->extractEntityId($parentFolderHref);
                     if ($parentFolderId) {
                         $childParentFolderId = $this->syncProductFolder($mainAccountId, $childAccountId, $parentFolderId);
-                        if ($childParentFolderId) {
-                            $folderData['productFolder'] = [
-                                'meta' => [
-                                    'href' => config('moysklad.api_url') . "/entity/productfolder/{$childParentFolderId}",
-                                    'type' => 'productfolder',
-                                    'mediaType' => 'application/json'
-                                ]
-                            ];
-                        }
                     }
                 }
             }
 
-            // Создать группу в дочернем аккаунте
+            // Попытаться найти существующую папку по имени и родителю
             $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
+            $existingFolder = $this->findExistingFolder($childAccount, $folder['name'], $childParentFolderId);
+
+            if ($existingFolder) {
+                // Папка уже существует - создать/обновить маппинг
+                EntityMapping::updateOrCreate(
+                    [
+                        'parent_account_id' => $mainAccountId,
+                        'child_account_id' => $childAccountId,
+                        'entity_type' => 'productfolder',
+                        'parent_entity_id' => $folderId,
+                    ],
+                    [
+                        'child_entity_id' => $existingFolder['id'],
+                        'sync_direction' => 'main_to_child',
+                        'match_field' => 'name',
+                        'match_value' => $folder['name'],
+                    ]
+                );
+
+                Log::info('Found existing product folder in child account', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'main_folder_id' => $folderId,
+                    'child_folder_id' => $existingFolder['id'],
+                    'folder_name' => $folder['name']
+                ]);
+
+                return $existingFolder['id'];
+            }
+
+            // Папка не найдена - создать новую
+            $folderData = [
+                'name' => $folder['name'],
+                'externalCode' => $folder['externalCode'] ?? null,
+            ];
+
+            // Добавить ссылку на родительскую папку (если есть)
+            if ($childParentFolderId) {
+                $folderData['productFolder'] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$childParentFolderId}",
+                        'type' => 'productfolder',
+                        'mediaType' => 'application/json'
+                    ]
+                ];
+            }
+
             $newFolderResult = $this->moySkladService
                 ->setAccessToken($childAccount->access_token)
                 ->post('entity/productfolder', $folderData);
 
             $newFolder = $newFolderResult['data'];
 
-            // Сохранить маппинг (atomic operation to prevent race conditions)
-            EntityMapping::firstOrCreate(
+            // Сохранить маппинг (используем updateOrCreate для корректного обновления)
+            EntityMapping::updateOrCreate(
                 [
                     'parent_account_id' => $mainAccountId,
                     'child_account_id' => $childAccountId,
                     'entity_type' => 'productfolder',
                     'parent_entity_id' => $folderId,
-                    'sync_direction' => 'main_to_child',
                 ],
                 [
                     'child_entity_id' => $newFolder['id'],
+                    'sync_direction' => 'main_to_child',
+                    'match_field' => 'name',
+                    'match_value' => $folder['name'],
                 ]
             );
 
@@ -347,6 +382,66 @@ class ProductFolderSyncService
         }
 
         return $sorted;
+    }
+
+    /**
+     * Найти существующую папку в child account по имени и родителю
+     *
+     * @param Account $childAccount Аккаунт для поиска
+     * @param string $name Имя папки
+     * @param string|null $parentFolderId UUID родительской папки в child account (null = корень)
+     * @return array|null Найденная папка или null
+     */
+    protected function findExistingFolder(Account $childAccount, string $name, ?string $parentFolderId): ?array
+    {
+        try {
+            // Построить фильтр: name + productFolder
+            $filters = ['name=' . urlencode($name)];
+
+            if ($parentFolderId) {
+                // Поиск по родительской папке
+                $filters[] = 'productFolder=' . config('moysklad.api_url') . '/entity/productfolder/' . $parentFolderId;
+            } else {
+                // Поиск в корне (папки без родителя)
+                // МойСклад не поддерживает filter=productFolder= для поиска корневых папок
+                // Поэтому загружаем все папки с таким именем и фильтруем вручную
+            }
+
+            $filter = implode(';', $filters);
+
+            $result = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->get("entity/productfolder?filter={$filter}&limit=100");
+
+            $folders = $result['data']['rows'] ?? [];
+
+            if (empty($folders)) {
+                return null;
+            }
+
+            // Если ищем корневую папку (без родителя)
+            if ($parentFolderId === null) {
+                // Найти папку без поля productFolder
+                foreach ($folders as $folder) {
+                    if (!isset($folder['productFolder'])) {
+                        return $folder;
+                    }
+                }
+                return null;
+            }
+
+            // Если родитель указан - вернуть первую найденную (фильтр уже проверил parent)
+            return $folders[0];
+
+        } catch (\Exception $e) {
+            Log::debug('Failed to search for existing folder', [
+                'child_account_id' => $childAccount->account_id,
+                'folder_name' => $name,
+                'parent_folder_id' => $parentFolderId,
+                'error' => $e->getMessage()
+            ]);
+            return null;
+        }
     }
 
     /**
