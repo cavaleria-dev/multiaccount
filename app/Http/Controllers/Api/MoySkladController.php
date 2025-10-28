@@ -57,7 +57,7 @@ class MoySkladController extends Controller
             // Получение данных из запроса (правильная структура от МойСклад)
             $appUid = $request->input('appUid');
             $accountName = $request->input('accountName');
-            $cause = $request->input('cause'); // Install, Resume, StatusUpdate, TariffChanged
+            $cause = $request->input('cause'); // Install, Resume, TariffChanged, Autoprolongation
             $access = $request->input('access', []);
             $subscription = $request->input('subscription', []);
 
@@ -75,7 +75,8 @@ class MoySkladController extends Controller
                 'subscription' => $subscription
             ]);
 
-            // accessToken обязателен только при Install, для TariffChanged необязателен
+            // accessToken обязателен для Install и Resume (приходит в блоке access)
+            // Для TariffChanged и Autoprolongation токен НЕ приходит (остается старый)
             if ($cause === 'Install' && !$accessToken) {
                 Log::error('МойСклад: Отсутствует accessToken при установке', [
                     'has_accessToken' => !empty($accessToken),
@@ -88,6 +89,17 @@ class MoySkladController extends Controller
                         'accessToken' => 'missing',
                         'accountId' => !empty($accountId) ? 'present' : 'missing'
                     ]
+                ], 400);
+            }
+
+            if ($cause === 'Resume' && !$accessToken) {
+                Log::error('МойСклад: Отсутствует accessToken при Resume', [
+                    'accountId' => $accountId,
+                    'has_access_block' => !empty($access),
+                    'access_array' => $access
+                ]);
+                return response()->json([
+                    'error' => 'Missing required parameter: accessToken for Resume'
                 ], 400);
             }
 
@@ -153,8 +165,19 @@ class MoySkladController extends Controller
                     $account->update($accountData);
 
                     if ($accessTokenToSet) {
+                        $oldTokenExists = !empty($account->access_token);
                         $account->access_token = $accessTokenToSet;
                         $account->save();
+
+                        Log::info('МойСклад: Токен обновлен при переустановке', [
+                            'accountId' => $accountId,
+                            'had_old_token' => $oldTokenExists
+                        ]);
+                    } else {
+                        Log::warning('МойСклад: Токен НЕ обновлен при переустановке', [
+                            'accountId' => $accountId,
+                            'cause' => 'Install'
+                        ]);
                     }
 
                     Log::info('МойСклад: Приложение переустановлено', [
@@ -175,6 +198,16 @@ class MoySkladController extends Controller
                     if ($accessTokenToSet) {
                         $account->access_token = $accessTokenToSet;
                         $account->save();
+
+                        Log::info('МойСклад: Токен установлен для нового аккаунта', [
+                            'accountId' => $accountId
+                        ]);
+                    } else {
+                        // Не должно происходить, т.к. есть проверка выше
+                        Log::error('МойСклад: Токен НЕ установлен при первой установке', [
+                            'accountId' => $accountId,
+                            'cause' => 'Install'
+                        ]);
                     }
 
                     Log::info('МойСклад: Новая установка приложения', [
@@ -187,8 +220,8 @@ class MoySkladController extends Controller
                 ], 200);
             }
 
-            if ($cause === 'Resume' || $cause === 'StatusUpdate') {
-                // Возобновление работы после приостановки или обновление статуса
+            if ($cause === 'Resume') {
+                // Возобновление работы после приостановки (после оплаты подписки)
                 if ($account) {
                     $updateData = [
                         'subscription_status' => $subscription['trial'] ?? false ? 'Trial' : 'Active',
@@ -215,11 +248,23 @@ class MoySkladController extends Controller
                     $account->update($updateData);
 
                     if ($accessTokenToSet) {
+                        $oldTokenExists = !empty($account->access_token);
                         $account->access_token = $accessTokenToSet;
                         $account->save();
+
+                        Log::info('МойСклад: Токен обновлен при Resume', [
+                            'accountId' => $accountId,
+                            'had_old_token' => $oldTokenExists
+                        ]);
+                    } else {
+                        // Не должно происходить, т.к. есть проверка выше
+                        Log::error('МойСклад: Токен НЕ обновлен при Resume', [
+                            'accountId' => $accountId,
+                            'cause' => $cause
+                        ]);
                     }
                 } else {
-                    Log::warning('МойСклад: Resume/StatusUpdate для несуществующего аккаунта', [
+                    Log::warning('МойСклад: Resume для несуществующего аккаунта', [
                         'accountId' => $accountId,
                         'cause' => $cause
                     ]);
@@ -258,6 +303,45 @@ class MoySkladController extends Controller
                         'accountId' => $accountId,
                         'tariff' => $subscription['tariffName'] ?? null,
                         'tariffId' => $subscription['tariffId'] ?? null
+                    ]);
+                }
+
+                return response()->json([
+                    'status' => 'Activated'
+                ], 200);
+            }
+
+            if ($cause === 'Autoprolongation') {
+                // Автоматическое продление подписки
+                if ($account) {
+                    $autoprolongData = [
+                        'subscription_status' => $subscription['trial'] ?? false ? 'Trial' : 'Active',
+                        'cause' => $cause,
+                        'updated_at' => now()
+                    ];
+
+                    // Обновляем дату истечения подписки если есть
+                    if (isset($subscription['expiryMoment'])) {
+                        try {
+                            $autoprolongData['subscription_expires_at'] = new \DateTime($subscription['expiryMoment']);
+                        } catch (\Exception $e) {
+                            Log::warning('МойСклад: Не удалось распарсить expiryMoment при автопродлении', [
+                                'expiryMoment' => $subscription['expiryMoment'],
+                                'error' => $e->getMessage()
+                            ]);
+                        }
+                    }
+
+                    $account->update($autoprolongData);
+
+                    Log::info('МойСклад: Подписка автопродлена', [
+                        'accountId' => $accountId,
+                        'new_expiry' => $autoprolongData['subscription_expires_at'] ?? null,
+                        'subscription_status' => $autoprolongData['subscription_status']
+                    ]);
+                } else {
+                    Log::warning('МойСклад: Autoprolongation для несуществующего аккаунта', [
+                        'accountId' => $accountId
                     ]);
                 }
 

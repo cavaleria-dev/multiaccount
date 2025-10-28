@@ -66,19 +66,22 @@
 
 ### 5. Обработка запросов от МойСклад:
 
-**Параметр `cause` в запросах:**
-- `Install` - первая установка или переустановка
-- `StatusUpdate` - обновление статуса (обычно возобновление)
-- `TariffChanged` - изменение тарифа
-- `Suspend` - приостановка (в DELETE запросе)
-- `Uninstall` - полное удаление (в DELETE запросе)
+**Параметр `cause` в запросах (PUT - активация):**
+- `Install` - первая установка или переустановка (токен обязателен)
+- `Resume` - возобновление после приостановки (токен обязателен)
+- `TariffChanged` - изменение тарифа (БЕЗ токена)
+- `Autoprolongation` - автоматическое продление (БЕЗ токена)
 
-**Структура данных от МойСклад:**
+**Параметр `cause` в запросах (DELETE - деактивация):**
+- `Suspend` - приостановка работы
+- `Uninstall` - полное удаление
+
+**Структура данных от МойСклад (PUT):**
 ```json
 {
   "appUid": "franchlinks-1-xxx",
   "accountName": "название аккаунта",
-  "cause": "Install|StatusUpdate|TariffChanged|Suspend|Uninstall",
+  "cause": "Install|Resume|TariffChanged|Autoprolongation",
   "access": [
     {
       "access_token": "токен доступа к JSON API 1.2"
@@ -86,10 +89,14 @@
   ],
   "subscription": {
     "trial": false,
-    "tariffName": "название тарифа"
+    "tariffName": "название тарифа",
+    "expiryMoment": "2025-11-04T22:12:11+03:00"
   }
 }
 ```
+
+**ВАЖНО:** Блок `access` с токеном приходит ТОЛЬКО для `Install` и `Resume`.
+Для `TariffChanged` и `Autoprolongation` токен НЕ приходит (остается старый).
 
 ### 6. Код-стайл:
 
@@ -114,7 +121,8 @@
 ### 7. Безопасность:
 
 - Всегда проверять `appId` в запросах от МойСклад
-- Токены доступа хранятся в БД (encrypted в будущем)
+- Токены доступа шифруются автоматически (encrypted cast в модели Account)
+- access_token защищен от mass assignment (не в $fillable)
 - CORS настроен через middleware
 - Валидация всех входящих данных
 - Защита от SQL injection через Query Builder/Eloquent
@@ -189,7 +197,7 @@ grep "МойСклад" storage/logs/laravel.log | tail -20
 - [ ] Реализовать логику работы с вебхуками
 - [ ] Добавить оповещения на фронте о статусе дочерних аккаунтов
 - [ ] Реализовать синхронизацию данных между master и child аккаунтами
-- [ ] Добавить шифрование для access_token в БД
+- [x] Добавить шифрование для access_token в БД (реализовано через encrypted cast)
 - [ ] Настроить автоматический деплой через GitHub Actions
 
 ## Ссылки на документацию

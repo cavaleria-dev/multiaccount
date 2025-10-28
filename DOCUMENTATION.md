@@ -148,7 +148,7 @@ account_type          VARCHAR(20)                -- parent, child
 subscription_status   VARCHAR(50)                -- Active, Trial, etc.
 tariff_name           VARCHAR(100)               -- Главный, Дочерний
 price_per_month       DECIMAL(10,2)              -- Цена подписки
-cause                 VARCHAR(50)                -- Install, StatusUpdate, etc.
+cause                 VARCHAR(50)                -- Install, Resume, TariffChanged, Autoprolongation
 installed_at          TIMESTAMP
 suspended_at          TIMESTAMP
 created_at            TIMESTAMP
@@ -305,7 +305,7 @@ updated_at            TIMESTAMP
 ```json
 {
   "access_token": "string",
-  "cause": "Install|StatusUpdate|TariffChanged",
+  "cause": "Install|Resume|TariffChanged|Autoprolongation",
   "subscription": {
     "status": "Active|Trial|Suspended",
     "tariff": {
