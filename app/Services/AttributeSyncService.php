@@ -642,7 +642,7 @@ class AttributeSyncService
      * @param array|null $customEntityMeta Метаданные справочника (для customentity)
      * @return array|null Найденный атрибут или null
      */
-    protected function findAttributeByNameAndType(
+    public function findAttributeByNameAndType(
         array $attributes,
         string $name,
         string $type,

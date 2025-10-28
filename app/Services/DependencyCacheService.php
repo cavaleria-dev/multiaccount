@@ -430,12 +430,6 @@ class DependencyCacheService
 
         $childAttributes = $childResponse['data']['rows'] ?? [];
 
-        // Индексировать по имени
-        $childAttributesByName = [];
-        foreach ($childAttributes as $attr) {
-            $childAttributesByName[$attr['name']] = $attr;
-        }
-
         Log::info('Loaded attributes', [
             'main_total' => count($mainAttributes),
             'child_total' => count($childAttributes)
@@ -459,8 +453,13 @@ class DependencyCacheService
                 continue;
             }
 
-            // Найти в child по имени
-            $childAttr = $childAttributesByName[$attrName] ?? null;
+            // Найти атрибут по имени, типу и справочнику (для customentity)
+            $childAttr = $this->attributeSyncService->findAttributeByNameAndType(
+                $childAttributes,
+                $attrName,
+                $attrType,
+                $mainAttr['customEntityMeta'] ?? null
+            );
 
             if (!$childAttr) {
                 // СОЗДАТЬ атрибут в child
@@ -522,6 +521,16 @@ class DependencyCacheService
                         ->post("/entity/{$metadataEntityType}/metadata/attributes", $attributeData);
 
                     $childAttr = $result['data'];
+
+                    // Проверить наличие id в ответе
+                    if (!isset($childAttr['id'])) {
+                        Log::error('Created attribute missing id in response', [
+                            'attribute_name' => $attrName,
+                            'attribute_type' => $attrType,
+                            'response_data' => $childAttr
+                        ]);
+                        continue;
+                    }
                 } catch (\Exception $e) {
                     Log::error('Failed to create attribute in child', [
                         'attribute_name' => $attrName,
@@ -529,6 +538,16 @@ class DependencyCacheService
                     ]);
                     continue;
                 }
+            }
+
+            // Проверить что childAttr существует и имеет id
+            if (!$childAttr || !isset($childAttr['id'])) {
+                Log::error('Cannot create mapping: child attribute missing or has no id', [
+                    'attribute_name' => $attrName,
+                    'has_child_attr' => isset($childAttr),
+                    'has_id' => isset($childAttr['id'] ?? null)
+                ]);
+                continue;
             }
 
             // Сохранить маппинг
