@@ -362,7 +362,7 @@ class ProcessSyncQueueJob implements ShouldQueue
         // Создать индивидуальные retry задачи для ВСЕХ сущностей
         $createdRetryTasks = 0;
         $deletedMappingsCount = 0;
-        $skippedExisting = 0;
+        $updateRetryTasks = 0;
 
         // Получить child account для проверки существующих сущностей
         $childAccount = \App\Models\Account::where('account_id', $task->account_id)->first();
@@ -386,6 +386,9 @@ class ProcessSyncQueueJob implements ShouldQueue
                 'parent_entity_id' => $entityId
             ])->first();
 
+            // Флаг: существует ли сущность в child account
+            $entityExistsInChild = false;
+
             if ($existingMapping && $childAccount) {
                 // Mapping существует - проверить существует ли сущность в child account
                 try {
@@ -405,19 +408,19 @@ class ProcessSyncQueueJob implements ShouldQueue
                         $existingEntity = $moysklad->get($endpoint);
 
                         if ($existingEntity && !($existingEntity['archived'] ?? false)) {
-                            // Сущность существует и не архивирована - пропустить retry
-                            Log::info('Entity already exists in child account, skipping retry', [
+                            // ✅ Сущность существует и не архивирована - создадим UPDATE retry
+                            $entityExistsInChild = true;
+
+                            Log::info('Entity exists in child account, will create UPDATE retry', [
                                 'task_id' => $task->id,
                                 'entity_type' => $entityTypeSingular,
                                 'parent_entity_id' => $entityId,
                                 'child_entity_id' => $existingMapping->child_entity_id
                             ]);
-                            $skippedExisting++;
-                            continue;
                         }
                     }
                 } catch (\Throwable $checkError) {
-                    // Ошибка при проверке (404, network, etc.) - будем создавать retry
+                    // Ошибка при проверке (404, network, etc.) - создадим CREATE retry
                     Log::warning('Failed to check existing entity in child account', [
                         'task_id' => $task->id,
                         'entity_type' => $entityTypeSingular,
@@ -426,17 +429,28 @@ class ProcessSyncQueueJob implements ShouldQueue
                     ]);
                 }
 
-                // Удалить stale mapping
-                $existingMapping->delete();
-                $deletedMappingsCount++;
+                // Удалить stale mapping ТОЛЬКО если сущность НЕ существует
+                if (!$entityExistsInChild) {
+                    $existingMapping->delete();
+                    $deletedMappingsCount++;
+
+                    Log::info('Deleted stale mapping (entity not found in child)', [
+                        'task_id' => $task->id,
+                        'entity_type' => $entityTypeSingular,
+                        'parent_entity_id' => $entityId,
+                        'child_entity_id' => $existingMapping->child_entity_id
+                    ]);
+                }
             }
 
-            // Создать retry задачу с операцией CREATE (не UPDATE)
+            // Создать retry задачу с операцией UPDATE (если существует) или CREATE (если нет)
+            $operation = $entityExistsInChild ? 'update' : 'create';
+
             SyncQueue::create([
                 'account_id' => $task->account_id,
                 'entity_type' => $entityTypeSingular,  // 'service' или 'product'
                 'entity_id' => $entityId,
-                'operation' => 'create',  // ⭐ CREATE (не update) - маппинг удален, создаем заново
+                'operation' => $operation,  // ⭐ UPDATE для существующих, CREATE для новых
                 'priority' => 5,
                 'scheduled_at' => now()->addMinute(),  // 1 минута
                 'status' => 'pending',
@@ -450,6 +464,10 @@ class ProcessSyncQueueJob implements ShouldQueue
             ]);
 
             $createdRetryTasks++;
+
+            if ($operation === 'update') {
+                $updateRetryTasks++;
+            }
         }
 
         Log::info('Created individual retry tasks for failed batch', [
@@ -457,8 +475,9 @@ class ProcessSyncQueueJob implements ShouldQueue
             'entity_type' => $task->entity_type,
             'entities_count' => count($entities),
             'deleted_stale_mappings' => $deletedMappingsCount,
-            'skipped_existing' => $skippedExisting,
-            'retry_tasks_created' => $createdRetryTasks
+            'update_retry_tasks' => $updateRetryTasks,
+            'create_retry_tasks' => $createdRetryTasks - $updateRetryTasks,
+            'total_retry_tasks' => $createdRetryTasks
         ]);
 
         // Пометить batch задачу как failed (уже создали retry задачи)
