@@ -23,6 +23,7 @@ class ServiceSyncService
     protected AttributeSyncService $attributeSyncService;
     protected ProductSyncService $productSyncService;
     protected ProductFilterService $productFilterService;
+    protected ProductFolderSyncService $productFolderSyncService;
     protected EntityMappingService $entityMappingService;
 
     public function __construct(
@@ -32,6 +33,7 @@ class ServiceSyncService
         AttributeSyncService $attributeSyncService,
         ProductSyncService $productSyncService,
         ProductFilterService $productFilterService,
+        ProductFolderSyncService $productFolderSyncService,
         EntityMappingService $entityMappingService
     ) {
         $this->moySkladService = $moySkladService;
@@ -40,6 +42,7 @@ class ServiceSyncService
         $this->attributeSyncService = $attributeSyncService;
         $this->productSyncService = $productSyncService;
         $this->productFilterService = $productFilterService;
+        $this->productFolderSyncService = $productFolderSyncService;
         $this->entityMappingService = $entityMappingService;
     }
 
@@ -211,6 +214,30 @@ class ServiceSyncService
                     ];
                 }
             }
+        }
+
+        // Синхронизировать группу услуги (если настройка включена)
+        if (isset($service['productFolder'])) {
+            if ($settings->create_product_folders) {
+                // Синхронизировать группу (для индивидуальной синхронизации)
+                $folderHref = $service['productFolder']['meta']['href'] ?? null;
+                if ($folderHref) {
+                    $folderId = $this->extractEntityId($folderHref);
+                    if ($folderId) {
+                        $childFolderId = $this->productFolderSyncService->syncProductFolder($mainAccountId, $childAccountId, $folderId);
+                        if ($childFolderId) {
+                            $serviceData['productFolder'] = [
+                                'meta' => [
+                                    'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                                    'type' => 'productfolder',
+                                    'mediaType' => 'application/json'
+                                ]
+                            ];
+                        }
+                    }
+                }
+            }
+            // Если настройка выключена - НЕ передаем productFolder, услуга создается без группы
         }
 
         // Синхронизировать цены
@@ -391,6 +418,30 @@ class ServiceSyncService
             }
         }
 
+        // Синхронизировать группу услуги (если настройка включена)
+        if (isset($service['productFolder'])) {
+            if ($settings->create_product_folders) {
+                // Синхронизировать группу (для индивидуальной синхронизации)
+                $folderHref = $service['productFolder']['meta']['href'] ?? null;
+                if ($folderHref) {
+                    $folderId = $this->extractEntityId($folderHref);
+                    if ($folderId) {
+                        $childFolderId = $this->productFolderSyncService->syncProductFolder($mainAccountId, $childAccountId, $folderId);
+                        if ($childFolderId) {
+                            $serviceData['productFolder'] = [
+                                'meta' => [
+                                    'href' => config('moysklad.api_url') . "/entity/productfolder/{$childFolderId}",
+                                    'type' => 'productfolder',
+                                    'mediaType' => 'application/json'
+                                ]
+                            ];
+                        }
+                    }
+                }
+            }
+            // Если настройка выключена - НЕ передаем productFolder, услуга обновляется без группы
+        }
+
         // Цены
         $prices = $this->syncPrices(
             $mainAccountId,
@@ -521,6 +572,29 @@ class ServiceSyncService
                     'meta' => [
                         'href' => config('moysklad.api_url') . "/entity/uom/{$childUomId}",
                         'type' => 'uom',
+                        'mediaType' => 'application/json'
+                    ]
+                ];
+            }
+        }
+
+        // 6.5. ProductFolder - использовать CACHED маппинг (группы уже синхронизированы в batch job)
+        if ($settings->create_product_folders && isset($service['productFolder']['id'])) {
+            $folderId = $service['productFolder']['id'];
+
+            // Найти CACHED маппинг группы (группы уже pre-synced в batch job)
+            $folderMapping = \App\Models\EntityMapping::where([
+                'parent_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'entity_type' => 'productfolder',
+                'parent_entity_id' => $folderId
+            ])->first();
+
+            if ($folderMapping) {
+                $serviceData['productFolder'] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/productfolder/{$folderMapping->child_entity_id}",
+                        'type' => 'productfolder',
                         'mediaType' => 'application/json'
                     ]
                 ];
