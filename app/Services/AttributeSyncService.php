@@ -577,7 +577,7 @@ class AttributeSyncService
      * @param string $customEntityId UUID справочника
      * @return array|null Метаданные справочника с полем 'name' или null
      */
-    protected function loadCustomEntityMetadataById(string $accountId, string $customEntityId): ?array
+    public function loadCustomEntityMetadataById(string $accountId, string $customEntityId): ?array
     {
         try {
             $account = Account::where('account_id', $accountId)->firstOrFail();
