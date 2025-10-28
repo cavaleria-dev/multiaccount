@@ -415,23 +415,63 @@ class ProductFolderSyncService
 
             $folders = $result['data']['rows'] ?? [];
 
+            Log::debug('Searching for existing folder', [
+                'child_account_id' => $childAccount->account_id,
+                'folder_name' => $name,
+                'parent_folder_id' => $parentFolderId,
+                'results_count' => count($folders)
+            ]);
+
             if (empty($folders)) {
                 return null;
             }
 
             // Если ищем корневую папку (без родителя)
             if ($parentFolderId === null) {
-                // Найти папку без поля productFolder
+                // Найти папку без поля productFolder С ТОЧНЫМ ИМЕНЕМ
                 foreach ($folders as $folder) {
-                    if (!isset($folder['productFolder'])) {
+                    if (!isset($folder['productFolder']) && ($folder['name'] ?? '') === $name) {
+                        Log::debug('Found exact match for root folder', [
+                            'folder_name' => $name,
+                            'folder_id' => $folder['id'] ?? null
+                        ]);
                         return $folder;
                     }
                 }
+
+                Log::debug('No exact match found for root folder', [
+                    'searched_name' => $name,
+                    'found_folders' => array_map(fn($f) => [
+                        'name' => $f['name'] ?? null,
+                        'id' => $f['id'] ?? null,
+                        'has_parent' => isset($f['productFolder'])
+                    ], $folders)
+                ]);
                 return null;
             }
 
-            // Если родитель указан - вернуть первую найденную (фильтр уже проверил parent)
-            return $folders[0];
+            // Если родитель указан - проверить точное имя
+            // (API может выполнять нечеткий поиск, нужна дополнительная проверка)
+            foreach ($folders as $folder) {
+                if (($folder['name'] ?? '') === $name) {
+                    Log::debug('Found exact match for folder with parent', [
+                        'folder_name' => $name,
+                        'folder_id' => $folder['id'] ?? null,
+                        'parent_folder_id' => $parentFolderId
+                    ]);
+                    return $folder;
+                }
+            }
+
+            Log::debug('No exact match found for folder with parent', [
+                'searched_name' => $name,
+                'parent_folder_id' => $parentFolderId,
+                'found_folders' => array_map(fn($f) => [
+                    'name' => $f['name'] ?? null,
+                    'id' => $f['id'] ?? null
+                ], $folders)
+            ]);
+            return null;
 
         } catch (\Exception $e) {
             Log::debug('Failed to search for existing folder', [
