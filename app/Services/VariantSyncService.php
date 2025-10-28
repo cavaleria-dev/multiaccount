@@ -300,7 +300,7 @@ class VariantSyncService
     ): array {
         $variantData = [
             'name' => $variant['name'],
-            'code' => $variant['code'] ?? null,
+            // code удален - избегаем конфликтов уникальности артикула в дочернем аккаунте
             'externalCode' => $variant['externalCode'] ?? null,
             'description' => $variant['description'] ?? null,
             'product' => [
@@ -457,7 +457,7 @@ class VariantSyncService
     ): array {
         $variantData = [
             'name' => $variant['name'],
-            'code' => $variant['code'] ?? null,
+            // code удален - избегаем конфликтов уникальности артикула в дочернем аккаунте
             'externalCode' => $variant['externalCode'] ?? null,
             'description' => $variant['description'] ?? null,
         ];
@@ -1383,9 +1383,7 @@ class VariantSyncService
         }
 
         // Добавить базовые поля
-        if (isset($variant['code'])) {
-            $variantData['code'] = $variant['code'];
-        }
+        // code удален - избегаем конфликтов уникальности артикула в дочернем аккаунте
         if (isset($variant['externalCode'])) {
             $variantData['externalCode'] = $variant['externalCode'];
         }
