@@ -27,7 +27,20 @@ class AccountController extends Controller
             'account_type' => 'required|in:main,child'
         ]);
 
-        $accountId = $request->header('X-Account-Id');
+        // Получаем account_id из контекста (middleware уже загрузил)
+        $context = $request->get('moysklad_context');
+        $accountId = $context['accountId'] ?? null;
+
+        if (!$accountId) {
+            Log::error('Account ID not found in context', [
+                'context' => $context
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Account ID not found in context'
+            ], 400);
+        }
+
         $newType = $request->input('account_type');
 
         try {
@@ -140,7 +153,18 @@ class AccountController extends Controller
      */
     public function getAccountType(Request $request)
     {
-        $accountId = $request->header('X-Account-Id');
+        // Получаем account_id из контекста (middleware уже загрузил)
+        $context = $request->get('moysklad_context');
+        $accountId = $context['accountId'] ?? null;
+
+        if (!$accountId) {
+            Log::error('Account ID not found in context', [
+                'context' => $context
+            ]);
+            return response()->json([
+                'error' => 'Account ID not found in context'
+            ], 400);
+        }
 
         try {
             $account = Account::where('account_id', $accountId)->firstOrFail();

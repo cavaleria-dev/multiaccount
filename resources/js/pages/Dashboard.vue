@@ -97,7 +97,6 @@
 <script setup>
 import { ref, onMounted, defineProps, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
 import api from '../api'
 
 const router = useRouter()
@@ -122,7 +121,7 @@ const loadingStats = ref(false)
 // Проверка типа аккаунта и редирект на welcome screen если не установлен
 const checkAccountType = async () => {
   try {
-    const response = await axios.get('/api/account/type')
+    const response = await api.get('/account/type')
     const accountType = response.data.account_type
 
     // Если тип аккаунта не установлен, редиректим на welcome screen
