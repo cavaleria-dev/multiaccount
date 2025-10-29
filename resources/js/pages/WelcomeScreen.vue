@@ -188,7 +188,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
+import api from '../api'
 
 const router = useRouter()
 const selectedType = ref(null)
@@ -211,9 +211,7 @@ async function confirm() {
     loading.value = true
     error.value = null
 
-    const response = await axios.post('/api/account/set-type', {
-      account_type: selectedType.value
-    })
+    const response = await api.account.setType(selectedType.value)
 
     if (response.data.success) {
       // Redirect to main app

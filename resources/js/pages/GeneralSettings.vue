@@ -177,7 +177,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import Toggle from '../components/Toggle.vue'
-import axios from 'axios'
+import api from '../api'
 
 const saving = ref(false)
 const saveSuccess = ref(false)
@@ -202,7 +202,7 @@ onMounted(async () => {
 
   try {
     // Load account type from API
-    const typeResponse = await axios.get('/api/account/type')
+    const typeResponse = await api.account.getType()
     settings.value.account_type = typeResponse.data.account_type || 'main'
 
     // Load other settings from localStorage
@@ -229,9 +229,7 @@ async function saveSettings() {
     saving.value = true
 
     // Save account type via API
-    await axios.post('/api/account/set-type', {
-      account_type: settings.value.account_type
-    })
+    await api.account.setType(settings.value.account_type)
 
     // Save other settings to localStorage
     localStorage.setItem('general_settings', JSON.stringify(settings.value))

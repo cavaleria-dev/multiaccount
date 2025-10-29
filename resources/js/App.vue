@@ -100,7 +100,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useMoyskladContext } from './composables/useMoyskladContext'
-import axios from 'axios'
+import api from './api'
 
 const { context, loading, error } = useMoyskladContext()
 const accountType = ref(null)
@@ -108,7 +108,7 @@ const accountType = ref(null)
 // Load account type for conditional navigation
 onMounted(async () => {
   try {
-    const response = await axios.get('/api/account/type')
+    const response = await api.account.getType()
     accountType.value = response.data.account_type
   } catch (err) {
     console.error('Failed to load account type:', err)

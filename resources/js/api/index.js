@@ -33,6 +33,16 @@ api.interceptors.response.use(
 )
 
 export default {
+  // Account management
+  account: {
+    getType() {
+      return api.get('/account/type')
+    },
+    setType(accountType) {
+      return api.post('/account/set-type', { account_type: accountType })
+    }
+  },
+
   // Дочерние аккаунты
   childAccounts: {
     list() {

@@ -121,7 +121,7 @@ const loadingStats = ref(false)
 // Проверка типа аккаунта и редирект на welcome screen если не установлен
 const checkAccountType = async () => {
   try {
-    const response = await api.get('/account/type')
+    const response = await api.account.getType()
     const accountType = response.data.account_type
 
     // Если тип аккаунта не установлен, редиректим на welcome screen
