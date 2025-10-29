@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\Account;
-use App\Models\WebhookHealth;
+use App\Models\WebhookHealthStat;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
@@ -83,7 +83,7 @@ class WebhookService
                     $createdWebhooks[] = $webhook;
 
                     // Сохранить в webhook_health
-                    WebhookHealth::updateOrCreate(
+                    WebhookHealthStat::updateOrCreate(
                         [
                             'account_id' => $account->account_id,
                             'entity_type' => $entityType,
@@ -128,7 +128,7 @@ class WebhookService
                     $webhook = $this->createWebhook($account, $webhookUrl, $action, $entityType);
                     $createdWebhooks[] = $webhook;
 
-                    WebhookHealth::updateOrCreate(
+                    WebhookHealthStat::updateOrCreate(
                         [
                             'account_id' => $account->account_id,
                             'entity_type' => $entityType,
@@ -239,7 +239,7 @@ class WebhookService
             $webhookUrl = config('moysklad.webhook_url');
 
             // Обновить статус в webhook_health
-            $healthRecords = WebhookHealth::where('account_id', $accountId)->get();
+            $healthRecords = WebhookHealthStat::where('account_id', $accountId)->get();
 
             foreach ($healthRecords as $health) {
                 $found = false;
@@ -333,7 +333,7 @@ class WebhookService
      */
     public function getWebhookStatus(string $accountId): array
     {
-        $healthRecords = WebhookHealth::where('account_id', $accountId)
+        $healthRecords = WebhookHealthStat::where('account_id', $accountId)
             ->orderBy('entity_type')
             ->orderBy('action')
             ->get();

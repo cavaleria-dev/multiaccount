@@ -97,7 +97,7 @@ class Account extends Model
      */
     public function webhookHealth(): HasMany
     {
-        return $this->hasMany(WebhookHealth::class, 'account_id', 'account_id');
+        return $this->hasMany(WebhookHealthStat::class, 'account_id', 'account_id');
     }
 
     /**
