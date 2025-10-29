@@ -15,9 +15,9 @@
 
 ## Executive Summary
 
-### Current State: 20% Complete ⚠️
+### Current State: 12-15% Complete ⚠️ (Updated after code review)
 
-The webhook system documentation is **comprehensive and production-ready** (~7,300 lines), but the actual implementation is only **~20% complete**. Significant work remains to bring the system to full production readiness.
+The webhook system documentation is **comprehensive and production-ready** (~7,300 lines), but the actual implementation is only **~12-15% complete** (lower than initially estimated). **Code review revealed critical issues** in existing implementation. Significant work remains to bring the system to full production readiness.
 
 **What exists:**
 - ✅ Database tables (partial - missing columns)
@@ -46,25 +46,178 @@ Complete webhook implementation that:
 - Prevents infinite webhook loops
 - Ensures zero data loss
 
-### Timeline: 14 Days (3 Weeks)
+### Timeline: 14-15 Days (3 Weeks) + Day 0 (Critical Fixes)
 
+- **Day 0 (CRITICAL):** Critical fixes BEFORE starting (1-2h) ⚠️ **MANDATORY**
+  - Add cycle prevention header
+  - Disable broken webhooks
+  - Database backup
 - **Week 1 (Days 1-7):** Backend Core - Database, Services, Jobs, Controllers, Commands
 - **Week 2 (Days 8-10):** Frontend & Testing - Vue components, Unit tests, Integration tests
 - **Week 3 (Days 11-14):** Deployment - Staging validation, Production rollout, Monitoring
 
+**Adjusted timeline notes:**
+- Day 4: +2h buffer (WebhookProcessorService complexity)
+- Day 10: Target 70% coverage instead of 80%
+- Total: **82-105 hours** (was 80-100 hours)
+
 ### Team Requirements
 
 **1 Full-Stack Developer:**
-- Backend: PHP 8.4, Laravel 11, PostgreSQL
+- Backend: PHP 8.4, Laravel 12, PostgreSQL
 - Frontend: Vue 3, Tailwind CSS
 - DevOps: Supervisor, queue management, deployment
-- Estimated effort: **80-100 hours** (full-time for 2-3 weeks)
+- Estimated effort: **82-105 hours** (was 80-100 hours, adjusted for critical fixes + buffers)
+
+---
+
+## 🚨 КРИТИЧЕСКИЕ НАХОДКИ В КОДЕ (Code Review Results)
+
+**⚠️ Фактическая проверка кода выявила серьезные проблемы в существующей реализации:**
+
+### 🔴 CRITICAL #1: WebhookController парсит payload НЕПРАВИЛЬНО
+
+**Файл:** `app/Http/Controllers/Api/WebhookController.php:32-33`
+
+**Проблема:**
+```php
+// ❌ НЕПРАВИЛЬНО (текущий код):
+$action = $payload['action'] ?? null;        // Всегда NULL!
+$entityType = $payload['entityType'] ?? null; // Всегда NULL!
+```
+
+**Почему не работает:**
+МойСклад НЕ отправляет `action` и `entityType` на верхнем уровне payload!
+
+**Реальный формат МойСклад webhook:**
+```json
+{
+  "events": [
+    {
+      "action": "UPDATE",           // ✅ Внутри события!
+      "meta": {
+        "type": "product",          // ✅ Внутри meta!
+        "href": "..."
+      },
+      "accountId": "...",
+      "updatedFields": ["salePrices"]
+    }
+  ]
+}
+```
+
+**Последствия:**
+- `$action` всегда будет `null`
+- `$entityType` всегда будет `null`
+- Webhook всегда возвращает ошибку 400
+- **Система НЕ РАБОТАЕТ вообще** (кроме частичной обработки variant в строках 129-200)
+
+**Срочность:** 🔴 CRITICAL - нужен полный rewrite контроллера
+
+---
+
+### 🔴 CRITICAL #2: Cycle Prevention Header ОТСУТСТВУЕТ
+
+**Файл:** `app/Services/MoySkladService.php:170-174`
+
+**Проблема:**
+```php
+$headers = [
+    'Authorization' => 'Bearer ' . $this->accessToken,
+    'Accept-Encoding' => 'gzip',
+    'Content-Type' => 'application/json',
+    // ❌ ОТСУТСТВУЕТ: 'X-Lognex-WebHook-DisableByPrefix' => config('app.url')
+];
+```
+
+**Последствия:**
+- **Бесконечные циклы веб-хуков:**
+  1. Main updates product → webhook → Child syncs → webhook
+  2. Child webhook triggers Main update → webhook → loop continues
+  3. API перегрузка, duplicate data, system crash
+
+**Пример:**
+```
+Main: Update price 99,990 → 89,990
+↓ webhook
+Child: Sync price 89,990
+↓ webhook (no DisableByPrefix!)
+Main: Sees "Child updated product"
+↓ webhook
+Child: Sync again...
+↓ INFINITE LOOP ♾️
+```
+
+**Срочность:** 🔴 CRITICAL - БЕЗ этого header система создаст infinite loops
+
+**Решение:** Добавить header (5 минут):
+```php
+'X-Lognex-WebHook-DisableByPrefix' => config('app.url')
+```
+
+---
+
+### 🔴 CRITICAL #3: Синхронная обработка (блокирует response)
+
+**Файл:** `app/Http/Controllers/Api/WebhookController.php:41-43`
+
+**Проблема:**
+```php
+foreach ($entities as $event) {
+    $this->processEvent($action, $entityType, $event);
+}
+return response()->json(['status' => 'success'], 200);
+```
+
+Контроллер обрабатывает webhook синхронно (в том же HTTP request).
+
+**Последствия:**
+- Блокирует ответ МойСкладу
+- Timeout если обработка >1.5s
+- МойСклад повторно отправляет webhook (думая, что failed)
+- Дублирование задач в sync_queue
+
+**Срочность:** 🔴 HIGH - нужен async processing через job
+
+---
+
+### 🔴 CRITICAL #4: Нет идемпотентности
+
+**Проблема:**
+Контроллер не проверяет `X-Request-Id` header для предотвращения дубликатов.
+
+**Последствия:**
+- МойСклад может отправить один webhook 2-3 раза (retries)
+- Каждый webhook создаст новые задачи в sync_queue
+- Duplicate sync операции
+
+**Срочность:** 🔴 MEDIUM - нужна проверка requestId
+
+---
+
+### 📊 Скорректированная оценка текущего состояния
+
+**Документация говорила:** 20% complete
+**РЕАЛЬНО (после code review):** **12-15% complete**
+
+**Breakdown:**
+- Database: 15% (2 таблицы из 5, но НЕПОЛНЫЕ)
+- Models: 10% (1 из 3, базовая)
+- Services: 6% (1 из 4, но нуждается в рефакторинге)
+- Controllers: 5% (1 из 2, но **не работает правильно**)
+- Jobs: 0% (0 из 2)
+- Commands: 0% (0 из 4)
+- Frontend: 0% (0 из 3)
+- Tests: 0%
+- **Critical headers:** ❌ 0% (cycle prevention отсутствует)
+
+**Вывод:** Существующий код **частично нерабочий** и требует критических фиксов перед началом Day 1.
 
 ---
 
 ## Current State Assessment
 
-### ✅ What Exists (20% Complete)
+### ✅ What Exists (12-15% Complete - Partially Broken)
 
 #### Database Tables (Partial)
 **Location:** `database/migrations/`
@@ -613,23 +766,169 @@ $entities = $this->moySkladService->get("entity/product", [
 
 ---
 
+## ⚠️ IMMEDIATE ACTION ITEMS (Day 0 - CRITICAL)
+
+**⚠️ THESE MUST BE DONE BEFORE STARTING DAY 1:**
+
+Code review выявил критические проблемы в существующем коде. БЕЗ этих фиксов система создаст infinite loops и data corruption в production!
+
+---
+
+### 🔴 CRITICAL FIX #1: Add Cycle Prevention Header (5 minutes)
+
+**File:** `app/Services/MoySkladService.php` (line 170)
+
+**Status:** ❌ MISSING
+
+**Impact:** Without this header, infinite webhook loops WILL occur in production!
+
+**Action Required:**
+```bash
+# Открыть файл на СЕРВЕРЕ (нет локального PHP!)
+ssh your-server
+cd /var/www/multiaccount
+nano app/Services/MoySkladService.php
+```
+
+**Find (line ~170):**
+```php
+$headers = [
+    'Authorization' => 'Bearer ' . $this->accessToken,
+    'Accept-Encoding' => 'gzip',
+    'Content-Type' => 'application/json',
+];
+```
+
+**Change to:**
+```php
+$headers = [
+    'Authorization' => 'Bearer ' . $this->accessToken,
+    'Accept-Encoding' => 'gzip',
+    'Content-Type' => 'application/json',
+    'X-Lognex-WebHook-DisableByPrefix' => config('app.url'), // ⚠️ CRITICAL: Prevent webhook cycles
+];
+```
+
+**Validation:**
+```bash
+# Verify header added
+grep "X-Lognex-WebHook-DisableByPrefix" app/Services/MoySkladService.php
+# Should output: 'X-Lognex-WebHook-DisableByPrefix' => config('app.url'),
+```
+
+**Why this is critical:**
+Без этого header:
+1. Main updates product → webhook → Child syncs
+2. Child sync triggers webhook back to Main
+3. Main sees "update" → webhook → Child syncs again
+4. **INFINITE LOOP ♾️** → API overload → system crash
+
+---
+
+### 🔴 CRITICAL FIX #2: Disable Broken Webhooks (10 minutes)
+
+**Status:** Existing webhooks are BROKEN (controller parses payload incorrectly)
+
+**Impact:** Current webhooks always fail (action=null, entityType=null)
+
+**Action Required:**
+
+**Option A: Via МойСклад UI**
+1. Login to Main МойСклад account
+2. Настройки → Вебхуки → Приложения
+3. Find "app.cavaleria.ru" webhooks
+4. Delete ALL webhooks for this app
+5. Repeat for all Child accounts
+
+**Option B: Via API (faster)**
+```bash
+# SSH to server
+ssh your-server
+cd /var/www/multiaccount
+
+# Run cleanup command
+php artisan tinker
+
+# In tinker:
+$service = app(\App\Services\WebhookService::class);
+$accounts = \App\Models\Account::all();
+foreach ($accounts as $account) {
+    try {
+        $service->cleanupOldWebhooks($account->account_id);
+        echo "Cleaned: {$account->account_id}\n";
+    } catch (\Exception $e) {
+        echo "Failed: {$account->account_id} - {$e->getMessage()}\n";
+    }
+}
+exit
+```
+
+**Validation:**
+- Check no webhooks exist in МойСклад UI
+- OR: `SELECT COUNT(*) FROM webhooks;` → should be 0
+
+---
+
+### 🔴 CRITICAL FIX #3: Database Backup (15 minutes)
+
+**Status:** MANDATORY before ANY migration
+
+**Action Required:**
+```bash
+# SSH to server (NO local PHP!)
+ssh your-server
+cd /var/www/multiaccount
+
+# Create backup
+sudo -u postgres pg_dump multiaccount > backup_pre_webhook_$(date +%Y%m%d_%H%M%S).sql
+
+# Verify backup created
+ls -lh backup_pre_webhook_*.sql
+
+# Store backup safely (optional but recommended)
+cp backup_pre_webhook_*.sql /var/backups/multiaccount/
+```
+
+**Alternative (if Laravel artisan available):**
+```bash
+php artisan db:dump --database=pgsql
+```
+
+**Validation:**
+```bash
+# Check backup size (should be > 0 bytes)
+ls -lh backup_*.sql
+
+# Check backup is valid (optional)
+head -20 backup_*.sql
+# Should see PostgreSQL dump header
+```
+
+---
+
+### 📋 Day 0 Checklist
+
+**BEFORE starting Day 1, verify ALL items completed:**
+
+- [ ] ✅ Cycle prevention header added to MoySkladService.php
+- [ ] ✅ Existing broken webhooks disabled/deleted
+- [ ] ✅ Database backup created and verified
+- [ ] ✅ Review this roadmap with stakeholders
+- [ ] ✅ Confirm developer availability (80-100 hours over 14 days)
+- [ ] ✅ Staging environment ready
+- [ ] ✅ Feature branch created: `git checkout -b feature/webhook-system-complete`
+- [ ] ✅ SSH access to production server confirmed
+- [ ] ✅ Read [19-webhook-tasks.md](19-webhook-tasks.md) for Day 1 plan
+
+**Time required:** 1-2 hours
+
+**⚠️ DO NOT START DAY 1 UNTIL ALL CHECKBOXES ARE CHECKED!**
+
+---
+
 ## Next Steps
 
-### Immediate Actions (Day 0 - Today)
-
-1. **Review this roadmap** with stakeholders
-2. **Confirm resource allocation** (developer availability)
-3. **Setup staging environment** (if not already)
-4. **Create feature branch:** `git checkout -b feature/webhook-system-complete`
-5. **Backup production database** (on server via SSH):
-   ```bash
-   ssh your-server
-   cd /var/www/multiaccount
-   sudo -u postgres pg_dump multiaccount > backup_$(date +%Y%m%d).sql
-   # Or: php artisan db:dump --database=pgsql
-   ```
-
-### Start Development (Day 1 - Tomorrow)
+### Start Development (Day 1 - After Day 0 Complete)
 
 1. **Read detailed task breakdown:** [19-webhook-tasks.md](19-webhook-tasks.md)
 2. **Begin with migrations** (Day 1 tasks)

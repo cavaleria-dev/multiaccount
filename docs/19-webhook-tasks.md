@@ -1,6 +1,6 @@
 # Webhook System - Day-by-Day Implementation Tasks
 
-**Detailed task breakdown** - 14 days from 20% to 100% completion
+**Detailed task breakdown** - 14-15 days from 12-15% to 100% completion (+ Day 0 critical fixes)
 
 **See also:**
 - [19-webhook-roadmap.md](19-webhook-roadmap.md) - High-level overview & timeline
@@ -12,6 +12,12 @@
 ---
 
 ## Quick Reference
+
+### ⚠️ Day 0: Critical Fixes (MANDATORY BEFORE DAY 1)
+- **Task 0.1:** Add Cycle Prevention Header (5 min) 🔴 CRITICAL
+- **Task 0.2:** Disable Broken Webhooks (10 min) 🔴 CRITICAL
+- **Task 0.3:** Database Backup (15 min) 🔴 CRITICAL
+- **Total:** 1-2 hours
 
 ### Week 1: Backend Core (Days 1-7)
 - **Day 1:** Database Migrations (5 migrations)
@@ -30,6 +36,289 @@
 ### Week 3: Deployment (Days 11-14)
 - **Day 11-12:** Staging Deployment & Validation
 - **Day 13-14:** Production Rollout & Monitoring
+
+---
+
+## ⚠️ DAY 0: CRITICAL FIXES (MANDATORY BEFORE DAY 1)
+
+**Goal:** Fix critical issues in existing code BEFORE starting implementation
+
+**⚠️ WHY THIS IS CRITICAL:**
+Code review revealed that existing code has 4 critical problems:
+1. WebhookController parses payload INCORRECTLY → всегда returns error 400
+2. Cycle prevention header MISSING → infinite loops in production
+3. Synchronous processing → blocks response, causes timeouts
+4. No idempotency → duplicate webhooks create duplicate tasks
+
+**Prerequisites:**
+- [ ] Read [19-webhook-roadmap.md](19-webhook-roadmap.md) section "🚨 КРИТИЧЕСКИЕ НАХОДКИ В КОДЕ"
+- [ ] Understand why each fix is critical
+- [ ] Have SSH access to production server
+- [ ] Have МойСклад admin access
+
+**Estimated Time:** 1-2 hours
+
+---
+
+### Task 0.1: Add Cycle Prevention Header 🔴 CRITICAL
+
+**File:** `app/Services/MoySkladService.php` (line ~170)
+
+**Status:** ❌ MISSING
+
+**Priority:** 🔴 CRITICAL - WITHOUT THIS, INFINITE LOOPS WILL OCCUR!
+
+**Problem:**
+Без этого header:
+- Main updates product → webhook → Child syncs
+- Child sync triggers webhook back to Main (no DisableByPrefix!)
+- Main sees "update" → webhook → Child syncs again
+- **INFINITE LOOP ♾️** → API overload → system crash
+
+**Steps:**
+
+1. **SSH to server** (no local PHP!):
+   ```bash
+   ssh your-server
+   cd /var/www/multiaccount
+   ```
+
+2. **Open file** (line ~170):
+   ```bash
+   nano app/Services/MoySkladService.php
+   # Or use vim: vim +170 app/Services/MoySkladService.php
+   ```
+
+3. **Find this code** (around line 170):
+   ```php
+   $headers = [
+       'Authorization' => 'Bearer ' . $this->accessToken,
+       'Accept-Encoding' => 'gzip',
+       'Content-Type' => 'application/json',
+   ];
+   ```
+
+4. **Add header**:
+   ```php
+   $headers = [
+       'Authorization' => 'Bearer ' . $this->accessToken,
+       'Accept-Encoding' => 'gzip',
+       'Content-Type' => 'application/json',
+       'X-Lognex-WebHook-DisableByPrefix' => config('app.url'), // ⚠️ CRITICAL: Prevent webhook cycles
+   ];
+   ```
+
+5. **Save file**:
+   - Nano: `Ctrl+O`, `Enter`, `Ctrl+X`
+   - Vim: `:wq`
+
+**Validation:**
+```bash
+# Check header added
+grep "X-Lognex-WebHook-DisableByPrefix" app/Services/MoySkladService.php
+
+# Should output:
+# 'X-Lognex-WebHook-DisableByPrefix' => config('app.url'),
+```
+
+**Commit:**
+```bash
+git add app/Services/MoySkladService.php
+git commit -m "fix: Add X-Lognex-WebHook-DisableByPrefix header to prevent webhook cycles
+
+CRITICAL: Without this header, webhook loops will occur:
+- Main → webhook → Child → webhook → Main → infinite loop
+
+This header tells МойСклад to NOT send webhooks for changes
+made by our application, breaking the cycle."
+```
+
+**⏱️ Estimated Time:** 5 minutes
+
+---
+
+### Task 0.2: Disable Broken Webhooks 🔴 CRITICAL
+
+**Status:** Current webhooks are BROKEN (controller парсит payload incorrectly)
+
+**Priority:** 🔴 CRITICAL - Prevent broken webhooks from creating bad data
+
+**Problem:**
+Current WebhookController.php:32-33:
+```php
+$action = $payload['action'] ?? null;        // ❌ Всегда NULL!
+$entityType = $payload['entityType'] ?? null; // ❌ Всегда NULL!
+```
+
+МойСклад НЕ отправляет action/entityType на верхнем уровне!
+→ Webhooks всегда fail с error 400
+→ Или создают некорректные задачи
+
+**Steps:**
+
+**Option A: Via МойСклад UI** (рекомендуется для малого количества аккаунтов)
+
+1. Login to Main МойСклад account
+2. Настройки → Приложения → Вебхуки
+3. Find webhooks for "app.cavaleria.ru"
+4. Delete ALL webhooks (нажать "Удалить")
+5. Repeat for all Child accounts (если есть webhooks)
+
+**Option B: Via API** (быстрее для многих аккаунтов)
+
+```bash
+# SSH to server
+ssh your-server
+cd /var/www/multiaccount
+
+# Run cleanup
+php artisan tinker
+
+# In tinker (copy-paste this):
+$service = app(\App\Services\WebhookService::class);
+$accounts = \App\Models\Account::all();
+$deleted = 0;
+foreach ($accounts as $account) {
+    try {
+        $service->cleanupOldWebhooks($account->account_id);
+        $deleted++;
+        echo "✓ Cleaned: {$account->account_id}\n";
+    } catch (\Exception $e) {
+        echo "✗ Failed: {$account->account_id} - {$e->getMessage()}\n";
+    }
+}
+echo "\nTotal cleaned: {$deleted} accounts\n";
+exit
+```
+
+**Validation:**
+
+**Option A: Check database**
+```bash
+# On server
+php artisan tinker
+
+# In tinker:
+$count = \App\Models\WebhookHealth::count();
+echo "Webhooks in DB: {$count}\n";
+// Should be 0
+
+exit
+```
+
+**Option B: Check МойСклад UI**
+- Login to МойСклад
+- Настройки → Приложения → Вебхуки
+- Should see "Нет активных вебхуков"
+
+**⏱️ Estimated Time:** 10 minutes
+
+---
+
+### Task 0.3: Database Backup 🔴 MANDATORY
+
+**Status:** REQUIRED before ANY database changes
+
+**Priority:** 🔴 CRITICAL - Rollback protection
+
+**Steps:**
+
+1. **SSH to server**:
+   ```bash
+   ssh your-server
+   cd /var/www/multiaccount
+   ```
+
+2. **Create backup**:
+   ```bash
+   # Create backup with timestamp
+   sudo -u postgres pg_dump multiaccount > backup_pre_webhook_$(date +%Y%m%d_%H%M%S).sql
+
+   # Alternative (if Laravel command available):
+   php artisan db:dump --database=pgsql
+   ```
+
+3. **Verify backup**:
+   ```bash
+   # Check backup size (should be > 0 bytes)
+   ls -lh backup_pre_webhook_*.sql
+
+   # Example output:
+   # -rw-r--r-- 1 postgres postgres 15M Oct 29 10:30 backup_pre_webhook_20251029_103000.sql
+   ```
+
+4. **Check backup is valid** (optional but recommended):
+   ```bash
+   # Show first 20 lines
+   head -20 backup_pre_webhook_*.sql
+
+   # Should see PostgreSQL dump header:
+   # --
+   # -- PostgreSQL database dump
+   # --
+   ```
+
+5. **Store backup safely** (optional but recommended):
+   ```bash
+   # Copy to backup directory
+   sudo mkdir -p /var/backups/multiaccount
+   sudo cp backup_pre_webhook_*.sql /var/backups/multiaccount/
+
+   # Verify copied
+   ls -lh /var/backups/multiaccount/
+   ```
+
+**Validation:**
+```bash
+# Check backup exists and has reasonable size
+ls -lh backup_pre_webhook_*.sql
+
+# Size should be:
+# - Small DB: ~1-5 MB
+# - Medium DB: ~5-50 MB
+# - Large DB: ~50-500 MB
+
+# If size is 0 bytes or missing → BACKUP FAILED, DO NOT PROCEED!
+```
+
+**⏱️ Estimated Time:** 15 minutes
+
+---
+
+### Day 0 Validation Checklist
+
+**BEFORE starting Day 1, verify ALL tasks completed:**
+
+- [ ] ✅ Task 0.1: Cycle prevention header added to MoySkladService.php
+- [ ] ✅ Task 0.2: All broken webhooks disabled/deleted
+- [ ] ✅ Task 0.3: Database backup created and verified (size > 0)
+- [ ] ✅ Feature branch created: `git checkout -b feature/webhook-system-complete`
+- [ ] ✅ Read [19-webhook-roadmap.md](19-webhook-roadmap.md) fully
+- [ ] ✅ Understand critical issues in existing code
+- [ ] ✅ Commit cycle prevention header fix
+
+**Validation commands:**
+```bash
+# 1. Check header exists
+grep "X-Lognex-WebHook-DisableByPrefix" app/Services/MoySkladService.php
+# Should output the header line
+
+# 2. Check no webhooks active
+php artisan tinker --execute="echo \App\Models\WebhookHealth::count();"
+# Should output: 0
+
+# 3. Check backup exists
+ls -lh backup_pre_webhook_*.sql
+# Should show file with size > 0
+
+# 4. Check git branch
+git branch
+# Should show: * feature/webhook-system-complete
+```
+
+**If ANY checkbox is unchecked → DO NOT START DAY 1!**
+
+**⏱️ Total Time:** 1-2 hours
 
 ---
 
@@ -1345,7 +1634,14 @@ git commit -m "feat: Create WebhookReceiverService and refactor WebhookSetupServ
 - [ ] Day 3 services working
 - [ ] MoySkladService has cycle prevention header
 
-**Estimated Time:** 5-6 hours
+**Estimated Time:** 6-8 hours (increased from 5-6h due to complexity)
+
+**⚠️ Note:** WebhookProcessorService is the MOST COMPLEX service (~700 lines):
+- Filter checks require API calls
+- Race condition handling
+- Batch update strategy
+- Multiple entity types
+- Take breaks, test frequently!
 
 ---
 
@@ -2123,9 +2419,16 @@ git commit -m "feat: Add Artisan commands for webhook management
    - Idempotency testing
    - Cycle prevention testing
 
-**Target:** >80% code coverage
+**Target:** >70% code coverage (reduced from 80% - prioritize critical paths)
 
-**Estimated Time:** 6-8 hours
+**⚠️ Priority Tests (MUST HAVE):**
+1. WebhookReceiverService (idempotency, validation) - CRITICAL
+2. WebhookProcessorService (filter logic, task creation) - CRITICAL
+3. Cycle prevention (integration test) - CRITICAL
+4. Race conditions (integration test) - HIGH
+5. Health monitoring - MEDIUM
+
+**Estimated Time:** 8-10 hours (increased from 6-8h for thorough critical path testing)
 
 ---
 

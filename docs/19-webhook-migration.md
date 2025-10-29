@@ -38,6 +38,160 @@
 
 ---
 
+## ⚠️ Pre-Migration Critical Fixes (MANDATORY)
+
+**⚠️ EXECUTE THESE BEFORE Step 0 (Preparation):**
+
+Code review revealed critical issues that MUST be fixed before starting migration. Without these fixes, the system will fail in production!
+
+---
+
+### Critical Fix #1: Cycle Prevention Header (5 minutes) 🔴
+
+**Problem:** Missing `X-Lognex-WebHook-DisableByPrefix` header in all API requests
+
+**Location:** `app/Services/MoySkladService.php:170`
+
+**Impact:** CRITICAL - Without this header:
+- Main updates product → webhook → Child syncs
+- Child sync triggers webhook back to Main (NO DisableByPrefix!)
+- Main sees "Child updated" → webhook → INFINITE LOOP ♾️
+- API overload → system crash → data corruption
+
+**Solution:**
+```bash
+# SSH to server (no local PHP!)
+ssh your-server
+cd /var/www/multiaccount
+
+# Edit file
+nano app/Services/MoySkladService.php
+# Find line ~170
+```
+
+**Find:**
+```php
+$headers = [
+    'Authorization' => 'Bearer ' . $this->accessToken,
+    'Accept-Encoding' => 'gzip',
+    'Content-Type' => 'application/json',
+];
+```
+
+**Replace with:**
+```php
+$headers = [
+    'Authorization' => 'Bearer ' . $this->accessToken,
+    'Accept-Encoding' => 'gzip',
+    'Content-Type' => 'application/json',
+    'X-Lognex-WebHook-DisableByPrefix' => config('app.url'), // ⚠️ CRITICAL
+];
+```
+
+**Validation:**
+```bash
+grep "X-Lognex-WebHook-DisableByPrefix" app/Services/MoySkladService.php
+# Should output the header line
+```
+
+**Commit:**
+```bash
+git add app/Services/MoySkladService.php
+git commit -m "fix: Add X-Lognex-WebHook-DisableByPrefix header to prevent infinite webhook loops"
+```
+
+---
+
+### Critical Fix #2: Disable Broken Webhooks (10 minutes) 🔴
+
+**Problem:** Existing `WebhookController.php` parses payload INCORRECTLY
+
+**Location:** `app/Http/Controllers/Api/WebhookController.php:32-33`
+
+**Current code:**
+```php
+$action = $payload['action'] ?? null;        // ❌ Always NULL!
+$entityType = $payload['entityType'] ?? null; // ❌ Always NULL!
+```
+
+**Why broken:**
+МойСклад sends `action` and `entityType` INSIDE each event, NOT at root level!
+
+**Impact:**
+- All webhooks return error 400
+- OR create incorrect sync tasks
+- Data corruption risk
+
+**Solution:** Delete all existing webhooks
+
+**Option A: Via МойСклад UI**
+1. Login to each МойСклад account
+2. Настройки → Приложения → Вебхуки
+3. Delete ALL webhooks for "app.cavaleria.ru"
+
+**Option B: Via API (faster)**
+```bash
+ssh your-server
+cd /var/www/multiaccount
+php artisan tinker
+
+# In tinker:
+$service = app(\App\Services\WebhookService::class);
+$accounts = \App\Models\Account::all();
+foreach ($accounts as $account) {
+    try {
+        $service->cleanupOldWebhooks($account->account_id);
+        echo "✓ Cleaned: {$account->account_id}\n";
+    } catch (\Exception $e) {
+        echo "✗ Failed: {$account->account_id} - {$e->getMessage()}\n";
+    }
+}
+exit
+```
+
+**Validation:**
+```bash
+php artisan tinker --execute="echo \App\Models\WebhookHealth::count();"
+# Should output: 0
+```
+
+---
+
+### Critical Fix #3: Verify Database Backup (5 minutes) 🔴
+
+**Before ANY migration steps:**
+
+```bash
+# SSH to server
+ssh your-server
+cd /var/www/multiaccount
+
+# Create backup
+sudo -u postgres pg_dump multiaccount > backup_pre_webhook_$(date +%Y%m%d_%H%M%S).sql
+
+# Verify
+ls -lh backup_pre_webhook_*.sql
+# Size should be > 0 bytes and reasonable (1MB-500MB)
+```
+
+---
+
+### Pre-Migration Checklist
+
+**✅ VERIFY BEFORE PROCEEDING TO STEP 0:**
+
+- [ ] Cycle prevention header added to MoySkladService.php
+- [ ] All broken webhooks deleted from МойСклад
+- [ ] Database backup created and verified
+- [ ] Git commit made for header fix
+- [ ] Read [19-webhook-roadmap.md](19-webhook-roadmap.md) section "🚨 КРИТИЧЕСКИЕ НАХОДКИ В КОДЕ"
+
+**If ANY item unchecked → DO NOT PROCEED!**
+
+**See:** [19-webhook-tasks.md](19-webhook-tasks.md) Day 0 for detailed step-by-step instructions.
+
+---
+
 ## Code Inventory
 
 ### Existing Files (20% Complete)
