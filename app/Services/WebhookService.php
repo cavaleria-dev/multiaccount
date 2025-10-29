@@ -73,7 +73,7 @@ class WebhookService
     protected function setupProductWebhooks(Account $account, string $webhookUrl): array
     {
         $createdWebhooks = [];
-        $productEntities = ['product', 'variant', 'bundle'];
+        $productEntities = ['product', 'service', 'variant', 'bundle', 'productfolder'];
         $productActions = ['CREATE', 'UPDATE', 'DELETE'];
 
         foreach ($productEntities as $entityType) {
@@ -120,7 +120,7 @@ class WebhookService
     {
         $createdWebhooks = [];
         $orderEntities = ['customerorder', 'retaildemand', 'purchaseorder'];
-        $orderActions = ['UPDATE']; // Только UPDATE для заказов
+        $orderActions = ['CREATE', 'UPDATE', 'DELETE']; // Все lifecycle события для заказов
 
         foreach ($orderEntities as $entityType) {
             foreach ($orderActions as $action) {

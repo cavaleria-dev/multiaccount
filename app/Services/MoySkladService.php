@@ -171,6 +171,7 @@ class MoySkladService
             'Authorization' => 'Bearer ' . $this->accessToken,
             'Accept-Encoding' => 'gzip',
             'Content-Type' => 'application/json',
+            'X-Lognex-WebHook-DisableByPrefix' => config('app.url'), // Prevent webhook cycles
         ];
 
         $responseStatus = null;
