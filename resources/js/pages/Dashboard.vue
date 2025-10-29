@@ -96,7 +96,11 @@
 
 <script setup>
 import { ref, onMounted, defineProps, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import axios from 'axios'
 import api from '../api'
+
+const router = useRouter()
 
 const props = defineProps({
   context: Object,
@@ -114,6 +118,23 @@ const stats = ref({
 })
 
 const loadingStats = ref(false)
+
+// Проверка типа аккаунта и редирект на welcome screen если не установлен
+const checkAccountType = async () => {
+  try {
+    const response = await axios.get('/api/account/type')
+    const accountType = response.data.account_type
+
+    // Если тип аккаунта не установлен, редиректим на welcome screen
+    if (accountType === null || accountType === undefined) {
+      console.log('Account type not set, redirecting to welcome screen')
+      router.push('/app/welcome')
+    }
+  } catch (error) {
+    console.error('Error checking account type:', error)
+    // Не блокируем показ дашборда при ошибке
+  }
+}
 
 // Загрузка статистики
 const fetchStats = async () => {
@@ -142,6 +163,7 @@ const fetchStats = async () => {
 
 onMounted(() => {
   if (props.context) {
+    checkAccountType()
     fetchStats()
   }
 })
@@ -149,6 +171,7 @@ onMounted(() => {
 // Обновить статистику когда появляется контекст
 watch(() => props.context, (newContext) => {
   if (newContext) {
+    checkAccountType()
     fetchStats()
   }
 })
