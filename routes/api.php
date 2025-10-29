@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\MoySkladController;
 use App\Http\Controllers\WebhookController;
+use App\Http\Controllers\Admin\WebhookManagementController;
 use App\Http\Controllers\Api\ContextController;
 use App\Http\Controllers\Api\ChildAccountController;
 use App\Http\Controllers\Api\SyncSettingsController;
@@ -28,6 +29,25 @@ Route::post('apps/update-status', [MoySkladController::class, 'updateStatus']);
 
 // Webhook endpoints
 Route::post('webhooks/moysklad', [WebhookController::class, 'handle']);
+
+// Admin: Webhook Management API
+Route::prefix('admin/webhooks')->middleware(['moysklad.context'])->group(function () {
+    Route::get('/', [WebhookManagementController::class, 'index']);
+    Route::get('/accounts', [WebhookManagementController::class, 'accounts']);
+    Route::get('/problems', [WebhookManagementController::class, 'problems']);
+    Route::post('/health-check-all', [WebhookManagementController::class, 'healthCheckAll']);
+
+    Route::get('/{accountId}', [WebhookManagementController::class, 'show'])
+        ->whereUuid('accountId');
+    Route::post('/{accountId}/reinstall', [WebhookManagementController::class, 'reinstall'])
+        ->whereUuid('accountId');
+    Route::post('/{accountId}/health-check', [WebhookManagementController::class, 'healthCheck'])
+        ->whereUuid('accountId');
+    Route::get('/{accountId}/logs', [WebhookManagementController::class, 'logs'])
+        ->whereUuid('accountId');
+    Route::get('/{accountId}/stats', [WebhookManagementController::class, 'stats'])
+        ->whereUuid('accountId');
+});
 
 // Context API
 Route::post('context', [ContextController::class, 'getContext']);
