@@ -31,30 +31,30 @@ class BatchProductSyncHandler extends SyncTaskHandler
     ): void {
         $mainAccountId = $payload['main_account_id'];
         $childAccountId = $task->account_id;
-        $productIds = $payload['product_ids'] ?? [];
+        $products = $payload['products'] ?? [];
 
-        if (empty($productIds)) {
-            throw new \Exception('Invalid payload: missing product_ids for batch sync');
+        if (empty($products)) {
+            throw new \Exception('Invalid payload: missing products array for batch sync');
         }
 
         Log::info('Batch product sync started', [
             'task_id' => $task->id,
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'products_count' => count($productIds)
+            'products_count' => count($products)
         ]);
 
         // Выполнить batch синхронизацию
         $result = $this->batchSyncService->batchSyncProducts(
             $mainAccountId,
             $childAccountId,
-            $productIds
+            $products
         );
 
         $this->logSuccess($task, [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'products_count' => count($productIds),
+            'products_count' => count($products),
             'success_count' => $result['success'] ?? 0,
             'failed_count' => $result['failed'] ?? 0
         ]);

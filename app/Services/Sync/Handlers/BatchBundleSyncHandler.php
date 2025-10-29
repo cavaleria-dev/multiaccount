@@ -31,29 +31,29 @@ class BatchBundleSyncHandler extends SyncTaskHandler
     ): void {
         $mainAccountId = $payload['main_account_id'];
         $childAccountId = $task->account_id;
-        $bundleIds = $payload['bundle_ids'] ?? [];
+        $bundles = $payload['bundles'] ?? [];
 
-        if (empty($bundleIds)) {
-            throw new \Exception('Invalid payload: missing bundle_ids for batch sync');
+        if (empty($bundles)) {
+            throw new \Exception('Invalid payload: missing bundles array for batch sync');
         }
 
         Log::info('Batch bundle sync started', [
             'task_id' => $task->id,
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'bundles_count' => count($bundleIds)
+            'bundles_count' => count($bundles)
         ]);
 
         $result = $this->batchSyncService->batchSyncBundles(
             $mainAccountId,
             $childAccountId,
-            $bundleIds
+            $bundles
         );
 
         $this->logSuccess($task, [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'bundles_count' => count($bundleIds),
+            'bundles_count' => count($bundles),
             'success_count' => $result['success'] ?? 0,
             'failed_count' => $result['failed'] ?? 0
         ]);

@@ -481,4 +481,100 @@ class BatchSyncService
 
         return $deleted;
     }
+
+    /**
+     * Batch синхронизация массива товаров (products)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param array $products Массив products из МойСклад (уже с expand)
+     * @return array ['success' => int, 'failed' => int]
+     */
+    public function batchSyncProducts(
+        string $mainAccountId,
+        string $childAccountId,
+        array $products
+    ): array {
+        Log::info('batchSyncProducts called (stub)', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'products_count' => count($products)
+        ]);
+
+        // TODO: Implement full batch sync logic for products
+        // For now, sync individually as fallback
+        $successCount = 0;
+        $failedCount = 0;
+
+        foreach ($products as $product) {
+            try {
+                $this->productSyncService->syncProduct(
+                    $mainAccountId,
+                    $childAccountId,
+                    $product['id']
+                );
+                $successCount++;
+            } catch (\Exception $e) {
+                Log::error('Failed to sync product in batch', [
+                    'product_id' => $product['id'],
+                    'error' => $e->getMessage()
+                ]);
+                $failedCount++;
+            }
+        }
+
+        return ['success' => $successCount, 'failed' => $failedCount];
+    }
+
+    /**
+     * Batch синхронизация массива услуг (services)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param array $services Массив services из МойСклад (уже с expand)
+     * @return array ['success' => int, 'failed' => int]
+     */
+    public function batchSyncServices(
+        string $mainAccountId,
+        string $childAccountId,
+        array $services
+    ): array {
+        Log::info('batchSyncServices called (stub)', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'services_count' => count($services)
+        ]);
+
+        // TODO: Implement full batch sync logic for services
+        // For now, return empty result
+        Log::warning('batchSyncServices not fully implemented yet');
+
+        return ['success' => 0, 'failed' => count($services)];
+    }
+
+    /**
+     * Batch синхронизация массива комплектов (bundles)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $childAccountId UUID дочернего аккаунта
+     * @param array $bundles Массив bundles из МойСклад (уже с expand)
+     * @return array ['success' => int, 'failed' => int]
+     */
+    public function batchSyncBundles(
+        string $mainAccountId,
+        string $childAccountId,
+        array $bundles
+    ): array {
+        Log::info('batchSyncBundles called (stub)', [
+            'main_account_id' => $mainAccountId,
+            'child_account_id' => $childAccountId,
+            'bundles_count' => count($bundles)
+        ]);
+
+        // TODO: Implement full batch sync logic for bundles
+        // For now, return empty result
+        Log::warning('batchSyncBundles not fully implemented yet');
+
+        return ['success' => 0, 'failed' => count($bundles)];
+    }
 }

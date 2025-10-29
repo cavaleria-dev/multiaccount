@@ -31,29 +31,29 @@ class BatchServiceSyncHandler extends SyncTaskHandler
     ): void {
         $mainAccountId = $payload['main_account_id'];
         $childAccountId = $task->account_id;
-        $serviceIds = $payload['service_ids'] ?? [];
+        $services = $payload['services'] ?? [];
 
-        if (empty($serviceIds)) {
-            throw new \Exception('Invalid payload: missing service_ids for batch sync');
+        if (empty($services)) {
+            throw new \Exception('Invalid payload: missing services array for batch sync');
         }
 
         Log::info('Batch service sync started', [
             'task_id' => $task->id,
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'services_count' => count($serviceIds)
+            'services_count' => count($services)
         ]);
 
         $result = $this->batchSyncService->batchSyncServices(
             $mainAccountId,
             $childAccountId,
-            $serviceIds
+            $services
         );
 
         $this->logSuccess($task, [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'services_count' => count($serviceIds),
+            'services_count' => count($services),
             'success_count' => $result['success'] ?? 0,
             'failed_count' => $result['failed'] ?? 0
         ]);
