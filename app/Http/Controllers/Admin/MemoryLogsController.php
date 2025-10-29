@@ -106,7 +106,7 @@ class MemoryLogsController extends Controller
             ]);
 
             return redirect()->route('admin.memory.index')
-                ->with('error' => 'Ошибка загрузки деталей: ' . $e->getMessage());
+                ->with('error', 'Ошибка загрузки деталей: ' . $e->getMessage());
         }
     }
 
@@ -119,12 +119,18 @@ class MemoryLogsController extends Controller
             $period = $request->input('period', '24h'); // 24h, 7d, 30d
 
             // Определить начало периода
-            $startDate = match($period) {
-                '24h' => now()->subHours(24),
-                '7d' => now()->subDays(7),
-                '30d' => now()->subDays(30),
-                default => now()->subHours(24),
-            };
+            switch ($period) {
+                case '7d':
+                    $startDate = now()->subDays(7);
+                    break;
+                case '30d':
+                    $startDate = now()->subDays(30);
+                    break;
+                case '24h':
+                default:
+                    $startDate = now()->subHours(24);
+                    break;
+            }
 
             $data = QueueMemoryLog::where('logged_at', '>=', $startDate)
                 ->orderBy('logged_at')
