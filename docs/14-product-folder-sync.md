@@ -867,6 +867,138 @@ tail -f storage/logs/laravel.log | grep "Found existing product folder"
 4. Verify products moved to correct folders in МойСклад UI
 5. Future syncs will not create duplicates
 
+### Issue: Products Placed in Wrong Folder (API Fuzzy Search) ⭐ FIXED (2025-10-29)
+
+**Symptom:**
+- Products from main account group "Group A" end up in child account group "Group B"
+- Groups have completely different names (not just typos)
+- Products placed in existing root-level folder instead of creating correct one
+
+**Example:**
+```
+Main account:  "LEELOO (merch)" (root group)
+Child account: Products ended up in "Декор для маникюра" (root group, different name)
+Expected:      Create new "LEELOO (merch)" group in child
+```
+
+**Root Cause (Fixed in commit [a4e09f0](https://github.com/cavaleria-dev/multiaccount/commit/a4e09f0)):**
+
+1. **No exact name validation** - `findExistingFolder()` accepted first result from API without checking name
+2. **API fuzzy search** - МойСклад API performs approximate matching when searching by name
+3. **Wrong folder returned** - API returned "Декор для маникюра" when searching for "LEELOO (merch)"
+
+**Why API returns wrong folders:**
+- МойСклад search uses fuzzy matching algorithm
+- Root-level folders may match even with completely different names
+- First result from API is not guaranteed to be exact match
+
+**Fix Applied:**
+
+**File:** `app/Services/ProductFolderSyncService.php` (lines 418-474)
+
+**Changes:**
+
+1. **Added exact name validation for root folders:**
+   ```php
+   // For root folders - check exact name match
+   if ($parentFolderId === null) {
+       foreach ($folders as $folder) {
+           if (!isset($folder['productFolder']) && ($folder['name'] ?? '') === $name) {
+               Log::debug('Found exact match for root folder');
+               return $folder;
+           }
+       }
+       Log::debug('No exact match found for root folder', [
+           'searched_name' => $name,
+           'found_folders' => array_map(fn($f) => ['name' => $f['name'], 'id' => $f['id']], $folders)
+       ]);
+       return null;
+   }
+   ```
+
+2. **Added exact name validation for folders with parent:**
+   ```php
+   // For folders with parent - check exact name match
+   foreach ($folders as $folder) {
+       if (($folder['name'] ?? '') === $name) {
+           Log::debug('Found exact match for folder with parent');
+           return $folder;
+       }
+   }
+   Log::debug('No exact match found for folder with parent');
+   return null;
+   ```
+
+3. **Added detailed logging:**
+   - Logs search query (name + parent)
+   - Logs number of results from API
+   - Logs all found folder names when no exact match
+   - Helps diagnose similar issues in the future
+
+**Prevention (New Behavior):**
+
+After this fix, folder search will:
+- ✅ Search API by name (may return approximate matches)
+- ✅ Validate exact name match before accepting result
+- ✅ Return `null` if no exact match found → create new folder
+- ✅ Log all search results for debugging
+- ✅ Handle both root folders and folders with parents correctly
+
+**Monitoring:**
+
+```bash
+# Check folder search results
+tail -f storage/logs/laravel.log | grep -E "Searching for existing folder|Found exact match|No exact match"
+
+# Example logs:
+[DEBUG] Searching for existing folder
+  folder_name: LEELOO (merch)
+  parent_folder_id: null
+  results_count: 1
+
+[DEBUG] No exact match found for root folder
+  searched_name: LEELOO (merch)
+  found_folders: [{"name": "Декор для маникюра", "id": "060ad430-..."}]
+
+[INFO] Creating new product folder (no exact match in child)
+  folder_name: LEELOO (merch)
+```
+
+**What Changed:**
+
+**Before (wrong):**
+```php
+// Take first result from API without validation
+$folders = $this->moySkladService->getList(...);
+return $folders[0] ?? null;  // May be wrong folder!
+```
+
+**After (correct):**
+```php
+// Validate exact name match
+$folders = $this->moySkladService->getList(...);
+foreach ($folders as $folder) {
+    if (($folder['name'] ?? '') === $name) {
+        return $folder;  // Only return if name matches exactly
+    }
+}
+return null;  // No exact match → create new folder
+```
+
+**Impact:**
+
+- ✅ Products now go to correct groups (exact name match)
+- ✅ New groups created when needed (no fuzzy matching)
+- ✅ Existing groups reused only when names match exactly
+- ✅ Better logging for troubleshooting folder issues
+
+**Recommendation:**
+
+1. Verify that products synced after 2025-10-29 are in correct groups
+2. For products synced before the fix, check group assignment in child accounts
+3. If products are in wrong groups, delete and re-sync them
+4. Monitor logs for "No exact match found" messages (indicates new folder will be created)
+
 ## Testing
 
 ### Unit Tests (Future)

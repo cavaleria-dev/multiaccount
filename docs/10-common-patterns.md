@@ -514,15 +514,86 @@ if (isset($buyPrice['currency']['meta']['href'])) {
     - Variant is recreated with new characteristics
     - Manual cleanup command available: `php artisan sync:cleanup-stale-characteristic-mappings`
 
+### Data Synchronization
+
+21. **Attribute search must check type, not just name** - When child accounts have pre-existing attributes, searching by name only can match wrong attribute with same name but different type. Always use `AttributeSyncService::findAttributeByNameAndType()` which validates:
+    - Exact name match
+    - Exact type match (string, long, double, boolean, text, link, time, file, customentity, etc.)
+    - For `customentity` type: exact customEntity name match
+
+    **Wrong (name only):**
+    ```php
+    $childAttr = $childAttributesByName[$attrName] ?? null;  // May match wrong type!
+    ```
+
+    **Correct (name + type):**
+    ```php
+    $childAttr = $this->attributeSyncService->findAttributeByNameAndType(
+        $childAttributes,
+        $attrName,
+        $attrType,
+        $mainAttr['customEntityMeta'] ?? null
+    );
+    ```
+
+    **Why this matters:** Child accounts may have existing attributes from previous operations. Example:
+    - Main: "Цвет" (customentity type, entity: "Цвет")
+    - Child: Already has "Цвет" (string type) from different sync
+    - Searching by name only → matches wrong attribute → API error or data corruption
+
+22. **Product folder API uses fuzzy search, validate exact name** - МойСклад API performs approximate matching when searching folders by name. Always validate exact name match before accepting result, or you may link products to wrong groups. Fixed in commit [a4e09f0](https://github.com/cavaleria-dev/multiaccount/commit/a4e09f0).
+
+    **Wrong (accepts fuzzy match):**
+    ```php
+    $folders = $this->moySkladService->getList(..., ['filter' => "name~{$name}"]);
+    return $folders[0] ?? null;  // May return "Декор для маникюра" when searching "LEELOO (merch)"!
+    ```
+
+    **Correct (validates exact match):**
+    ```php
+    $folders = $this->moySkladService->getList(..., ['filter' => "name~{$name}"]);
+    foreach ($folders as $folder) {
+        if (($folder['name'] ?? '') === $name) {
+            return $folder;  // Only return if name matches exactly
+        }
+    }
+    return null;  // No exact match → create new folder
+    ```
+
+    **Real example:** Searching for "LEELOO (merch)" returned "Декор для маникюра" → products placed in completely wrong group. See [docs/14-product-folder-sync.md](docs/14-product-folder-sync.md#issue-products-placed-in-wrong-folder-api-fuzzy-search--fixed-2025-10-29) for details.
+
+23. **Variant code should NOT be synced** - Variant `code` field (артикул/article) should be excluded from synchronization to avoid uniqueness conflicts when child accounts have existing variants. Fixed in commit [13c385e](https://github.com/cavaleria-dev/multiaccount/commit/13c385e).
+
+    **Problem:**
+    - Main: Variant with code "ART-001"
+    - Child: Already has variant with code "ART-001" (from different product)
+    - Sync fails: "Артикул не уникален" (code must be unique)
+
+    **Solution:** Remove `code` from variant sync, keep `externalCode`:
+    ```php
+    // DON'T sync code
+    // if (isset($variant['code'])) { $variantData['code'] = $variant['code']; }
+
+    // DO sync externalCode
+    if (isset($variant['externalCode'])) {
+        $variantData['externalCode'] = $variant['externalCode'];
+    }
+    ```
+
+    **Why this works:** Variants are matched by parent product + characteristics, NOT by code. Code is optional field for internal accounting only. Removed from:
+    - `VariantSyncService::createVariant()` (line 303)
+    - `VariantSyncService::updateVariant()` (line 460)
+    - `VariantSyncService::prepareVariantDataForBatchUpdate()` (lines 1386-1388)
+
 ### Frontend
 
-21. **useMoyskladEntities Caching** - Always check if data is loaded before calling `load()`. Use `reload()` to force refresh. The composable prevents duplicate API calls automatically.
-22. **Component Emit Events** - Section components (ProductSyncSection, etc.) only emit events, they don't call APIs directly. Parent component (FranchiseSettings.vue) handles all API calls and state management.
-23. **Batch Loading First** - Use `getBatch()` for initial page load, then use individual endpoints only when user interacts (opens dropdown, clicks create, etc.)
-24. **Price Types Structure** - priceTypes endpoint returns `{main: [...], child: [...]}`, NOT a flat array. Always destructure correctly.
-25. **SimpleSelect Loading State** - Always pass `:loading` prop when data is being fetched asynchronously. This shows spinner and improves UX during API calls.
-26. **CustomEntity ID Extraction** - Use `extractCustomEntityId()` helper to extract UUID from `customEntityMeta.href`. Supports both full URL and relative paths. UUID format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (36 chars).
-27. **EXCLUDED_ATTRIBUTE_TYPES** - Constants in `SyncSettingsController` define attribute types that should NOT be synced (`counterparty`, `employee`, `store`, `organization`, `product`). These are filtered at API level in `getAttributes()` and `getBatchData()`. Never show these types in UI - they are managed via target objects settings.
-28. **MoySkladService New Methods** - Three convenience methods added for `StandardEntitySyncService`: `getEntity()`, `getList()`, `createEntity()`. These accept `accountId` (not token), fetch token from DB automatically, and return only data (not full response with rate limit info). Use these instead of direct `get()`/`post()` when you need simple entity operations.
-29. **auto_create_attributes is DEPRECATED** - Attribute synchronization is now controlled ONLY by `attribute_sync_list` (frontend selection of specific attributes). If `attribute_sync_list` is empty → NO attributes synced at all. If filled → ONLY selected attributes synced. The `auto_create_attributes` database field is ignored by sync services (`ProductSyncService`, `ServiceSyncService`, `BundleSyncService` call `syncAttributes()` unconditionally - the filtering happens inside `syncAttributes()` based on `attribute_sync_list`).
+24. **useMoyskladEntities Caching** - Always check if data is loaded before calling `load()`. Use `reload()` to force refresh. The composable prevents duplicate API calls automatically.
+25. **Component Emit Events** - Section components (ProductSyncSection, etc.) only emit events, they don't call APIs directly. Parent component (FranchiseSettings.vue) handles all API calls and state management.
+26. **Batch Loading First** - Use `getBatch()` for initial page load, then use individual endpoints only when user interacts (opens dropdown, clicks create, etc.)
+27. **Price Types Structure** - priceTypes endpoint returns `{main: [...], child: [...]}`, NOT a flat array. Always destructure correctly.
+28. **SimpleSelect Loading State** - Always pass `:loading` prop when data is being fetched asynchronously. This shows spinner and improves UX during API calls.
+29. **CustomEntity ID Extraction** - Use `extractCustomEntityId()` helper to extract UUID from `customEntityMeta.href`. Supports both full URL and relative paths. UUID format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (36 chars).
+30. **EXCLUDED_ATTRIBUTE_TYPES** - Constants in `SyncSettingsController` define attribute types that should NOT be synced (`counterparty`, `employee`, `store`, `organization`, `product`). These are filtered at API level in `getAttributes()` and `getBatchData()`. Never show these types in UI - they are managed via target objects settings.
+31. **MoySkladService New Methods** - Three convenience methods added for `StandardEntitySyncService`: `getEntity()`, `getList()`, `createEntity()`. These accept `accountId` (not token), fetch token from DB automatically, and return only data (not full response with rate limit info). Use these instead of direct `get()`/`post()` when you need simple entity operations.
+32. **auto_create_attributes is DEPRECATED** - Attribute synchronization is now controlled ONLY by `attribute_sync_list` (frontend selection of specific attributes). If `attribute_sync_list` is empty → NO attributes synced at all. If filled → ONLY selected attributes synced. The `auto_create_attributes` database field is ignored by sync services (`ProductSyncService`, `ServiceSyncService`, `BundleSyncService` call `syncAttributes()` unconditionally - the filtering happens inside `syncAttributes()` based on `attribute_sync_list`).
 

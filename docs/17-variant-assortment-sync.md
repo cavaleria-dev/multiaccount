@@ -763,9 +763,10 @@ public function prepareVariantForBatch(
     }
 
     // Добавить базовые поля
-    if (isset($variant['code'])) {
-        $variantData['code'] = $variant['code'];
-    }
+    // ВАЖНО: code НЕ синхронизируется (может вызвать конфликт уникальности в child)
+    // Variants сопоставляются по parent product + characteristics, НЕ по code
+    // См: commit 13c385e (2025-10-29)
+
     if (isset($variant['externalCode'])) {
         $variantData['externalCode'] = $variant['externalCode'];
     }
@@ -1207,6 +1208,67 @@ AND child_account_id = '<child_account_id>';
 - ✅ Proactive cleanup stale characteristic mappings
 - ✅ Пре-синхронизация характеристик БЕЗ sleep()
 - ✅ Проверка parent product mapping с retry механизмом
+
+---
+
+## Важные особенности и ограничения
+
+### ⚠️ Поле `code` НЕ синхронизируется (2025-10-29)
+
+**Проблема:** Поле `code` (артикул) имеет ограничение уникальности в МойСклад. При синхронизации модификаций возникали конфликты, когда child аккаунт уже имел модификацию с таким же кодом.
+
+**Пример:**
+```
+Main account:  Variant "Товар А (Размер M)" с code="ART-001"
+Child account: Уже есть Variant "Товар Б (Цвет Красный)" с code="ART-001"
+Sync attempt:  ❌ Ошибка: "Артикул не уникален"
+```
+
+**Решение (commit [13c385e](https://github.com/cavaleria-dev/multiaccount/commit/13c385e)):**
+
+Поле `code` **исключено** из синхронизации модификаций. Изменения внесены в 3 метода `VariantSyncService`:
+
+1. **createVariant()** (line 303)
+2. **updateVariant()** (line 460)
+3. **prepareVariantDataForBatchUpdate()** (lines 1386-1388)
+
+**Что синхронизируется:**
+- ✅ `externalCode` - внешний код (НЕ имеет ограничения уникальности)
+- ✅ `name` - название модификации
+- ✅ `characteristics` - характеристики (цвет, размер и т.д.)
+- ✅ `product` - ссылка на родительский товар
+- ✅ `salePrices`, `buyPrice` - цены (если отличаются от product)
+- ✅ `barcodes` - штрихкоды
+- ✅ `packs` - упаковки
+
+**Что НЕ синхронизируется:**
+- ❌ `code` - артикул (удален для избежания конфликтов уникальности)
+
+**Почему это работает:**
+
+Модификации сопоставляются между main и child аккаунтами по:
+- **Parent product** (через entity_mappings для product)
+- **Characteristics** (через characteristic_mappings)
+
+Поле `code` НЕ используется для сопоставления модификаций, поэтому его отсутствие не влияет на корректность синхронизации.
+
+**Код (после fix):**
+```php
+// createVariant(), updateVariant(), prepareVariantDataForBatchUpdate()
+$variantData = [
+    'name' => $variant['name'],
+    // code удален - избегаем конфликтов уникальности артикула
+    'externalCode' => $variant['externalCode'] ?? null,
+    'product' => [...],
+    'characteristics' => [...],
+    // ... остальные поля
+];
+```
+
+**Рекомендации:**
+- Если необходимо синхронизировать артикулы, используйте поле `externalCode` (не имеет ограничения уникальности)
+- Артикулы в child аккаунтах можно назначить вручную через МойСклад UI после синхронизации
+- Для отслеживания используйте entity_mappings (parent_entity_id → child_entity_id)
 
 ---
 
