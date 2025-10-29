@@ -495,33 +495,67 @@ class BatchSyncService
         string $childAccountId,
         array $products
     ): array {
-        Log::info('batchSyncProducts called (stub)', [
+        Log::info('batchSyncProducts started', [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'products_count' => count($products)
+            'products_count' => count($products),
+            'memory_initial_mb' => round(memory_get_usage(true) / 1024 / 1024, 2)
         ]);
 
-        // TODO: Implement full batch sync logic for products
-        // For now, sync individually as fallback
         $successCount = 0;
         $failedCount = 0;
 
-        foreach ($products as $product) {
-            try {
-                $this->productSyncService->syncProduct(
-                    $mainAccountId,
-                    $childAccountId,
-                    $product['id']
-                );
-                $successCount++;
-            } catch (\Exception $e) {
-                Log::error('Failed to sync product in batch', [
-                    'product_id' => $product['id'],
-                    'error' => $e->getMessage()
+        // Разбить на chunks по 10 товаров для предотвращения memory leaks
+        $chunks = array_chunk($products, 10);
+
+        foreach ($chunks as $chunkIndex => $chunk) {
+            foreach ($chunk as $product) {
+                try {
+                    $this->productSyncService->syncProduct(
+                        $mainAccountId,
+                        $childAccountId,
+                        $product['id']
+                    );
+                    $successCount++;
+                } catch (\Exception $e) {
+                    Log::error('Failed to sync product in batch', [
+                        'product_id' => $product['id'],
+                        'error' => $e->getMessage()
+                    ]);
+                    $failedCount++;
+                }
+
+                // Освободить память после каждого товара
+                unset($product);
+            }
+
+            // Освободить chunk
+            unset($chunk);
+
+            // Принудительная сборка мусора каждые 5 chunks (50 товаров)
+            if (($chunkIndex + 1) % 5 === 0) {
+                gc_collect_cycles();
+
+                Log::channel('memory')->debug('Batch products memory checkpoint', [
+                    'chunk' => $chunkIndex + 1,
+                    'total_chunks' => count($chunks),
+                    'processed' => ($chunkIndex + 1) * 10,
+                    'memory_current_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
+                    'memory_peak_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2),
                 ]);
-                $failedCount++;
             }
         }
+
+        // Финальная очистка памяти
+        unset($products, $chunks);
+        gc_collect_cycles();
+
+        Log::info('batchSyncProducts completed', [
+            'success' => $successCount,
+            'failed' => $failedCount,
+            'memory_final_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
+            'memory_peak_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2)
+        ]);
 
         return ['success' => $successCount, 'failed' => $failedCount];
     }
@@ -539,17 +573,55 @@ class BatchSyncService
         string $childAccountId,
         array $services
     ): array {
-        Log::info('batchSyncServices called (stub)', [
+        Log::info('batchSyncServices started', [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'services_count' => count($services)
+            'services_count' => count($services),
+            'memory_initial_mb' => round(memory_get_usage(true) / 1024 / 1024, 2)
         ]);
 
-        // TODO: Implement full batch sync logic for services
-        // For now, return empty result
-        Log::warning('batchSyncServices not fully implemented yet');
+        $successCount = 0;
+        $failedCount = 0;
 
-        return ['success' => 0, 'failed' => count($services)];
+        // Разбить на chunks по 10 услуг
+        $chunks = array_chunk($services, 10);
+
+        foreach ($chunks as $chunkIndex => $chunk) {
+            foreach ($chunk as $service) {
+                // TODO: Implement service sync when ServiceSyncService is available
+                Log::warning('Service sync not implemented yet', [
+                    'service_id' => $service['id'] ?? 'unknown'
+                ]);
+                $failedCount++;
+
+                unset($service);
+            }
+
+            unset($chunk);
+
+            // GC каждые 5 chunks
+            if (($chunkIndex + 1) % 5 === 0) {
+                gc_collect_cycles();
+
+                Log::channel('memory')->debug('Batch services memory checkpoint', [
+                    'chunk' => $chunkIndex + 1,
+                    'memory_current_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
+                    'memory_peak_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2),
+                ]);
+            }
+        }
+
+        // Финальная очистка
+        unset($services, $chunks);
+        gc_collect_cycles();
+
+        Log::info('batchSyncServices completed', [
+            'success' => $successCount,
+            'failed' => $failedCount,
+            'memory_final_mb' => round(memory_get_usage(true) / 1024 / 1024, 2)
+        ]);
+
+        return ['success' => $successCount, 'failed' => $failedCount];
     }
 
     /**
@@ -565,16 +637,54 @@ class BatchSyncService
         string $childAccountId,
         array $bundles
     ): array {
-        Log::info('batchSyncBundles called (stub)', [
+        Log::info('batchSyncBundles started', [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
-            'bundles_count' => count($bundles)
+            'bundles_count' => count($bundles),
+            'memory_initial_mb' => round(memory_get_usage(true) / 1024 / 1024, 2)
         ]);
 
-        // TODO: Implement full batch sync logic for bundles
-        // For now, return empty result
-        Log::warning('batchSyncBundles not fully implemented yet');
+        $successCount = 0;
+        $failedCount = 0;
 
-        return ['success' => 0, 'failed' => count($bundles)];
+        // Разбить на chunks по 10 комплектов
+        $chunks = array_chunk($bundles, 10);
+
+        foreach ($chunks as $chunkIndex => $chunk) {
+            foreach ($chunk as $bundle) {
+                // TODO: Implement bundle sync when BundleSyncService is available
+                Log::warning('Bundle sync not implemented yet', [
+                    'bundle_id' => $bundle['id'] ?? 'unknown'
+                ]);
+                $failedCount++;
+
+                unset($bundle);
+            }
+
+            unset($chunk);
+
+            // GC каждые 5 chunks
+            if (($chunkIndex + 1) % 5 === 0) {
+                gc_collect_cycles();
+
+                Log::channel('memory')->debug('Batch bundles memory checkpoint', [
+                    'chunk' => $chunkIndex + 1,
+                    'memory_current_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
+                    'memory_peak_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2),
+                ]);
+            }
+        }
+
+        // Финальная очистка
+        unset($bundles, $chunks);
+        gc_collect_cycles();
+
+        Log::info('batchSyncBundles completed', [
+            'success' => $successCount,
+            'failed' => $failedCount,
+            'memory_final_mb' => round(memory_get_usage(true) / 1024 / 1024, 2)
+        ]);
+
+        return ['success' => $successCount, 'failed' => $failedCount];
     }
 }

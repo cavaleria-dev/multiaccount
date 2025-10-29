@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\SyncQueue;
+use App\Models\QueueMemoryLog;
 use App\Services\Sync\TaskDispatcher;
 use App\Services\SyncStatisticsService;
 use App\Exceptions\RateLimitException;
@@ -30,13 +31,20 @@ class ProcessSyncQueueJob implements ShouldQueue
         TaskDispatcher $taskDispatcher,
         SyncStatisticsService $statisticsService
     ): void {
+        // Генерация уникального job_id для отслеживания памяти
+        $jobId = uniqid('job_', true);
+        $memoryLimit = 400 * 1024 * 1024;  // 400MB soft limit
+
         // Детальное логирование для диагностики
         $totalPending = \DB::table('sync_queue')->where('status', 'pending')->count();
         $currentTime = now()->toDateTimeString();
 
         Log::info('ProcessSyncQueueJob START', [
+            'job_id' => $jobId,
             'current_time' => $currentTime,
-            'total_pending_in_db' => $totalPending
+            'total_pending_in_db' => $totalPending,
+            'memory_initial_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
+            'memory_limit_mb' => round($memoryLimit / 1024 / 1024, 2)
         ]);
 
         // Обработать задачи из очереди (порциями по 50)
@@ -103,11 +111,44 @@ class ProcessSyncQueueJob implements ShouldQueue
             'tasks_count' => $balancedTasks->count()
         ]);
 
+        // Начальное логирование памяти в БД
+        QueueMemoryLog::create([
+            'job_id' => $jobId,
+            'batch_index' => 0,
+            'task_count' => $balancedTasks->count(),
+            'entity_type' => null,
+            'memory_current_mb' => memory_get_usage(true) / 1024 / 1024,
+            'memory_peak_mb' => memory_get_peak_usage(true) / 1024 / 1024,
+            'memory_limit_mb' => (float) ini_get('memory_limit') ?: 512.0,
+            'logged_at' => now(),
+        ]);
+
         // Кеш исчерпанных main accounts в пределах текущего batch
         $exhaustedMainAccounts = [];
 
-        foreach ($balancedTasks as $task) {
+        foreach ($balancedTasks as $index => $task) {
             try {
+                // Проверка памяти ПЕРЕД обработкой задачи
+                $currentMemory = memory_get_usage(true);
+
+                if ($currentMemory > $memoryLimit) {
+                    Log::warning('Memory limit approaching, stopping batch processing', [
+                        'job_id' => $jobId,
+                        'current_memory_mb' => round($currentMemory / 1024 / 1024, 2),
+                        'limit_mb' => round($memoryLimit / 1024 / 1024, 2),
+                        'processed_tasks' => $index,
+                        'remaining_tasks' => $balancedTasks->count() - $index,
+                        'stopped_at_task_id' => $task->id
+                    ]);
+
+                    // Вернуть оставшиеся задачи обратно в pending
+                    $balancedTasks->slice($index)->each(function($remainingTask) {
+                        $remainingTask->update(['status' => 'pending']);
+                    });
+
+                    break; // Остановить обработку
+                }
+
                 // Проверить: не исчерпан ли main account для этой задачи?
                 $payload = $task->payload;
                 $mainAccountId = $payload['main_account_id'] ?? null;
@@ -278,7 +319,57 @@ class ProcessSyncQueueJob implements ShouldQueue
                     ]);
                 }
             }
+
+            // Освободить память после обработки задачи
+            unset($task, $payload);
+
+            // Принудительная сборка мусора и логирование памяти каждые 10 задач
+            if (($index + 1) % 10 === 0) {
+                gc_collect_cycles();
+
+                // Логировать в БД
+                QueueMemoryLog::create([
+                    'job_id' => $jobId,
+                    'batch_index' => $index + 1,
+                    'task_count' => 10,
+                    'entity_type' => null,
+                    'memory_current_mb' => memory_get_usage(true) / 1024 / 1024,
+                    'memory_peak_mb' => memory_get_peak_usage(true) / 1024 / 1024,
+                    'memory_limit_mb' => (float) ini_get('memory_limit') ?: 512.0,
+                    'duration_ms' => null,
+                    'logged_at' => now(),
+                ]);
+
+                Log::channel('memory')->info('Queue memory checkpoint', [
+                    'job_id' => $jobId,
+                    'tasks_processed' => $index + 1,
+                    'memory_current_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
+                    'memory_peak_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2)
+                ]);
+            }
         }
+
+        // Финальная очистка памяти после завершения всех задач
+        unset($balancedTasks, $accountsCache, $settingsCache, $exhaustedMainAccounts);
+        gc_collect_cycles();
+
+        // Финальное логирование памяти
+        QueueMemoryLog::create([
+            'job_id' => $jobId,
+            'batch_index' => -1,  // -1 означает финальный лог
+            'task_count' => $tasks->count(),
+            'entity_type' => 'final',
+            'memory_current_mb' => memory_get_usage(true) / 1024 / 1024,
+            'memory_peak_mb' => memory_get_peak_usage(true) / 1024 / 1024,
+            'memory_limit_mb' => (float) ini_get('memory_limit') ?: 512.0,
+            'logged_at' => now(),
+        ]);
+
+        Log::info('ProcessSyncQueueJob COMPLETED', [
+            'job_id' => $jobId,
+            'final_memory_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
+            'peak_memory_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2)
+        ]);
     }
 
     // ========================================================================

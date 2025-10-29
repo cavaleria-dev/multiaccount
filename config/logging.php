@@ -136,6 +136,15 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Отдельный канал для логов памяти (memory monitoring)
+        'memory' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/memory.log'),
+            'level' => 'debug',
+            'days' => 7,
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];

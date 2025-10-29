@@ -39,6 +39,13 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::delete('/tasks/{id}', [\App\Http\Controllers\Admin\QueueController::class, 'delete'])->name('tasks.delete');
             Route::get('/rate-limits', [\App\Http\Controllers\Admin\QueueController::class, 'rateLimits'])->name('rate-limits');
         });
+
+        // Memory monitoring
+        Route::prefix('memory')->name('memory.')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Admin\MemoryLogsController::class, 'index'])->name('index');
+            Route::get('/chart', [\App\Http\Controllers\Admin\MemoryLogsController::class, 'chart'])->name('chart');
+            Route::get('/{jobId}', [\App\Http\Controllers\Admin\MemoryLogsController::class, 'show'])->name('show');
+        });
     });
 });
 
