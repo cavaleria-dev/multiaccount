@@ -222,6 +222,73 @@ class BatchSyncService
     }
 
     /**
+     * Массовая синхронизация услуги (service)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $serviceId UUID услуги
+     * @return int Количество добавленных задач
+     */
+    public function batchSyncService(string $mainAccountId, string $serviceId): int
+    {
+        try {
+            $childAccounts = DB::table('child_accounts')
+                ->join('sync_settings', 'child_accounts.child_account_id', '=', 'sync_settings.account_id')
+                ->where('child_accounts.parent_account_id', $mainAccountId)
+                ->where('child_accounts.status', 'active')
+                ->where('sync_settings.sync_services', true)
+                ->orderBy('sync_settings.sync_priority', 'desc')
+                ->select('child_accounts.*', 'sync_settings.sync_delay_seconds', 'sync_settings.sync_priority')
+                ->get();
+
+            Log::info('Batch sync service started', [
+                'main_account_id' => $mainAccountId,
+                'service_id' => $serviceId,
+                'child_accounts_count' => $childAccounts->count()
+            ]);
+
+            $baseDelay = 0;
+            $queuedCount = 0;
+
+            foreach ($childAccounts as $childAccount) {
+                $delay = $baseDelay + ($childAccount->sync_delay_seconds ?? 0);
+
+                SyncQueue::create([
+                    'account_id' => $childAccount->child_account_id,
+                    'entity_type' => 'service',
+                    'entity_id' => $serviceId,
+                    'operation' => 'sync',
+                    'priority' => $childAccount->sync_priority ?? 5,
+                    'status' => 'pending',
+                    'payload' => [
+                        'main_account_id' => $mainAccountId,
+                        'service_id' => $serviceId
+                    ],
+                    'scheduled_at' => now()->addSeconds($delay),
+                ]);
+
+                $queuedCount++;
+                $baseDelay += 0.15;
+            }
+
+            Log::info('Batch sync service queued', [
+                'main_account_id' => $mainAccountId,
+                'service_id' => $serviceId,
+                'queued_count' => $queuedCount
+            ]);
+
+            return $queuedCount;
+
+        } catch (\Exception $e) {
+            Log::error('Batch sync service failed', [
+                'main_account_id' => $mainAccountId,
+                'service_id' => $serviceId,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
      * Архивировать товар во всех дочерних аккаунтах
      * (при удалении или архивации в главном)
      *
@@ -377,6 +444,60 @@ class BatchSyncService
             Log::error('Batch archive bundle failed', [
                 'main_account_id' => $mainAccountId,
                 'bundle_id' => $bundleId,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Архивировать услугу во всех дочерних аккаунтах
+     * (при удалении или архивации в главном)
+     *
+     * @param string $mainAccountId UUID главного аккаунта
+     * @param string $serviceId UUID услуги
+     * @return int Количество добавленных задач
+     */
+    public function batchArchiveService(string $mainAccountId, string $serviceId): int
+    {
+        try {
+            $childAccounts = DB::table('child_accounts')
+                ->where('parent_account_id', $mainAccountId)
+                ->where('status', 'active')
+                ->get();
+
+            $queuedCount = 0;
+
+            foreach ($childAccounts as $childAccount) {
+                SyncQueue::create([
+                    'account_id' => $childAccount->child_account_id,
+                    'entity_type' => 'service',
+                    'entity_id' => $serviceId,
+                    'operation' => 'delete', // delete = archive
+                    'priority' => 3,
+                    'status' => 'pending',
+                    'payload' => [
+                        'main_account_id' => $mainAccountId,
+                        'service_id' => $serviceId
+                    ],
+                    'scheduled_at' => now(),
+                ]);
+
+                $queuedCount++;
+            }
+
+            Log::info('Batch archive service queued', [
+                'main_account_id' => $mainAccountId,
+                'service_id' => $serviceId,
+                'queued_count' => $queuedCount
+            ]);
+
+            return $queuedCount;
+
+        } catch (\Exception $e) {
+            Log::error('Batch archive service failed', [
+                'main_account_id' => $mainAccountId,
+                'service_id' => $serviceId,
                 'error' => $e->getMessage()
             ]);
             throw $e;

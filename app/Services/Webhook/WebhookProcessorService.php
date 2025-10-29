@@ -248,18 +248,12 @@ class WebhookProcessorService
      */
     protected function syncService(string $mainAccountId, string $serviceId, string $action): void
     {
-        // TODO: Implement batchSyncService for single service
-        // For now, use mass sync as workaround
-        Log::info('Service sync triggered (mass sync fallback)', [
-            'main_account_id' => $mainAccountId,
-            'service_id' => $serviceId,
-            'action' => $action,
-            'note' => 'Using mass batchSyncServices as single service sync not implemented yet'
-        ]);
-
-        // Fallback to mass sync
-        // TODO: Create batchSyncService method for single service
-        // $this->batchSyncService->batchSyncServices($mainAccountId, ...);
+        if ($action === 'DELETE') {
+            $this->batchSyncService->batchArchiveService($mainAccountId, $serviceId);
+        } else {
+            // CREATE or UPDATE
+            $this->batchSyncService->batchSyncService($mainAccountId, $serviceId);
+        }
     }
 
     /**
