@@ -3,6 +3,7 @@
 namespace App\Services\Webhook;
 
 use App\Models\Account;
+use App\Models\Webhook;
 use App\Models\WebhookHealthStat;
 use App\Services\MoySkladService;
 use Illuminate\Support\Facades\Log;
@@ -100,14 +101,14 @@ class WebhookSetupService
 
             foreach ($webhooksConfig as $webhookConfig) {
                 try {
-                    $webhook = $this->createWebhook(
+                    $webhookResult = $this->createWebhook(
                         $account,
                         $webhookUrl,
                         $webhookConfig['action'],
                         $webhookConfig['entity']
                     );
 
-                    $result['created'][] = $webhook;
+                    $result['created'][] = $webhookResult['moysklad'];
 
                     // Сохранить в webhook_health_stats
                     WebhookHealthStat::updateOrCreate(
@@ -117,7 +118,7 @@ class WebhookSetupService
                             'action' => $webhookConfig['action'],
                         ],
                         [
-                            'webhook_id' => $webhook['id'],
+                            'webhook_id' => $webhookResult['webhook']->id, // Локальный ID, не МойСклад ID!
                             'is_active' => true,
                             'last_check_at' => now(),
                             'last_success_at' => now(),
@@ -226,10 +227,10 @@ class WebhookSetupService
         foreach ($productEntities as $entityType) {
             foreach ($productActions as $action) {
                 try {
-                    $webhook = $this->createWebhook($account, $webhookUrl, $action, $entityType);
-                    $createdWebhooks[] = $webhook;
+                    $result = $this->createWebhook($account, $webhookUrl, $action, $entityType);
+                    $createdWebhooks[] = $result['moysklad'];
 
-                    // Сохранить в webhook_health
+                    // Сохранить в webhook_health_stats
                     WebhookHealthStat::updateOrCreate(
                         [
                             'account_id' => $account->account_id,
@@ -237,7 +238,7 @@ class WebhookSetupService
                             'action' => $action,
                         ],
                         [
-                            'webhook_id' => $webhook['id'],
+                            'webhook_id' => $result['webhook']->id, // Локальный ID, не МойСклад ID!
                             'is_active' => true,
                             'last_check_at' => now(),
                             'last_success_at' => now(),
@@ -272,8 +273,8 @@ class WebhookSetupService
         foreach ($orderEntities as $entityType) {
             foreach ($orderActions as $action) {
                 try {
-                    $webhook = $this->createWebhook($account, $webhookUrl, $action, $entityType);
-                    $createdWebhooks[] = $webhook;
+                    $result = $this->createWebhook($account, $webhookUrl, $action, $entityType);
+                    $createdWebhooks[] = $result['moysklad'];
 
                     WebhookHealthStat::updateOrCreate(
                         [
@@ -282,7 +283,7 @@ class WebhookSetupService
                             'action' => $action,
                         ],
                         [
-                            'webhook_id' => $webhook['id'],
+                            'webhook_id' => $result['webhook']->id, // Локальный ID, не МойСклад ID!
                             'is_active' => true,
                             'last_check_at' => now(),
                             'last_success_at' => now(),
@@ -306,7 +307,9 @@ class WebhookSetupService
     }
 
     /**
-     * Создать вебхук
+     * Создать вебхук в МойСклад и сохранить в базу
+     *
+     * @return array ['moysklad' => array, 'webhook' => Webhook] Данные МойСклад и локальная запись
      */
     protected function createWebhook(Account $account, string $url, string $action, string $entityType): array
     {
@@ -321,14 +324,41 @@ class WebhookSetupService
             ->setAccessToken($account->access_token)
             ->post('entity/webhook', $data);
 
+        $moyskladData = $result['data'];
+        $moyskladWebhookId = $moyskladData['id'] ?? null;
+
+        if (!$moyskladWebhookId) {
+            throw new \Exception('МойСклад did not return webhook ID');
+        }
+
+        // Создать или обновить локальную запись webhook
+        $webhook = Webhook::updateOrCreate(
+            [
+                'account_id' => $account->account_id,
+                'entity_type' => $entityType,
+                'action' => $action,
+            ],
+            [
+                'moysklad_webhook_id' => $moyskladWebhookId,
+                'account_type' => $account->account_type ?? 'main',
+                'enabled' => true,
+                'url' => $url,
+                'diff_type' => $action === 'UPDATE' ? 'FIELDS' : null,
+            ]
+        );
+
         Log::info('Webhook created', [
             'account_id' => $account->account_id,
             'entity_type' => $entityType,
             'action' => $action,
-            'webhook_id' => $result['data']['id'] ?? null
+            'moysklad_webhook_id' => $moyskladWebhookId,
+            'local_webhook_id' => $webhook->id
         ]);
 
-        return $result['data'];
+        return [
+            'moysklad' => $moyskladData,
+            'webhook' => $webhook,
+        ];
     }
 
     /**
@@ -386,33 +416,43 @@ class WebhookSetupService
             $webhookUrl = config('moysklad.webhook_url');
 
             // Обновить статус в webhook_health
-            $healthRecords = WebhookHealthStat::where('account_id', $accountId)->get();
+            $healthRecords = WebhookHealthStat::where('account_id', $accountId)
+                ->with('webhook') // Eager load webhook relationship
+                ->get();
 
             foreach ($healthRecords as $health) {
                 $found = false;
 
-                foreach ($webhooks as $webhook) {
-                    if ($webhook['id'] === $health->webhook_id) {
-                        $found = true;
+                // Get the moysklad_webhook_id from the local Webhook record
+                $moyskladWebhookId = $health->webhook?->moysklad_webhook_id;
 
-                        // Проверить что вебхук активен
-                        if (isset($webhook['enabled']) && !$webhook['enabled']) {
-                            $health->update([
-                                'is_active' => false,
-                                'error_message' => 'Webhook is disabled in MoySklad',
-                                'last_check_at' => now(),
-                            ]);
-                        } else {
-                            $health->update([
-                                'is_active' => true,
-                                'last_check_at' => now(),
-                                'last_success_at' => now(),
-                                'check_attempts' => 0,
-                                'error_message' => null,
-                            ]);
+                if (!$moyskladWebhookId) {
+                    // No local webhook record or missing moysklad_webhook_id
+                    $found = false;
+                } else {
+                    foreach ($webhooks as $webhook) {
+                        if ($webhook['id'] === $moyskladWebhookId) {
+                            $found = true;
+
+                            // Проверить что вебхук активен
+                            if (isset($webhook['enabled']) && !$webhook['enabled']) {
+                                $health->update([
+                                    'is_active' => false,
+                                    'error_message' => 'Webhook is disabled in MoySklad',
+                                    'last_check_at' => now(),
+                                ]);
+                            } else {
+                                $health->update([
+                                    'is_active' => true,
+                                    'last_check_at' => now(),
+                                    'last_success_at' => now(),
+                                    'check_attempts' => 0,
+                                    'error_message' => null,
+                                ]);
+                            }
+
+                            break;
                         }
-
-                        break;
                     }
                 }
 
@@ -435,7 +475,7 @@ class WebhookSetupService
                         ]);
 
                         try {
-                            $newWebhook = $this->createWebhook(
+                            $newWebhookResult = $this->createWebhook(
                                 $account,
                                 $webhookUrl,
                                 $health->action,
@@ -443,7 +483,7 @@ class WebhookSetupService
                             );
 
                             $health->update([
-                                'webhook_id' => $newWebhook['id'],
+                                'webhook_id' => $newWebhookResult['webhook']->id, // Локальный ID!
                                 'is_active' => true,
                                 'check_attempts' => 0,
                                 'error_message' => null,
@@ -555,7 +595,7 @@ class WebhookSetupService
 
                 foreach ($missingWebhooks as $missing) {
                     try {
-                        $webhook = $this->createWebhook(
+                        $webhookResult = $this->createWebhook(
                             $account,
                             $webhookUrl,
                             $missing['action'],
@@ -569,7 +609,7 @@ class WebhookSetupService
                                 'action' => $missing['action'],
                             ],
                             [
-                                'webhook_id' => $webhook['id'],
+                                'webhook_id' => $webhookResult['webhook']->id, // Локальный ID!
                                 'is_active' => true,
                                 'last_check_at' => now(),
                                 'last_success_at' => now(),
