@@ -80,7 +80,7 @@
                         <td class="px-6 py-4 text-center">
                             @if($account['health'])
                                 @php
-                                    $healthStatus = $account['health']['summary']['health_status'];
+                                    $healthStatus = $account['health']['overall_health'];
                                     $colors = [
                                         'healthy' => 'bg-green-100 text-green-800',
                                         'degraded' => 'bg-yellow-100 text-yellow-800',
@@ -108,8 +108,8 @@
                         <td class="px-6 py-4 text-center text-sm">
                             @if($account['health'])
                                 @php
-                                    $totalReceived = $account['health']['summary']['total_received'];
-                                    $totalFailed = $account['health']['summary']['total_failed'];
+                                    $totalReceived = $account['health']['metrics']['total_received'];
+                                    $totalFailed = $account['health']['metrics']['total_failed'];
                                     $successRate = $totalReceived > 0 ? (($totalReceived - $totalFailed) / $totalReceived * 100) : 0;
                                 @endphp
                                 <span class="font-medium {{ $successRate >= 95 ? 'text-green-600' : ($successRate >= 85 ? 'text-yellow-600' : 'text-red-600') }}">
@@ -171,7 +171,16 @@
             </p>
             <ul class="mt-2 text-sm text-red-600 list-disc list-inside">
                 @foreach($problemAccounts as $problem)
-                    <li>{{ $problem['account_name'] ?? $problem['account_id'] }}: {{ $problem['issue'] }}</li>
+                    <li>{{ $problem['account_name'] ?? $problem['account_id'] }}:
+                        @if($problem['critical_webhooks'] > 0)
+                            {{ $problem['critical_webhooks'] }} критичных
+                        @endif
+                        @if($problem['degraded_webhooks'] > 0)
+                            @if($problem['critical_webhooks'] > 0), @endif
+                            {{ $problem['degraded_webhooks'] }} деградированных
+                        @endif
+                        вебхуков
+                    </li>
                 @endforeach
             </ul>
         </div>

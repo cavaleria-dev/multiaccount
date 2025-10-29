@@ -77,13 +77,13 @@ class WebhookController extends Controller
             $stats = [
                 'total' => $accountsWithHealth->count(),
                 'healthy' => $accountsWithHealth->filter(function($acc) {
-                    return $acc['health'] && $acc['health']['summary']['health_status'] === 'healthy';
+                    return $acc['health'] && $acc['health']['overall_health'] === 'healthy';
                 })->count(),
                 'degraded' => $accountsWithHealth->filter(function($acc) {
-                    return $acc['health'] && in_array($acc['health']['summary']['health_status'], ['degraded', 'warning']);
+                    return $acc['health'] && in_array($acc['health']['overall_health'], ['degraded', 'warning']);
                 })->count(),
                 'critical' => $accountsWithHealth->filter(function($acc) {
-                    return $acc['health'] && $acc['health']['summary']['health_status'] === 'critical';
+                    return $acc['health'] && $acc['health']['overall_health'] === 'critical';
                 })->count(),
             ];
 
