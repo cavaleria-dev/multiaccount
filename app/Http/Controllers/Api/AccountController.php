@@ -50,19 +50,34 @@ class AccountController extends Controller
             $account->account_type = $newType;
             $account->save();
 
-            // If first time selection (was null) -> install ALL webhooks
-            if ($oldType === null) {
-                Log::info('First time account type selection - installing all webhooks', [
-                    'account_id' => $accountId,
-                    'new_type' => $newType
-                ]);
-
-                $this->installAllWebhooks($account);
-            } else {
-                Log::info('Account type changed - webhooks already installed', [
+            // Если первый раз ИЛИ тип изменился -> (пере)установить вебхуки
+            if ($oldType === null || $oldType !== $newType) {
+                Log::info('Installing webhooks for account type', [
                     'account_id' => $accountId,
                     'old_type' => $oldType,
                     'new_type' => $newType
+                ]);
+
+                $result = $this->webhookSetupService->reinstallWebhooks($account, $newType);
+
+                Log::info('Webhook installation completed', [
+                    'account_id' => $accountId,
+                    'account_type' => $newType,
+                    'created' => count($result['created'] ?? []),
+                    'errors' => count($result['errors'] ?? [])
+                ]);
+
+                // Если есть ошибки, логируем их
+                if (!empty($result['errors'])) {
+                    Log::warning('Some webhooks failed to install', [
+                        'account_id' => $accountId,
+                        'errors' => $result['errors']
+                    ]);
+                }
+            } else {
+                Log::info('Account type unchanged, skipping webhook reinstall', [
+                    'account_id' => $accountId,
+                    'account_type' => $newType
                 ]);
             }
 
@@ -83,68 +98,6 @@ class AccountController extends Controller
                 'message' => 'Ошибка: ' . $e->getMessage()
             ], 500);
         }
-    }
-
-    /**
-     * Install ALL 24 webhooks (main 15 + child 9)
-     * Called only on first account type selection
-     */
-    protected function installAllWebhooks(Account $account): void
-    {
-        // Get all webhook configurations (main + child)
-        $mainWebhooks = $this->webhookSetupService->getWebhooksConfig('main');
-        $childWebhooks = $this->webhookSetupService->getWebhooksConfig('child');
-        $allWebhooks = array_merge($mainWebhooks, $childWebhooks);
-
-        $webhookUrl = config('moysklad.webhook_url');
-        $installed = 0;
-        $errors = [];
-
-        Log::info('Starting installation of all webhooks', [
-            'account_id' => $account->account_id,
-            'total_webhooks' => count($allWebhooks),
-            'webhook_url' => $webhookUrl
-        ]);
-
-        foreach ($allWebhooks as $config) {
-            try {
-                $webhook = $this->webhookSetupService->createWebhook(
-                    $account,
-                    $webhookUrl,
-                    $config['action'],
-                    $config['entityType']
-                );
-
-                $installed++;
-
-                Log::debug('Webhook installed', [
-                    'account_id' => $account->account_id,
-                    'entity_type' => $config['entityType'],
-                    'action' => $config['action'],
-                    'webhook_id' => $webhook['id'] ?? 'unknown'
-                ]);
-            } catch (\Exception $e) {
-                $errors[] = [
-                    'entity' => $config['entityType'],
-                    'action' => $config['action'],
-                    'error' => $e->getMessage()
-                ];
-
-                Log::error('Failed to install webhook', [
-                    'account_id' => $account->account_id,
-                    'entity_type' => $config['entityType'],
-                    'action' => $config['action'],
-                    'error' => $e->getMessage()
-                ]);
-            }
-        }
-
-        Log::info('Webhook installation completed', [
-            'account_id' => $account->account_id,
-            'installed' => $installed,
-            'failed' => count($errors),
-            'errors' => $errors
-        ]);
     }
 
     /**
