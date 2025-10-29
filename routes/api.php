@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\ChildAccountController;
 use App\Http\Controllers\Api\SyncSettingsController;
 use App\Http\Controllers\Api\SyncActionsController;
 use App\Http\Controllers\Api\StatsController;
+use App\Http\Controllers\Api\AccountController;
 use App\Http\Middleware\LogMoySkladRequests;
 
 // Vendor API для МойСклад
@@ -55,6 +56,10 @@ Route::get('stats', [ContextController::class, 'getStats']);
 
 // Frontend API - требует контекст МойСклад
 Route::middleware(['moysklad.context'])->group(function () {
+    // Account type management
+    Route::post('account/set-type', [AccountController::class, 'setAccountType']);
+    Route::get('account/type', [AccountController::class, 'getAccountType']);
+
     // Дочерние аккаунты
     Route::apiResource('child-accounts', ChildAccountController::class)
         ->parameters(['child-accounts' => 'accountId'])

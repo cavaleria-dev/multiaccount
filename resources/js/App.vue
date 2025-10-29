@@ -29,6 +29,7 @@
                 Главная
               </router-link>
               <router-link
+                v-if="accountType === 'main'"
                 to="/app/accounts"
                 class="inline-flex items-center px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors"
                 :class="$route.path === '/app/accounts' || $route.path.startsWith('/app/accounts/') ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
@@ -97,7 +98,20 @@
 </template>
 
 <script setup>
+import { ref, onMounted } from 'vue'
 import { useMoyskladContext } from './composables/useMoyskladContext'
+import axios from 'axios'
 
 const { context, loading, error } = useMoyskladContext()
+const accountType = ref(null)
+
+// Load account type for conditional navigation
+onMounted(async () => {
+  try {
+    const response = await axios.get('/api/account/type')
+    accountType.value = response.data.account_type
+  } catch (err) {
+    console.error('Failed to load account type:', err)
+  }
+})
 </script>

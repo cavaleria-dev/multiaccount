@@ -31,23 +31,18 @@ class WebhookController extends Controller
             // Получить все проблемные аккаунты
             $problemAccounts = $this->healthService->getAccountsWithProblems();
 
-            // Получить главные аккаунты (у которых есть дочерние)
-            $mainAccounts = Account::whereIn('account_id', function($query) {
-                    $query->select('parent_account_id')
-                        ->from('child_accounts')
-                        ->distinct();
-                })
-                ->where('status', 'activated')
+            // Получить ВСЕ активированные аккаунты (главные и дочерние)
+            $allAccounts = Account::where('status', 'activated')
                 ->orderBy('account_name')
                 ->get();
 
-            // Для каждого главного аккаунта получить health report
-            $accountsWithHealth = $mainAccounts->map(function($account) use ($problemAccounts) {
+            // Для каждого аккаунта получить health report
+            $accountsWithHealth = $allAccounts->map(function($account) use ($problemAccounts) {
                 try {
                     $healthReport = $this->healthService->getHealthReport($account->account_id);
 
-                    // Определить тип аккаунта на основе вебхуков
-                    $accountType = 'main'; // По умолчанию главный
+                    // Использовать реальный тип аккаунта из БД
+                    $accountType = $account->account_type ?? 'unknown';
 
                     return [
                         'account_id' => $account->account_id,
@@ -65,7 +60,7 @@ class WebhookController extends Controller
                     return [
                         'account_id' => $account->account_id,
                         'account_name' => $account->account_name,
-                        'account_type' => 'main',
+                        'account_type' => $account->account_type ?? 'unknown',
                         'health' => null,
                         'has_problems' => false,
                         'error' => true
@@ -115,8 +110,8 @@ class WebhookController extends Controller
         try {
             $account = Account::where('account_id', $accountId)->firstOrFail();
 
-            // Определить тип аккаунта
-            $accountType = $request->input('account_type', 'main');
+            // Использовать реальный тип аккаунта из БД
+            $accountType = $account->account_type ?? $request->input('account_type', 'main');
 
             // Получить детальный health report
             $healthReport = $this->healthService->getHealthReport($accountId);

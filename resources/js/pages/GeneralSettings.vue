@@ -42,8 +42,8 @@
         </div>
       </div>
 
-      <!-- Настройки по умолчанию -->
-      <div class="bg-white shadow rounded-lg p-6">
+      <!-- Настройки по умолчанию (только для главного аккаунта) -->
+      <div v-if="settings.account_type === 'main'" class="bg-white shadow rounded-lg p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">Настройки по умолчанию для новых франшиз</h3>
         <div class="space-y-3">
           <Toggle
@@ -84,7 +84,7 @@
       <div class="bg-white shadow rounded-lg p-6">
         <h3 class="text-lg font-medium text-gray-900 mb-4">Лимиты и производительность</h3>
         <div class="space-y-4">
-          <div>
+          <div v-if="settings.account_type === 'main'">
             <label for="max_franchises" class="block text-sm font-medium text-gray-700">Максимум франшиз</label>
             <input
               type="number"
@@ -177,9 +177,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import Toggle from '../components/Toggle.vue'
+import axios from 'axios'
 
 const saving = ref(false)
 const saveSuccess = ref(false)
+const loading = ref(false)
 
 const settings = ref({
   account_type: 'main',
@@ -195,25 +197,43 @@ const settings = ref({
 })
 
 // Загрузка настроек
-onMounted(() => {
-  // TODO: Загрузка общих настроек из localStorage или API
-  const saved = localStorage.getItem('general_settings')
-  if (saved) {
-    try {
-      const parsed = JSON.parse(saved)
-      Object.assign(settings.value, parsed)
-    } catch (e) {
-      console.error('Failed to load settings:', e)
+onMounted(async () => {
+  loading.value = true
+
+  try {
+    // Load account type from API
+    const typeResponse = await axios.get('/api/account/type')
+    settings.value.account_type = typeResponse.data.account_type || 'main'
+
+    // Load other settings from localStorage
+    const saved = localStorage.getItem('general_settings')
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        // Don't override account_type from API with localStorage value
+        const { account_type, ...otherSettings } = parsed
+        Object.assign(settings.value, otherSettings)
+      } catch (e) {
+        console.error('Failed to load settings from localStorage:', e)
+      }
     }
+  } catch (err) {
+    console.error('Failed to load account type:', err)
+  } finally {
+    loading.value = false
   }
 })
 
-function saveSettings() {
+async function saveSettings() {
   try {
     saving.value = true
 
-    // TODO: Сохранение через API
-    // Пока сохраняем в localStorage
+    // Save account type via API
+    await axios.post('/api/account/set-type', {
+      account_type: settings.value.account_type
+    })
+
+    // Save other settings to localStorage
     localStorage.setItem('general_settings', JSON.stringify(settings.value))
 
     // Показать сообщение об успехе
@@ -224,7 +244,8 @@ function saveSettings() {
 
   } catch (err) {
     console.error('Failed to save settings:', err)
-    alert('Не удалось сохранить настройки')
+    const errorMessage = err.response?.data?.message || 'Не удалось сохранить настройки'
+    alert(errorMessage)
   } finally {
     saving.value = false
   }
