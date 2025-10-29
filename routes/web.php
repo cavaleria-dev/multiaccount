@@ -46,6 +46,14 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::get('/chart', [\App\Http\Controllers\Admin\MemoryLogsController::class, 'chart'])->name('chart');
             Route::get('/{jobId}', [\App\Http\Controllers\Admin\MemoryLogsController::class, 'show'])->name('show');
         });
+
+        // Webhooks management
+        Route::prefix('webhooks')->name('webhooks.')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Admin\WebhookController::class, 'index'])->name('index');
+            Route::get('/{accountId}', [\App\Http\Controllers\Admin\WebhookController::class, 'show'])->name('show');
+            Route::post('/{accountId}/reinstall', [\App\Http\Controllers\Admin\WebhookController::class, 'reinstall'])->name('reinstall');
+            Route::post('/{accountId}/health-check', [\App\Http\Controllers\Admin\WebhookController::class, 'healthCheck'])->name('health-check');
+        });
     });
 });
 

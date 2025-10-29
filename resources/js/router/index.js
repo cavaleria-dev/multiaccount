@@ -3,7 +3,6 @@ import Dashboard from '../pages/Dashboard.vue'
 import ChildAccounts from '../pages/ChildAccounts.vue'
 import GeneralSettings from '../pages/GeneralSettings.vue'
 import FranchiseSettings from '../pages/FranchiseSettings.vue'
-import WebhookManagement from '../pages/WebhookManagement.vue'
 
 const routes = [
   {
@@ -15,11 +14,6 @@ const routes = [
     path: '/app/accounts',
     name: 'child-accounts',
     component: ChildAccounts
-  },
-  {
-    path: '/app/webhooks',
-    name: 'webhook-management',
-    component: WebhookManagement
   },
   {
     path: '/app/settings',

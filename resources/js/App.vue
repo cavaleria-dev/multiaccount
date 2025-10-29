@@ -39,16 +39,6 @@
                 Аккаунты
               </router-link>
               <router-link
-                to="/app/webhooks"
-                class="inline-flex items-center px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors"
-                :class="$route.path === '/app/webhooks' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
-              >
-                <svg class="h-3.5 w-3.5 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                Вебхуки
-              </router-link>
-              <router-link
                 to="/app/settings"
                 class="inline-flex items-center px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors"
                 :class="$route.path === '/app/settings' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
