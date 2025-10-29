@@ -20,7 +20,7 @@ class VendorApiService
 
     public function __construct()
     {
-        $this->vendorApiUrl = config('moysklad.vendor_api_url', 'https://apps-api.moysklad.ru/api/vendor/1.0');
+        $this->vendorApiUrl = config('https://apps-api.moysklad.ru/api/vendor/1.0');
         $this->appUid = config('moysklad.app_uid');
         $this->secretKey = config('moysklad.secret_key');
     }

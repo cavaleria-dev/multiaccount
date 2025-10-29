@@ -646,6 +646,19 @@ GET {downloadHref from entity.images.rows[].meta.downloadHref}
 
 ## Changelog
 
+### 2025-10-29
+- **BUGFIX**: Fixed ImageSyncHandler after modular refactoring (commit f3bada3)
+  - **Problem**: Handler expected `entity_type` in payload, but all sync services send `parent_entity_type`
+  - **Cause**: During modular refactoring (ProcessSyncQueueJob → handlers), ImageSyncHandler was created based on old batch logic that expected `entity_type`, but after refactoring ALL tasks are created via sync services which use `parent_entity_type`
+  - **Solution**:
+    - Changed to read `parent_entity_type` (with fallback to `entity_type` for backwards compatibility)
+    - Split handler into two methods: `handleBatchImageSync()` and `handleLegacyImageSync()`
+    - Added support for both payload formats:
+      - Batch format: `{parent_entity_type, parent_entity_id, child_entity_id, images: [...]}`
+      - Legacy format: `{parent_entity_type, parent_entity_id, child_entity_id, image_url, filename}`
+  - **Affected file**: `app/Services/Sync/Handlers/ImageSyncHandler.php`
+  - **Error fixed**: "Invalid payload: missing entity_type for image sync"
+
 ### 2025-10-22
 - **BUGFIX**: Fixed image sync settings check to support `sync_images_all` option
   - Previously only checked `sync_images` flag, causing "Image sync is disabled" error when using "All images" option

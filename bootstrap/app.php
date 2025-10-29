@@ -29,12 +29,15 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->group('api', [
             // Только базовые middleware, без аутентификации
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            // Валидация UUID параметров для всех API маршрутов
+            \App\Http\Middleware\ValidateUuidParameters::class,
         ]);
 
         // Регистрируем алиасы для middleware
         $middleware->alias([
             'moysklad.context' => \App\Http\Middleware\MoySkladContext::class,
             'admin.auth' => \App\Http\Middleware\AdminAuth::class,
+            'validate.uuid' => \App\Http\Middleware\ValidateUuidParameters::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

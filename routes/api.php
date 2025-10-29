@@ -13,11 +13,14 @@ use App\Http\Middleware\LogMoySkladRequests;
 // Vendor API для МойСклад
 Route::prefix('moysklad/vendor/1.0')->middleware(LogMoySkladRequests::class)->group(function () {
     // ВАЖНО: status ПЕРВЫМ, чтобы не конфликтовал с другими роутами
-    Route::get('apps/{appId}/{accountId}/status', [MoySkladController::class, 'status']);
+    Route::get('apps/{appId}/{accountId}/status', [MoySkladController::class, 'status'])
+        ->whereUuid('accountId');
 
     // Остальные роуты
-    Route::put('apps/{appId}/{accountId}', [MoySkladController::class, 'install']);
-    Route::delete('apps/{appId}/{accountId}', [MoySkladController::class, 'uninstall']);
+    Route::put('apps/{appId}/{accountId}', [MoySkladController::class, 'install'])
+        ->whereUuid('accountId');
+    Route::delete('apps/{appId}/{accountId}', [MoySkladController::class, 'uninstall'])
+        ->whereUuid('accountId');
 });
 
 // Internal API
@@ -34,69 +37,95 @@ Route::get('stats', [ContextController::class, 'getStats']);
 Route::middleware(['moysklad.context'])->group(function () {
     // Дочерние аккаунты
     Route::apiResource('child-accounts', ChildAccountController::class)
-        ->parameters(['child-accounts' => 'accountId']);
+        ->parameters(['child-accounts' => 'accountId'])
+        ->whereUuid('accountId');
 
     // Доступные аккаунты для подключения
     Route::get('child-accounts-available', [ChildAccountController::class, 'available']);
-    Route::get('child-accounts-check/{accountId}', [ChildAccountController::class, 'checkAvailability']);
+    Route::get('child-accounts-check/{accountId}', [ChildAccountController::class, 'checkAvailability'])
+        ->whereUuid('accountId');
 
     // Настройки синхронизации
-    Route::get('sync-settings/{accountId}', [SyncSettingsController::class, 'show']);
-    Route::put('sync-settings/{accountId}', [SyncSettingsController::class, 'update']);
-    Route::get('sync-settings/{accountId}/batch', [SyncSettingsController::class, 'getBatchData']); // Batch loading endpoint
-    Route::get('sync-settings/{accountId}/price-types', [SyncSettingsController::class, 'getPriceTypes']);
-    Route::post('sync-settings/{accountId}/price-types', [SyncSettingsController::class, 'createPriceType']);
-    Route::get('sync-settings/{accountId}/attributes', [SyncSettingsController::class, 'getAttributes']);
-    Route::get('sync-settings/{accountId}/folders', [SyncSettingsController::class, 'getFolders']);
-    Route::get('sync-settings/{accountId}/custom-entities/{customEntityId}/elements', [SyncSettingsController::class, 'getCustomEntityElements']);
+    Route::get('sync-settings/{accountId}', [SyncSettingsController::class, 'show'])
+        ->whereUuid('accountId');
+    Route::put('sync-settings/{accountId}', [SyncSettingsController::class, 'update'])
+        ->whereUuid('accountId');
+    Route::get('sync-settings/{accountId}/batch', [SyncSettingsController::class, 'getBatchData']) // Batch loading endpoint
+        ->whereUuid('accountId');
+    Route::get('sync-settings/{accountId}/price-types', [SyncSettingsController::class, 'getPriceTypes'])
+        ->whereUuid('accountId');
+    Route::post('sync-settings/{accountId}/price-types', [SyncSettingsController::class, 'createPriceType'])
+        ->whereUuid('accountId');
+    Route::get('sync-settings/{accountId}/attributes', [SyncSettingsController::class, 'getAttributes'])
+        ->whereUuid('accountId');
+    Route::get('sync-settings/{accountId}/folders', [SyncSettingsController::class, 'getFolders'])
+        ->whereUuid('accountId');
+    Route::get('sync-settings/{accountId}/custom-entities/{customEntityId}/elements', [SyncSettingsController::class, 'getCustomEntityElements'])
+        ->whereUuid(['accountId', 'customEntityId']);
 
     // Справочники для целевых объектов (GET)
-    Route::get('sync-settings/{accountId}/organizations', [SyncSettingsController::class, 'getOrganizations']);
-    Route::get('sync-settings/{accountId}/stores', [SyncSettingsController::class, 'getStores']);
-    Route::get('sync-settings/{accountId}/projects', [SyncSettingsController::class, 'getProjects']);
-    Route::get('sync-settings/{accountId}/employees', [SyncSettingsController::class, 'getEmployees']);
-    Route::get('sync-settings/{accountId}/sales-channels', [SyncSettingsController::class, 'getSalesChannels']);
-    Route::get('sync-settings/{accountId}/states/{entityType}', [SyncSettingsController::class, 'getStates']);
+    Route::get('sync-settings/{accountId}/organizations', [SyncSettingsController::class, 'getOrganizations'])
+        ->whereUuid('accountId');
+    Route::get('sync-settings/{accountId}/stores', [SyncSettingsController::class, 'getStores'])
+        ->whereUuid('accountId');
+    Route::get('sync-settings/{accountId}/projects', [SyncSettingsController::class, 'getProjects'])
+        ->whereUuid('accountId');
+    Route::get('sync-settings/{accountId}/employees', [SyncSettingsController::class, 'getEmployees'])
+        ->whereUuid('accountId');
+    Route::get('sync-settings/{accountId}/sales-channels', [SyncSettingsController::class, 'getSalesChannels'])
+        ->whereUuid('accountId');
+    Route::get('sync-settings/{accountId}/states/{entityType}', [SyncSettingsController::class, 'getStates'])
+        ->whereUuid('accountId');
 
     // Создание целевых объектов (POST)
-    Route::post('sync-settings/{accountId}/projects', [SyncSettingsController::class, 'createProject']);
-    Route::post('sync-settings/{accountId}/stores', [SyncSettingsController::class, 'createStore']);
-    Route::post('sync-settings/{accountId}/sales-channels', [SyncSettingsController::class, 'createSalesChannel']);
-    Route::post('sync-settings/{accountId}/states/{entityType}', [SyncSettingsController::class, 'createState']);
+    Route::post('sync-settings/{accountId}/projects', [SyncSettingsController::class, 'createProject'])
+        ->whereUuid('accountId');
+    Route::post('sync-settings/{accountId}/stores', [SyncSettingsController::class, 'createStore'])
+        ->whereUuid('accountId');
+    Route::post('sync-settings/{accountId}/sales-channels', [SyncSettingsController::class, 'createSalesChannel'])
+        ->whereUuid('accountId');
+    Route::post('sync-settings/{accountId}/states/{entityType}', [SyncSettingsController::class, 'createState'])
+        ->whereUuid('accountId');
 
     // Действия синхронизации
-    Route::post('sync/{accountId}/products/all', [SyncActionsController::class, 'syncAllProducts']);
+    Route::post('sync/{accountId}/products/all', [SyncActionsController::class, 'syncAllProducts'])
+        ->whereUuid('accountId');
 
     // Статистика
     Route::get('stats/dashboard', [StatsController::class, 'dashboard']);
-    Route::get('stats/child-account/{accountId}', [StatsController::class, 'childAccount']);
+    Route::get('stats/child-account/{accountId}', [StatsController::class, 'childAccount'])
+        ->whereUuid('accountId');
 });
 
-// Debug endpoint - для проверки что запрос доходит
-Route::post('debug/context-test', function (\Illuminate\Http\Request $request) {
-    \Log::info('Debug context test endpoint called', [
-        'method' => $request->method(),
-        'headers' => $request->headers->all(),
-        'body' => $request->all(),
-        'ip' => $request->ip(),
-        'url' => $request->fullUrl()
-    ]);
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Request received successfully',
-        'data' => [
+// ==============================
+// Debug Endpoints - ONLY in debug mode
+// ==============================
+if (config('app.debug')) {
+    // Debug endpoint - для проверки что запрос доходит
+    Route::post('debug/context-test', function (\Illuminate\Http\Request $request) {
+        \Log::info('Debug context test endpoint called', [
             'method' => $request->method(),
-            'contextKey' => $request->input('contextKey'),
-            'headers' => $request->headers->all()
-        ]
-    ]);
-});
+            'headers' => $request->headers->all(),
+            'body' => $request->all(),
+            'ip' => $request->ip(),
+            'url' => $request->fullUrl()
+        ]);
 
-// Debug endpoint - для проверки атрибутов
-Route::get('debug/attributes-raw/{accountId}', function ($accountId) {
-    try {
-        $account = \App\Models\Account::where('account_id', $accountId)->first();
+        return response()->json([
+            'success' => true,
+            'message' => 'Request received successfully',
+            'data' => [
+                'method' => $request->method(),
+                'contextKey' => $request->input('contextKey'),
+                'headers' => $request->headers->all()
+            ]
+        ]);
+    });
+
+    // Debug endpoint - для проверки атрибутов
+    Route::get('debug/attributes-raw/{accountId}', function ($accountId) {
+        try {
+            $account = \App\Models\Account::where('account_id', $accountId)->first();
         if (!$account) {
             return response()->json(['error' => 'Account not found']);
         }
@@ -115,13 +144,13 @@ Route::get('debug/attributes-raw/{accountId}', function ($accountId) {
             'attributes_rows' => $attributes['data']['rows'] ?? []
         ]);
     } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()], 500);
-    }
-});
+            return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()], 500);
+        }
+    })->whereUuid('accountId');
 
-// Debug endpoint - для диагностики логов
-Route::get('debug/test-log', function () {
-    try {
+        // Debug endpoint - для диагностики логов
+    Route::get('debug/test-log', function () {
+        try {
         $logFile = storage_path('logs/laravel.log');
         $testTime = now()->format('Y-m-d H:i:s');
 
@@ -174,9 +203,10 @@ Route::get('debug/test-log', function () {
             'cached_config' => file_exists(base_path('bootstrap/cache/config.php')),
         ]);
     } catch (\Exception $e) {
-        return response()->json([
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString(),
-        ], 500);
-    }
-});
+            return response()->json([
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ], 500);
+        }
+    });
+}
