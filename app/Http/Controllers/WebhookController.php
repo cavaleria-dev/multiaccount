@@ -2,80 +2,129 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Account;
-use App\Services\BatchSyncService;
-use App\Services\CustomerOrderSyncService;
-use App\Services\RetailDemandSyncService;
-use App\Services\PurchaseOrderSyncService;
+use App\Jobs\ProcessWebhookJob;
+use App\Services\Webhook\WebhookReceiverService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Контроллер для обработки вебхуков МойСклад
+ *
+ * Responsibilities:
+ * - Fast webhook validation (< 50ms target)
+ * - Idempotency check via requestId
+ * - Save to webhook_logs table
+ * - Dispatch ProcessWebhookJob for async processing
+ * - Return fast 200 OK response
+ *
+ * IMPORTANT: МойСклад webhook format:
+ * {
+ *   "events": [
+ *     {
+ *       "accountId": "...",
+ *       "action": "CREATE",
+ *       "meta": {
+ *         "type": "product",
+ *         "href": "..."
+ *       }
+ *     }
+ *   ]
+ * }
+ *
+ * accountId, action, meta are INSIDE each event in events array!
  */
 class WebhookController extends Controller
 {
-    protected BatchSyncService $batchSyncService;
-    protected CustomerOrderSyncService $customerOrderSyncService;
-    protected RetailDemandSyncService $retailDemandSyncService;
-    protected PurchaseOrderSyncService $purchaseOrderSyncService;
+    protected WebhookReceiverService $receiverService;
 
-    public function __construct(
-        BatchSyncService $batchSyncService,
-        CustomerOrderSyncService $customerOrderSyncService,
-        RetailDemandSyncService $retailDemandSyncService,
-        PurchaseOrderSyncService $purchaseOrderSyncService
-    ) {
-        $this->batchSyncService = $batchSyncService;
-        $this->customerOrderSyncService = $customerOrderSyncService;
-        $this->retailDemandSyncService = $retailDemandSyncService;
-        $this->purchaseOrderSyncService = $purchaseOrderSyncService;
+    public function __construct(WebhookReceiverService $receiverService)
+    {
+        $this->receiverService = $receiverService;
     }
 
     /**
      * Обработать вебхук от МойСклад
+     *
+     * Fast validation + save + dispatch to queue
      *
      * @param Request $request
      * @return JsonResponse
      */
     public function handle(Request $request): JsonResponse
     {
-        try {
-            // Получить данные вебхука
-            $accountId = $request->input('accountId');
-            $entityType = $request->input('entityType');
-            $action = $request->input('action');
-            $events = $request->input('events', []);
+        $startTime = microtime(true);
 
-            Log::info('Webhook received', [
-                'account_id' => $accountId,
-                'entity_type' => $entityType,
-                'action' => $action,
-                'events_count' => count($events)
+        try {
+            // 1. Get full payload
+            $payload = $request->all();
+
+            // 2. Get requestId from header (for idempotency)
+            $requestId = $request->header('X-Lognex-WebHook-Request-Id');
+
+            if (!$requestId) {
+                Log::warning('Webhook received without requestId header', [
+                    'payload' => $payload
+                ]);
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Missing X-Lognex-WebHook-Request-Id header'
+                ], 400);
+            }
+
+            // 3. Validate and save using WebhookReceiverService
+            try {
+                $webhookLog = $this->receiverService->receive($payload, $requestId);
+            } catch (\Exception $e) {
+                // Check if it's a duplicate
+                if (str_contains($e->getMessage(), 'Duplicate webhook')) {
+                    $processingTime = (int) ((microtime(true) - $startTime) * 1000);
+
+                    Log::info('Webhook duplicate detected', [
+                        'request_id' => $requestId,
+                        'processing_time_ms' => $processingTime
+                    ]);
+
+                    // Return 200 OK for duplicates (idempotent)
+                    return response()->json([
+                        'status' => 'duplicate',
+                        'request_id' => $requestId
+                    ], 200);
+                }
+
+                throw $e;
+            }
+
+            // 4. Dispatch async processing job
+            ProcessWebhookJob::dispatch($webhookLog->id);
+
+            // 5. Calculate processing time
+            $processingTime = (int) ((microtime(true) - $startTime) * 1000);
+
+            Log::info('Webhook accepted', [
+                'request_id' => $requestId,
+                'webhook_log_id' => $webhookLog->id,
+                'account_id' => $webhookLog->account_id,
+                'entity_type' => $webhookLog->entity_type,
+                'action' => $webhookLog->action,
+                'events_count' => $webhookLog->events_count,
+                'processing_time_ms' => $processingTime
             ]);
 
-            // Проверить аккаунт
-            $account = Account::where('account_id', $accountId)->first();
-
-            if (!$account) {
-                Log::warning('Webhook for unknown account', [
-                    'account_id' => $accountId
-                ]);
-                return response()->json(['status' => 'ignored', 'reason' => 'unknown_account'], 200);
-            }
-
-            // Обработать события
-            foreach ($events as $event) {
-                $this->processEvent($account, $entityType, $action, $event);
-            }
-
-            return response()->json(['status' => 'ok'], 200);
+            // 6. Return fast response
+            return response()->json([
+                'status' => 'accepted',
+                'request_id' => $requestId,
+                'webhook_log_id' => $webhookLog->id
+            ], 200);
 
         } catch (\Exception $e) {
-            Log::error('Webhook processing failed', [
+            $processingTime = (int) ((microtime(true) - $startTime) * 1000);
+
+            Log::error('Webhook validation failed', [
+                'request_id' => $request->header('X-Lognex-WebHook-Request-Id'),
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'processing_time_ms' => $processingTime
             ]);
 
             return response()->json([
@@ -83,272 +132,5 @@ class WebhookController extends Controller
                 'message' => $e->getMessage()
             ], 500);
         }
-    }
-
-    /**
-     * Обработать событие вебхука
-     */
-    protected function processEvent(Account $account, string $entityType, string $action, array $event): void
-    {
-        $entityId = $this->extractEntityId($event);
-
-        if (!$entityId) {
-            Log::warning('Cannot extract entity ID from event', [
-                'account_id' => $account->account_id,
-                'entity_type' => $entityType,
-                'event' => $event
-            ]);
-            return;
-        }
-
-        Log::debug('Processing webhook event', [
-            'account_id' => $account->account_id,
-            'account_type' => $account->account_type,
-            'entity_type' => $entityType,
-            'action' => $action,
-            'entity_id' => $entityId
-        ]);
-
-        // Роутинг по типу сущности и типу аккаунта
-        match($entityType) {
-            'product' => $this->handleProduct($account, $action, $entityId),
-            'variant' => $this->handleVariant($account, $action, $entityId),
-            'bundle' => $this->handleBundle($account, $action, $entityId),
-            'customerorder' => $this->handleCustomerOrder($account, $action, $entityId),
-            'retaildemand' => $this->handleRetailDemand($account, $action, $entityId),
-            'purchaseorder' => $this->handlePurchaseOrder($account, $action, $entityId),
-            default => Log::debug('Unhandled entity type', ['entity_type' => $entityType])
-        };
-    }
-
-    /**
-     * Обработать событие товара
-     */
-    protected function handleProduct(Account $account, string $action, string $entityId): void
-    {
-        // Синхронизация товаров идет только из главного аккаунта в дочерние
-        if ($account->account_type !== 'main') {
-            Log::debug('Product event from non-main account, ignoring', [
-                'account_id' => $account->account_id,
-                'entity_id' => $entityId
-            ]);
-            return;
-        }
-
-        match($action) {
-            'CREATE', 'UPDATE' => $this->batchSyncService->batchSyncProduct(
-                $account->account_id,
-                $entityId
-            ),
-            'DELETE' => $this->batchSyncService->batchArchiveProduct(
-                $account->account_id,
-                $entityId
-            ),
-            default => Log::debug('Unhandled product action', ['action' => $action])
-        };
-
-        Log::info('Product sync queued', [
-            'account_id' => $account->account_id,
-            'product_id' => $entityId,
-            'action' => $action
-        ]);
-    }
-
-    /**
-     * Обработать событие модификации
-     */
-    protected function handleVariant(Account $account, string $action, string $entityId): void
-    {
-        if ($account->account_type !== 'main') {
-            return;
-        }
-
-        match($action) {
-            'CREATE', 'UPDATE' => $this->batchSyncService->batchSyncVariant(
-                $account->account_id,
-                $entityId
-            ),
-            'DELETE' => $this->batchSyncService->batchArchiveVariant(
-                $account->account_id,
-                $entityId
-            ),
-            default => null
-        };
-
-        Log::info('Variant sync queued', [
-            'account_id' => $account->account_id,
-            'variant_id' => $entityId,
-            'action' => $action
-        ]);
-    }
-
-    /**
-     * Обработать событие комплекта
-     */
-    protected function handleBundle(Account $account, string $action, string $entityId): void
-    {
-        if ($account->account_type !== 'main') {
-            return;
-        }
-
-        match($action) {
-            'CREATE', 'UPDATE' => $this->batchSyncService->batchSyncBundle(
-                $account->account_id,
-                $entityId
-            ),
-            'DELETE' => $this->batchSyncService->batchArchiveBundle(
-                $account->account_id,
-                $entityId
-            ),
-            default => null
-        };
-
-        Log::info('Bundle sync queued', [
-            'account_id' => $account->account_id,
-            'bundle_id' => $entityId,
-            'action' => $action
-        ]);
-    }
-
-    /**
-     * Обработать событие заказа покупателя
-     */
-    protected function handleCustomerOrder(Account $account, string $action, string $entityId): void
-    {
-        // Заказы синхронизируются из дочерних в главный
-        if ($account->account_type !== 'child') {
-            Log::debug('Customer order event from non-child account, ignoring', [
-                'account_id' => $account->account_id,
-                'entity_id' => $entityId
-            ]);
-            return;
-        }
-
-        if ($action !== 'UPDATE') {
-            Log::debug('Customer order non-update action, ignoring', [
-                'action' => $action,
-                'entity_id' => $entityId
-            ]);
-            return;
-        }
-
-        try {
-            // Синхронизировать немедленно (не через очередь)
-            // Так как заказы критичны по времени
-            $this->customerOrderSyncService->syncCustomerOrder(
-                $account->account_id,
-                $entityId
-            );
-
-            Log::info('Customer order synced', [
-                'account_id' => $account->account_id,
-                'order_id' => $entityId
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Customer order sync failed', [
-                'account_id' => $account->account_id,
-                'order_id' => $entityId,
-                'error' => $e->getMessage()
-            ]);
-        }
-    }
-
-    /**
-     * Обработать событие розничной продажи
-     */
-    protected function handleRetailDemand(Account $account, string $action, string $entityId): void
-    {
-        // Розничные продажи синхронизируются из дочерних в главный
-        if ($account->account_type !== 'child') {
-            return;
-        }
-
-        if ($action !== 'UPDATE') {
-            return;
-        }
-
-        try {
-            // Синхронизировать немедленно
-            $this->retailDemandSyncService->syncRetailDemand(
-                $account->account_id,
-                $entityId
-            );
-
-            Log::info('Retail demand synced', [
-                'account_id' => $account->account_id,
-                'demand_id' => $entityId
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Retail demand sync failed', [
-                'account_id' => $account->account_id,
-                'demand_id' => $entityId,
-                'error' => $e->getMessage()
-            ]);
-        }
-    }
-
-    /**
-     * Обработать событие заказа поставщику
-     */
-    protected function handlePurchaseOrder(Account $account, string $action, string $entityId): void
-    {
-        // Заказы поставщику синхронизируются из дочерних в главный
-        if ($account->account_type !== 'child') {
-            Log::debug('Purchase order event from non-child account, ignoring', [
-                'account_id' => $account->account_id,
-                'entity_id' => $entityId
-            ]);
-            return;
-        }
-
-        // Обрабатываем CREATE и UPDATE (не DELETE)
-        if (!in_array($action, ['CREATE', 'UPDATE'])) {
-            Log::debug('Purchase order non-create/update action, ignoring', [
-                'action' => $action,
-                'entity_id' => $entityId
-            ]);
-            return;
-        }
-
-        try {
-            // Синхронизировать немедленно (не через очередь)
-            // Так как заказы критичны по времени
-            $this->purchaseOrderSyncService->syncPurchaseOrder(
-                $account->account_id,
-                $entityId
-            );
-
-            Log::info('Purchase order synced', [
-                'account_id' => $account->account_id,
-                'order_id' => $entityId,
-                'action' => $action
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Purchase order sync failed', [
-                'account_id' => $account->account_id,
-                'order_id' => $entityId,
-                'action' => $action,
-                'error' => $e->getMessage()
-            ]);
-        }
-    }
-
-    /**
-     * Извлечь ID сущности из события
-     */
-    protected function extractEntityId(array $event): ?string
-    {
-        // Из meta.href извлечь последнюю часть URL
-        $href = $event['meta']['href'] ?? null;
-
-        if (!$href) {
-            return null;
-        }
-
-        $parts = explode('/', $href);
-        return end($parts) ?: null;
     }
 }
