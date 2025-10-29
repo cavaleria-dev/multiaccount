@@ -42,7 +42,19 @@
 **Goal:** Create all database tables and update existing tables with missing columns
 
 **Prerequisites:**
-- [ ] Backup current database: `pg_dump multiaccount > backup_$(date +%Y%m%d).sql`
+- [ ] Backup current database on server:
+  ```bash
+  # SSH to server first
+  ssh your-server
+  cd /var/www/multiaccount
+
+  # Create backup (choose one method):
+  # Option A: Using postgres user
+  sudo -u postgres pg_dump multiaccount > backup_$(date +%Y%m%d).sql
+
+  # Option B: Using Laravel
+  php artisan db:dump --database=pgsql
+  ```
 - [ ] Create feature branch: `git checkout -b feature/webhook-system-complete`
 - [ ] Confirm migrations can be rolled back
 

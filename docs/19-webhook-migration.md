@@ -300,18 +300,25 @@ See: [18-webhook-testing.md](18-webhook-testing.md)
 
 **Backup everything:**
 ```bash
-# Database backup
-pg_dump multiaccount > backup_pre_webhook_$(date +%Y%m%d).sql
+# Database backup (on server via SSH!)
+ssh your-server
+cd /var/www/multiaccount
+sudo -u postgres pg_dump multiaccount > backup_pre_webhook_$(date +%Y%m%d).sql
+# Or: php artisan db:dump --database=pgsql
+exit
 
-# Code backup
+# Code backup (local)
 git stash save "pre-webhook-migration-$(date +%Y%m%d)"
 
-# Create feature branch
+# Create feature branch (local)
 git checkout -b feature/webhook-system-complete
 
-# Document current state
+# Document current state (on server via SSH)
+ssh your-server
+cd /var/www/multiaccount
 php artisan route:list > routes_before_webhook.txt
 ls -la app/Services/ > services_before_webhook.txt
+exit
 ```
 
 **Verify prerequisites:**

@@ -621,7 +621,13 @@ $entities = $this->moySkladService->get("entity/product", [
 2. **Confirm resource allocation** (developer availability)
 3. **Setup staging environment** (if not already)
 4. **Create feature branch:** `git checkout -b feature/webhook-system-complete`
-5. **Backup production database:** `pg_dump multiaccount > backup_$(date +%Y%m%d).sql`
+5. **Backup production database** (on server via SSH):
+   ```bash
+   ssh your-server
+   cd /var/www/multiaccount
+   sudo -u postgres pg_dump multiaccount > backup_$(date +%Y%m%d).sql
+   # Or: php artisan db:dump --database=pgsql
+   ```
 
 ### Start Development (Day 1 - Tomorrow)
 
