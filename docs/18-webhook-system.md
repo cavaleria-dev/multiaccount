@@ -1,9 +1,138 @@
 # Webhook System - Complete Implementation Plan
 
 **Created:** 2025-10-29
-**Status:** Planning
+**Last Updated:** 2025-10-29
+**Status:** 20% Implemented → Target: 100%
 **Priority:** High
-**Estimated Implementation:** 12 days (2 weeks)
+**Timeline:** 14 days (3 weeks)
+
+---
+
+## 📊 Current Implementation Status
+
+**Last Updated:** 2025-10-29
+**Progress:** **20% Complete** ⚠️
+**Timeline:** 14 days to reach 100%
+
+### Implementation Roadmap Documents
+
+For complete implementation plan, see:
+- **[19-webhook-roadmap.md](19-webhook-roadmap.md)** ⭐ - High-level overview, timeline, success criteria
+- **[19-webhook-tasks.md](19-webhook-tasks.md)** ⭐ - Day-by-day task breakdown (14 days)
+- **[19-webhook-migration.md](19-webhook-migration.md)** ⭐ - Migration from existing code
+
+---
+
+### What Exists (20% Implemented) ✅
+
+**Database Tables:**
+- ✅ `webhooks` table (missing 5 columns, needs ALTER migration)
+- ✅ `webhook_health` table (complete)
+
+**Models:**
+- ✅ `WebhookHealth.php` (basic, needs rename to WebhookHealthStat)
+
+**Services:**
+- ✅ `WebhookService.php` (basic setup/cleanup, needs rename to WebhookSetupService + enhancement)
+
+**Controllers:**
+- ✅ `WebhookController.php` (simplified version, needs complete rewrite - wrong payload parsing)
+
+**Routes:**
+- ✅ `POST /api/webhooks/moysklad` (basic endpoint)
+
+---
+
+### What's Missing (80% Not Implemented) ❌
+
+**Services (3 missing - CRITICAL):**
+- ❌ `WebhookReceiverService` - Fast validation + idempotency + log creation
+- ❌ `WebhookProcessorService` - Event parsing + filter checks + task creation (MOST COMPLEX)
+- ❌ `WebhookHealthService` - Health monitoring + statistics + alerts
+
+**Jobs (2 missing - CRITICAL):**
+- ❌ `ProcessWebhookJob` - Async webhook processing
+- ❌ `SetupAccountWebhooksJob` - Async webhook installation
+
+**Models (2 missing - CRITICAL):**
+- ❌ `Webhook` - Full model with relationships + health tracking
+- ❌ `WebhookLog` - Processing log with status management
+
+**Migrations (5 missing - CRITICAL):**
+- ❌ `update_webhooks_table` - Add missing columns (account_type, diff_type, total_received, etc.)
+- ❌ `create_webhook_logs_table` - Store all incoming webhooks
+- ❌ `create_webhook_health_stats_table` - Aggregated statistics (optional if keeping webhook_health)
+- ❌ `update_sync_settings_table` - Add account_type + webhooks_enabled
+- ❌ `update_child_accounts_table` - Add status tracking (status, inactive_reason, inactive_at)
+
+**Commands (4 missing - HIGH):**
+- ❌ `webhooks:setup` - Install webhooks via CLI
+- ❌ `webhooks:check` - Health monitoring
+- ❌ `webhooks:cleanup-logs` - Log maintenance
+- ❌ `webhooks:update-stats` - Statistics aggregation
+
+**Frontend (3 components missing - MEDIUM):**
+- ❌ `AccountTypeSelector.vue` - First-time account type selection (/welcome)
+- ❌ `admin/WebhookHealth.vue` - Health monitoring dashboard (/admin/webhook-health)
+- ❌ `admin/WebhookLogs.vue` - Detailed log viewer (/admin/webhook-logs)
+
+**Tests (0% coverage - HIGH):**
+- ❌ Unit tests for all services
+- ❌ Integration tests for webhook flow
+- ❌ Manual test scenarios
+
+---
+
+### Critical Issues in Existing Code ⚠️
+
+**1. WebhookController.php - Wrong Payload Parsing:**
+```php
+// ❌ WRONG (current code):
+$action = $payload['action'] ?? null;
+$entityType = $payload['entityType'] ?? null;
+
+// ✅ CORRECT (what МойСклад actually sends):
+$events = $payload['events'];
+foreach ($events as $event) {
+    $action = $event['action'];           // Inside event!
+    $entityType = $event['meta']['type']; // Inside meta!
+}
+```
+
+**2. Webhooks Table - Missing Columns:**
+- Missing: `account_type`, `diff_type`, `last_triggered_at`, `total_received`, `total_failed`
+- Wrong name: `webhook_id` (should be `moysklad_webhook_id`)
+- Missing constraint: UNIQUE (account_id, entity_type, action)
+
+**3. No Idempotency:**
+- Duplicate webhooks (МойСклад retries) not handled
+- Need to check `X-Request-Id` header
+
+**4. Synchronous Processing:**
+- Controller processes webhook inline (blocks response)
+- Should dispatch job immediately, return 200 OK
+
+---
+
+### Next Steps to Complete Implementation
+
+**Week 1 (Days 1-7): Backend Core** - See [19-webhook-tasks.md](19-webhook-tasks.md)
+- Day 1: Fix database migrations
+- Day 2: Create missing models
+- Day 3-4: Create 4 services
+- Day 5: Create 2 jobs
+- Day 6: Rewrite controller + add admin controller
+- Day 7: Create 4 Artisan commands
+
+**Week 2 (Days 8-10): Frontend & Testing**
+- Day 8-9: Create 3 Vue components
+- Day 10: Write unit + integration tests (>80% coverage)
+
+**Week 3 (Days 11-14): Deployment**
+- Day 11-12: Staging deployment + validation (24h)
+- Day 13-14: Production rollout (gradual)
+
+**Total Estimated Time:** 80-100 hours
 
 ---
 

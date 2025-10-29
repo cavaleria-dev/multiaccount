@@ -23,6 +23,10 @@ This project uses modular documentation for better maintainability. See specific
 15. **[Characteristic Synchronization](docs/15-characteristic-sync.md)** ⭐ - Proactive characteristic sync (fixes error 10002)
 16. **[Sync Task Handlers](docs/16-sync-handlers.md)** 🆕 - Modular handler architecture (76% code reduction)
 17. **[Variant Assortment Sync](docs/17-variant-assortment-sync.md)** 🆕 - Unified variant sync via /entity/assortment
+18. **[Webhook System](docs/18-webhook-system.md)** 🚧 - Real-time webhook synchronization (20% implemented)
+    - **[Implementation Roadmap](docs/19-webhook-roadmap.md)** ⭐ - High-level plan (14 days, 80-100 hours)
+    - **[Day-by-Day Tasks](docs/19-webhook-tasks.md)** ⭐ - Detailed task breakdown with validation steps
+    - **[Migration Guide](docs/19-webhook-migration.md)** - Migrating from existing partial implementation
 
 ## Quick Reference
 
