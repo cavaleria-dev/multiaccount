@@ -1,22 +1,169 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\Webhook;
 
 use App\Models\Account;
 use App\Models\WebhookHealthStat;
+use App\Services\MoySkladService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Сервис для управления вебхуками МойСклад
+ * WebhookSetupService
+ *
+ * Service for managing webhooks installation/deletion in МойСклад
+ *
+ * Responsibilities:
+ * - Install webhooks in МойСклад via API
+ * - Delete webhooks from МойСклад
+ * - Reinstall webhooks (delete + install)
+ * - Track webhooks in local database
  */
-class WebhookService
+class WebhookSetupService
 {
     protected MoySkladService $moySkladService;
 
     public function __construct(MoySkladService $moySkladService)
     {
         $this->moySkladService = $moySkladService;
+    }
+
+    /**
+     * Получить конфигурацию вебхуков для типа аккаунта
+     *
+     * @param string $accountType Тип аккаунта (main/child)
+     * @return array Конфигурация вебхуков [['entity' => 'product', 'action' => 'CREATE'], ...]
+     */
+    public function getWebhooksConfig(string $accountType): array
+    {
+        $config = [];
+
+        if ($accountType === 'main') {
+            // Главный аккаунт (франшиза): товары и услуги
+            // 5 типов сущностей × 3 действия = 15 вебхуков
+            $entities = ['product', 'service', 'variant', 'bundle', 'productfolder'];
+            $actions = ['CREATE', 'UPDATE', 'DELETE'];
+
+            foreach ($entities as $entity) {
+                foreach ($actions as $action) {
+                    $config[] = [
+                        'entity' => $entity,
+                        'action' => $action,
+                    ];
+                }
+            }
+        } else {
+            // Дочерний аккаунт (франчайзи): заказы
+            // 3 типа заказов × 3 действия = 9 вебхуков
+            $entities = ['customerorder', 'retaildemand', 'purchaseorder'];
+            $actions = ['CREATE', 'UPDATE', 'DELETE'];
+
+            foreach ($entities as $entity) {
+                foreach ($actions as $action) {
+                    $config[] = [
+                        'entity' => $entity,
+                        'action' => $action,
+                    ];
+                }
+            }
+        }
+
+        return $config;
+    }
+
+    /**
+     * Переустановить вебхуки для аккаунта (удалить старые + установить новые)
+     *
+     * @param Account $account Аккаунт
+     * @param string $accountType Тип аккаунта (main/child)
+     * @return array ['created' => [...], 'errors' => [...]]
+     */
+    public function reinstallWebhooks(Account $account, string $accountType): array
+    {
+        $result = [
+            'created' => [],
+            'errors' => [],
+        ];
+
+        try {
+            // 1. Удалить старые вебхуки
+            $this->cleanupOldWebhooks($account->account_id);
+
+            Log::info('Old webhooks cleaned up, installing new ones', [
+                'account_id' => $account->account_id,
+                'account_type' => $accountType
+            ]);
+
+            // 2. Установить новые вебхуки
+            $webhookUrl = config('moysklad.webhook_url');
+            $webhooksConfig = $this->getWebhooksConfig($accountType);
+
+            foreach ($webhooksConfig as $webhookConfig) {
+                try {
+                    $webhook = $this->createWebhook(
+                        $account,
+                        $webhookUrl,
+                        $webhookConfig['action'],
+                        $webhookConfig['entity']
+                    );
+
+                    $result['created'][] = $webhook;
+
+                    // Сохранить в webhook_health_stats
+                    WebhookHealthStat::updateOrCreate(
+                        [
+                            'account_id' => $account->account_id,
+                            'entity_type' => $webhookConfig['entity'],
+                            'action' => $webhookConfig['action'],
+                        ],
+                        [
+                            'webhook_id' => $webhook['id'],
+                            'is_active' => true,
+                            'last_check_at' => now(),
+                            'last_success_at' => now(),
+                            'check_attempts' => 0,
+                            'error_message' => null,
+                        ]
+                    );
+
+                } catch (\Exception $e) {
+                    $error = [
+                        'entity' => $webhookConfig['entity'],
+                        'action' => $webhookConfig['action'],
+                        'error' => $e->getMessage(),
+                    ];
+                    $result['errors'][] = $error;
+
+                    Log::error('Failed to create webhook during reinstall', [
+                        'account_id' => $account->account_id,
+                        'entity_type' => $webhookConfig['entity'],
+                        'action' => $webhookConfig['action'],
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            Log::info('Webhooks reinstallation completed', [
+                'account_id' => $account->account_id,
+                'account_type' => $accountType,
+                'created_count' => count($result['created']),
+                'errors_count' => count($result['errors'])
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Webhooks reinstallation failed', [
+                'account_id' => $account->account_id,
+                'error' => $e->getMessage()
+            ]);
+
+            $result['errors'][] = [
+                'entity' => 'all',
+                'action' => 'reinstall',
+                'error' => $e->getMessage(),
+            ];
+        }
+
+        return $result;
     }
 
     /**
@@ -356,5 +503,118 @@ class WebhookService
                 ];
             })->toArray()
         ];
+    }
+
+    /**
+     * Проверить и настроить вебхуки для аккаунта
+     *
+     * Используется в webhook check handler для автоматической проверки и восстановления вебхуков
+     *
+     * @param string $accountId UUID аккаунта
+     * @return array ['checked' => int, 'created' => int, 'failed' => int]
+     */
+    public function checkAndSetupWebhooks(string $accountId): array
+    {
+        $result = [
+            'checked' => 0,
+            'created' => 0,
+            'failed' => 0,
+        ];
+
+        try {
+            $account = Account::where('account_id', $accountId)->firstOrFail();
+
+            // 1. Проверить здоровье существующих вебхуков
+            $healthCheck = $this->checkWebhookHealth($accountId);
+            $result['checked'] = count($healthCheck);
+
+            // 2. Получить список всех ожидаемых вебхуков
+            $accountType = $account->account_type ?? 'main'; // fallback to 'main' if not set
+            $expectedWebhooks = $this->getWebhooksConfig($accountType);
+
+            // 3. Проверить какие вебхуки отсутствуют
+            $existingWebhooks = WebhookHealthStat::where('account_id', $accountId)
+                ->where('is_active', true)
+                ->get();
+
+            $missingWebhooks = [];
+            foreach ($expectedWebhooks as $expected) {
+                $exists = $existingWebhooks->first(function($health) use ($expected) {
+                    return $health->entity_type === $expected['entity']
+                        && $health->action === $expected['action'];
+                });
+
+                if (!$exists) {
+                    $missingWebhooks[] = $expected;
+                }
+            }
+
+            // 4. Создать отсутствующие вебхуки
+            if (!empty($missingWebhooks)) {
+                $webhookUrl = config('moysklad.webhook_url');
+
+                foreach ($missingWebhooks as $missing) {
+                    try {
+                        $webhook = $this->createWebhook(
+                            $account,
+                            $webhookUrl,
+                            $missing['action'],
+                            $missing['entity']
+                        );
+
+                        WebhookHealthStat::updateOrCreate(
+                            [
+                                'account_id' => $account->account_id,
+                                'entity_type' => $missing['entity'],
+                                'action' => $missing['action'],
+                            ],
+                            [
+                                'webhook_id' => $webhook['id'],
+                                'is_active' => true,
+                                'last_check_at' => now(),
+                                'last_success_at' => now(),
+                                'check_attempts' => 0,
+                                'error_message' => null,
+                            ]
+                        );
+
+                        $result['created']++;
+
+                        Log::info('Missing webhook created', [
+                            'account_id' => $accountId,
+                            'entity_type' => $missing['entity'],
+                            'action' => $missing['action'],
+                        ]);
+
+                    } catch (\Exception $e) {
+                        $result['failed']++;
+
+                        Log::error('Failed to create missing webhook', [
+                            'account_id' => $accountId,
+                            'entity_type' => $missing['entity'],
+                            'action' => $missing['action'],
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
+            }
+
+            Log::info('Webhook check and setup completed', [
+                'account_id' => $accountId,
+                'checked' => $result['checked'],
+                'created' => $result['created'],
+                'failed' => $result['failed']
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Webhook check and setup failed', [
+                'account_id' => $accountId,
+                'error' => $e->getMessage()
+            ]);
+
+            throw $e;
+        }
+
+        return $result;
     }
 }

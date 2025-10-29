@@ -3,7 +3,7 @@
 namespace App\Services\Sync\Handlers;
 
 use App\Models\SyncQueue;
-use App\Services\WebhookService;
+use App\Services\Webhook\WebhookSetupService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Log;
 class WebhookCheckHandler extends SyncTaskHandler
 {
     public function __construct(
-        protected WebhookService $webhookService
+        protected WebhookSetupService $webhookService
     ) {}
 
     public function getEntityType(): string
