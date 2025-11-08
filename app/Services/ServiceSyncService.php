@@ -457,30 +457,56 @@ class ServiceSyncService
         // Добавить НДС и налогообложение
         $serviceData = $this->productSyncService->addVatAndTaxFields($serviceData, $service, $settings);
 
-        // Обновить услугу
-        $updatedServiceResult = $this->moySkladService
-            ->setAccessToken($childAccount->access_token)
-            ->setLogContext(
-                accountId: $mainAccountId,
-                direction: 'main_to_child',
-                relatedAccountId: $childAccountId,
-                entityType: 'service',
-                entityId: $service['id']
-            )
-            ->setOperationContext(
-                operationType: 'update',
-                operationResult: 'success'
-            )
-            ->put("entity/service/{$mapping->child_entity_id}", $serviceData);
+        // Обновить услугу с fallback на создание при 404
+        try {
+            $updatedServiceResult = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: 'service',
+                    entityId: $service['id']
+                )
+                ->setOperationContext(
+                    operationType: 'update',
+                    operationResult: 'success'
+                )
+                ->put("entity/service/{$mapping->child_entity_id}", $serviceData);
 
-        Log::info('Service updated in child account', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'main_service_id' => $service['id'],
-            'child_service_id' => $mapping->child_entity_id
-        ]);
+            Log::info('Service updated in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'main_service_id' => $service['id'],
+                'child_service_id' => $mapping->child_entity_id
+            ]);
 
-        return $updatedServiceResult['data'];
+            return $updatedServiceResult['data'];
+
+        } catch (\Exception $e) {
+            $errorMessage = $e->getMessage();
+
+            // 404 fallback: service не существует в child (устаревший маппинг)
+            // Удаляем маппинг и создаём service заново
+            if (str_contains($errorMessage, '404') || str_contains($errorMessage, 'Not Found')) {
+                Log::warning('Service not found in child account (404), deleting stale mapping and recreating', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'main_service_id' => $service['id'],
+                    'stale_child_service_id' => $mapping->child_entity_id,
+                    'error' => $errorMessage
+                ]);
+
+                // Удалить устаревший service mapping
+                $mapping->delete();
+
+                // Создать service заново
+                return $this->createService($childAccount, $mainAccountId, $childAccountId, $service, $settings);
+            }
+
+            // Другие ошибки - пробросить дальше
+            throw $e;
+        }
     }
 
 

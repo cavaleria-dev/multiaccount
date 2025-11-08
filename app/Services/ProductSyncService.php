@@ -802,7 +802,7 @@ class ProductSyncService
         // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
         $productData = $this->addAdditionalFields($productData, $product, $settings);
 
-        // Обновить товар
+        // Обновить товар с fallback на создание при 404
         Log::channel('sync')->info('Updating product in child account - REQUEST', [
             'main_account_id' => $mainAccountId,
             'child_account_id' => $childAccountId,
@@ -811,30 +811,56 @@ class ProductSyncService
             'product_data' => json_encode($productData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
         ]);
 
-        $updatedProductResult = $this->moySkladService
-            ->setAccessToken($childAccount->access_token)
-            ->setOperationContext(
-                operationType: 'update',
-                operationResult: 'success'
-            )
-            ->put("entity/product/{$mapping->child_entity_id}", $productData);
+        try {
+            $updatedProductResult = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->setOperationContext(
+                    operationType: 'update',
+                    operationResult: 'success'
+                )
+                ->put("entity/product/{$mapping->child_entity_id}", $productData);
 
-        Log::channel('sync')->info('Updating product in child account - RESPONSE', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'main_product_id' => $product['id'],
-            'child_product_id' => $mapping->child_entity_id,
-            'response_data' => json_encode($updatedProductResult['data'], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
-        ]);
+            Log::channel('sync')->info('Updating product in child account - RESPONSE', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'main_product_id' => $product['id'],
+                'child_product_id' => $mapping->child_entity_id,
+                'response_data' => json_encode($updatedProductResult['data'], JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)
+            ]);
 
-        Log::info('Product updated in child account', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'main_product_id' => $product['id'],
-            'child_product_id' => $mapping->child_entity_id
-        ]);
+            Log::info('Product updated in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'main_product_id' => $product['id'],
+                'child_product_id' => $mapping->child_entity_id
+            ]);
 
-        return $updatedProductResult['data'];
+            return $updatedProductResult['data'];
+
+        } catch (\Exception $e) {
+            $errorMessage = $e->getMessage();
+
+            // 404 fallback: product не существует в child (устаревший маппинг)
+            // Удаляем маппинг и создаём product заново
+            if (str_contains($errorMessage, '404') || str_contains($errorMessage, 'Not Found')) {
+                Log::warning('Product not found in child account (404), deleting stale mapping and recreating', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'main_product_id' => $product['id'],
+                    'stale_child_product_id' => $mapping->child_entity_id,
+                    'error' => $errorMessage
+                ]);
+
+                // Удалить устаревший product mapping
+                $mapping->delete();
+
+                // Создать product заново
+                return $this->createProduct($childAccount, $mainAccountId, $childAccountId, $product, $settings);
+            }
+
+            // Другие ошибки - пробросить дальше
+            throw $e;
+        }
     }
 
     /**

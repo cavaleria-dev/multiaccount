@@ -476,30 +476,56 @@ class BundleSyncService
         // Добавить НДС и налогообложение
         $bundleData = $this->productSyncService->addVatAndTaxFields($bundleData, $bundle, $settings);
 
-        // Обновить комплект
-        $updatedBundleResult = $this->moySkladService
-            ->setAccessToken($childAccount->access_token)
-            ->setLogContext(
-                accountId: $mainAccountId,
-                direction: 'main_to_child',
-                relatedAccountId: $childAccountId,
-                entityType: 'bundle',
-                entityId: $bundle['id']
-            )
-            ->setOperationContext(
-                operationType: 'update',
-                operationResult: 'success'
-            )
-            ->put("entity/bundle/{$mapping->child_entity_id}", $bundleData);
+        // Обновить комплект с fallback на создание при 404
+        try {
+            $updatedBundleResult = $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->setLogContext(
+                    accountId: $mainAccountId,
+                    direction: 'main_to_child',
+                    relatedAccountId: $childAccountId,
+                    entityType: 'bundle',
+                    entityId: $bundle['id']
+                )
+                ->setOperationContext(
+                    operationType: 'update',
+                    operationResult: 'success'
+                )
+                ->put("entity/bundle/{$mapping->child_entity_id}", $bundleData);
 
-        Log::info('Bundle updated in child account', [
-            'main_account_id' => $mainAccountId,
-            'child_account_id' => $childAccountId,
-            'main_bundle_id' => $bundle['id'],
-            'child_bundle_id' => $mapping->child_entity_id
-        ]);
+            Log::info('Bundle updated in child account', [
+                'main_account_id' => $mainAccountId,
+                'child_account_id' => $childAccountId,
+                'main_bundle_id' => $bundle['id'],
+                'child_bundle_id' => $mapping->child_entity_id
+            ]);
 
-        return $updatedBundleResult['data'];
+            return $updatedBundleResult['data'];
+
+        } catch (\Exception $e) {
+            $errorMessage = $e->getMessage();
+
+            // 404 fallback: bundle не существует в child (устаревший маппинг)
+            // Удаляем маппинг и создаём bundle заново
+            if (str_contains($errorMessage, '404') || str_contains($errorMessage, 'Not Found')) {
+                Log::warning('Bundle not found in child account (404), deleting stale mapping and recreating', [
+                    'main_account_id' => $mainAccountId,
+                    'child_account_id' => $childAccountId,
+                    'main_bundle_id' => $bundle['id'],
+                    'stale_child_bundle_id' => $mapping->child_entity_id,
+                    'error' => $errorMessage
+                ]);
+
+                // Удалить устаревший bundle mapping
+                $mapping->delete();
+
+                // Создать bundle заново
+                return $this->createBundle($childAccount, $mainAccountId, $childAccountId, $bundle, $settings);
+            }
+
+            // Другие ошибки - пробросить дальше
+            throw $e;
+        }
     }
 
     /**
