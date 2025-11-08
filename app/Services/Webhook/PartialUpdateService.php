@@ -315,8 +315,6 @@ class PartialUpdateService
 
     /**
      * Update custom attributes only
-     *
-     * TODO: Implement in next commit
      */
     protected function updateAttributesOnly(
         string $entityType,
@@ -326,24 +324,130 @@ class PartialUpdateService
         string $childEntityId,
         array $strategyData
     ): array {
-        Log::warning('updateAttributesOnly not implemented yet', [
+        Log::debug('Updating attributes only', [
             'entity_type' => $entityType,
-            'strategy_data' => $strategyData,
+            'main_entity_id' => $mainEntityId,
+            'child_entity_id' => $childEntityId,
+            'attributes' => $strategyData['attributes'] ?? [],
         ]);
 
-        // TODO: Implement attribute-only update
-        // 1. GET main entity with expand=attributes
-        // 2. Find attribute mappings by name
-        // 3. Build attributes array for child
-        // 4. PUT only attributes field
+        // 1. GET entity from main account with expanded attributes
+        $mainEntity = $this->moySkladService
+            ->setAccessToken($mainAccount->access_token)
+            ->get("entity/{$entityType}/{$mainEntityId}?expand=attributes");
 
-        return [];
+        if (!isset($mainEntity['data'])) {
+            throw new \Exception("Failed to fetch main entity: {$mainEntityId}");
+        }
+
+        $mainEntityData = $mainEntity['data'];
+        $mainAttributes = $mainEntityData['attributes'] ?? [];
+
+        if (empty($mainAttributes)) {
+            Log::warning('No attributes found in main entity', [
+                'entity_type' => $entityType,
+                'main_entity_id' => $mainEntityId,
+            ]);
+            return [];
+        }
+
+        // 2. Find attribute mappings by name for allowed attributes
+        $allowedAttributeNames = $strategyData['attributes'] ?? [];
+        $childAttributes = [];
+        $appliedFields = [];
+
+        foreach ($allowedAttributeNames as $attrName) {
+            // Find the attribute in main entity by name
+            $mainAttribute = null;
+            foreach ($mainAttributes as $attr) {
+                // МойСклад attributes have 'name' field
+                if (($attr['name'] ?? null) === $attrName) {
+                    $mainAttribute = $attr;
+                    break;
+                }
+            }
+
+            if (!$mainAttribute) {
+                Log::debug('Attribute not found in main entity', [
+                    'attribute_name' => $attrName,
+                ]);
+                continue;
+            }
+
+            // Find mapping for this attribute
+            $mapping = \App\Models\AttributeMapping::where('parent_account_id', $mainAccount->account_id)
+                ->where('child_account_id', $childAccount->account_id)
+                ->where('attribute_name', $attrName)
+                ->first();
+
+            if (!$mapping) {
+                Log::warning('Attribute mapping not found', [
+                    'attribute_name' => $attrName,
+                    'main_account_id' => $mainAccount->account_id,
+                    'child_account_id' => $childAccount->account_id,
+                ]);
+                continue;
+            }
+
+            // Build attribute for child account
+            $childAttributes[] = [
+                'meta' => [
+                    'href' => "https://api.moysklad.ru/api/remap/1.2/entity/{$entityType}/metadata/attributes/{$mapping->child_attribute_id}",
+                    'type' => 'attributemetadata',
+                    'mediaType' => 'application/json',
+                ],
+                'value' => $mainAttribute['value'] ?? null,
+            ];
+
+            $appliedFields[] = $attrName;
+
+            Log::debug('Attribute mapped', [
+                'attribute_name' => $attrName,
+                'main_attribute_id' => $mapping->parent_attribute_id,
+                'child_attribute_id' => $mapping->child_attribute_id,
+                'value' => $mainAttribute['value'] ?? null,
+            ]);
+        }
+
+        // 3. PUT only attributes to child account
+        if (!empty($childAttributes)) {
+            Log::debug('Sending PUT request with attributes', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+                'attributes_count' => count($childAttributes),
+            ]);
+
+            $this->moySkladService
+                ->setAccessToken($childAccount->access_token)
+                ->put("entity/{$entityType}/{$childEntityId}", [
+                    'attributes' => $childAttributes,
+                ]);
+
+            Log::info('Attributes updated successfully', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+                'fields_updated' => $appliedFields,
+            ]);
+        } else {
+            Log::warning('No attributes to update', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+            ]);
+        }
+
+        return $appliedFields;
     }
 
     /**
      * Update base fields only (name, description, article, code)
      *
-     * TODO: Implement in next commit
+     * @param string $entityType Entity type (product, service, variant, bundle)
+     * @param Account $mainAccount Main account
+     * @param Account $childAccount Child account
+     * @param string $mainEntityId Entity ID in main account
+     * @param string $childEntityId Entity ID in child account
+     * @param array $strategyData Strategy data with base_fields list
+     * @return array Applied fields
      */
     protected function updateBaseFields(
         string $entityType,
@@ -353,23 +457,79 @@ class PartialUpdateService
         string $childEntityId,
         array $strategyData
     ): array {
-        Log::warning('updateBaseFields not implemented yet', [
-            'entity_type' => $entityType,
-            'strategy_data' => $strategyData,
-        ]);
+        $baseFields = $strategyData['base_fields'] ?? [];
+        $appliedFields = [];
 
-        // TODO: Implement base fields update
-        // 1. GET main entity
-        // 2. Extract base fields from strategyData
-        // 3. PUT to child with only those fields
+        if (empty($baseFields)) {
+            Log::warning('No base fields to update', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+            ]);
+            return $appliedFields;
+        }
 
-        return [];
+        // 1. GET entity from main account
+        $mainEntityData = $this->getEntityFromAccount(
+            $mainAccount,
+            $entityType,
+            $mainEntityId
+        );
+
+        if (!$mainEntityData) {
+            throw new \RuntimeException("Failed to fetch entity from main account: {$mainEntityId}");
+        }
+
+        // 2. Extract base fields
+        $updateData = [];
+        foreach ($baseFields as $fieldName) {
+            if (array_key_exists($fieldName, $mainEntityData)) {
+                $updateData[$fieldName] = $mainEntityData[$fieldName];
+                $appliedFields[] = $fieldName;
+            } else {
+                Log::debug('Base field not found in entity', [
+                    'field' => $fieldName,
+                    'entity_id' => $mainEntityId,
+                ]);
+            }
+        }
+
+        // 3. PUT to child account
+        if (!empty($updateData)) {
+            $this->updateEntityInAccount(
+                $childAccount,
+                $entityType,
+                $childEntityId,
+                $updateData
+            );
+
+            Log::info('Base fields updated successfully', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+                'applied_fields' => $appliedFields,
+            ]);
+        } else {
+            Log::warning('No base fields to apply', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+            ]);
+        }
+
+        return $appliedFields;
     }
 
     /**
      * Update mixed simple fields
      *
-     * TODO: Implement in next commit
+     * Handles combination of: base_fields, standard_prices, custom_prices, attributes, other standard fields
+     *
+     * @param string $entityType Entity type (product, service, variant, bundle)
+     * @param Account $mainAccount Main account
+     * @param Account $childAccount Child account
+     * @param string $mainEntityId Entity ID in main account
+     * @param string $childEntityId Entity ID in child account
+     * @param array $strategyData Strategy data with multiple field categories
+     * @param SyncSetting $settings Sync settings for price/attribute mappings
+     * @return array Applied fields
      */
     protected function updateMixedFields(
         string $entityType,
@@ -380,21 +540,162 @@ class PartialUpdateService
         array $strategyData,
         SyncSetting $settings
     ): array {
-        Log::warning('updateMixedFields not implemented yet', [
-            'entity_type' => $entityType,
-            'strategy_data' => $strategyData,
-        ]);
+        $appliedFields = [];
 
-        // TODO: Implement mixed update strategy
-        // Combine prices + attributes + base fields
+        // 1. GET entity with expand for prices and attributes
+        $mainEntityData = $this->getEntityFromAccount(
+            $mainAccount,
+            $entityType,
+            $mainEntityId,
+            'attributes,salePrices'
+        );
 
-        return [];
+        if (!$mainEntityData) {
+            throw new \RuntimeException("Failed to fetch entity from main account: {$mainEntityId}");
+        }
+
+        $updateData = [];
+
+        // 2. Add base fields
+        $baseFields = $strategyData['base_fields'] ?? [];
+        foreach ($baseFields as $fieldName) {
+            if (array_key_exists($fieldName, $mainEntityData)) {
+                $updateData[$fieldName] = $mainEntityData[$fieldName];
+                $appliedFields[] = $fieldName;
+            }
+        }
+
+        // 3. Add other standard fields (non-price)
+        $standardFields = $strategyData['standard_fields'] ?? [];
+        foreach ($standardFields as $fieldName) {
+            if (array_key_exists($fieldName, $mainEntityData)) {
+                $updateData[$fieldName] = $mainEntityData[$fieldName];
+                $appliedFields[] = $fieldName;
+            }
+        }
+
+        // 4. Add standard prices (buyPrice, minPrice)
+        $standardPrices = $strategyData['standard_prices'] ?? [];
+        foreach ($standardPrices as $priceField) {
+            if (array_key_exists($priceField, $mainEntityData)) {
+                $updateData[$priceField] = $mainEntityData[$priceField];
+                $appliedFields[] = $priceField;
+            }
+        }
+
+        // 5. Add custom prices (salePrices from price_mappings)
+        $customPriceNames = $strategyData['custom_prices'] ?? [];
+        if (!empty($customPriceNames) && isset($mainEntityData['salePrices'])) {
+            $mainSalePrices = $mainEntityData['salePrices'];
+            $priceMappings = $settings->price_mappings ?? [];
+
+            $mappedSalePrices = $this->buildMappedSalePrices(
+                $mainSalePrices,
+                $priceMappings,
+                $customPriceNames,
+                $mainAccount->account_id,
+                $childAccount->account_id
+            );
+
+            if (!empty($mappedSalePrices)) {
+                $updateData['salePrices'] = $mappedSalePrices;
+                $appliedFields[] = 'salePrices';
+                $appliedFields = array_merge($appliedFields, $customPriceNames);
+            }
+        }
+
+        // 6. Add attributes
+        $attributeNames = $strategyData['attributes'] ?? [];
+        if (!empty($attributeNames) && isset($mainEntityData['attributes'])) {
+            $mainAttributes = $mainEntityData['attributes'];
+            $childAttributes = [];
+
+            foreach ($attributeNames as $attrName) {
+                // Find attribute in main entity by name
+                $mainAttribute = null;
+                foreach ($mainAttributes as $attr) {
+                    if (($attr['name'] ?? null) === $attrName) {
+                        $mainAttribute = $attr;
+                        break;
+                    }
+                }
+
+                if (!$mainAttribute) {
+                    Log::warning('Attribute not found in main entity', [
+                        'attribute_name' => $attrName,
+                        'main_entity_id' => $mainEntityId,
+                    ]);
+                    continue;
+                }
+
+                // Find AttributeMapping by name
+                $mapping = \App\Models\AttributeMapping::where('parent_account_id', $mainAccount->account_id)
+                    ->where('child_account_id', $childAccount->account_id)
+                    ->where('attribute_name', $attrName)
+                    ->first();
+
+                if (!$mapping) {
+                    Log::warning('AttributeMapping not found for attribute', [
+                        'attribute_name' => $attrName,
+                        'main_account_id' => $mainAccount->account_id,
+                    ]);
+                    continue;
+                }
+
+                // Build attribute for child account
+                $childAttributes[] = [
+                    'meta' => [
+                        'href' => "https://api.moysklad.ru/api/remap/1.2/entity/{$entityType}/metadata/attributes/{$mapping->child_attribute_id}",
+                        'type' => 'attributemetadata',
+                        'mediaType' => 'application/json',
+                    ],
+                    'value' => $mainAttribute['value'] ?? null,
+                ];
+
+                $appliedFields[] = $attrName;
+            }
+
+            if (!empty($childAttributes)) {
+                $updateData['attributes'] = $childAttributes;
+            }
+        }
+
+        // 7. PUT to child account
+        if (!empty($updateData)) {
+            $this->updateEntityInAccount(
+                $childAccount,
+                $entityType,
+                $childEntityId,
+                $updateData
+            );
+
+            Log::info('Mixed fields updated successfully', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+                'applied_fields' => $appliedFields,
+            ]);
+        } else {
+            Log::warning('No fields to apply in mixed update', [
+                'entity_type' => $entityType,
+                'child_entity_id' => $childEntityId,
+            ]);
+        }
+
+        return $appliedFields;
     }
 
     /**
      * Fallback to full sync
      *
-     * TODO: Call existing ProductSyncService or appropriate sync service
+     * Used when complex dependencies are detected (productFolder, uom, country, packs, characteristics, components)
+     * Performs a complete entity GET and PUT to ensure all dependencies are synchronized
+     *
+     * @param string $entityType Entity type (product, service, variant, bundle)
+     * @param Account $mainAccount Main account
+     * @param Account $childAccount Child account
+     * @param string $mainEntityId Entity ID in main account
+     * @param string $childEntityId Entity ID in child account
+     * @return array Applied fields (all fields from entity)
      */
     protected function fullUpdate(
         string $entityType,
@@ -409,10 +710,45 @@ class PartialUpdateService
             'child_entity_id' => $childEntityId,
         ]);
 
-        // TODO: Call existing full sync service (ProductSyncService, etc.)
-        // For now, return marker that full sync would happen
+        // 1. GET full entity from main account with all expansions
+        $expand = 'attributes,salePrices';
+        if (in_array($entityType, ['product', 'variant'])) {
+            $expand .= ',images';
+        }
 
-        return ['full_sync'];
+        $mainEntityData = $this->getEntityFromAccount(
+            $mainAccount,
+            $entityType,
+            $mainEntityId,
+            $expand
+        );
+
+        if (!$mainEntityData) {
+            throw new \RuntimeException("Failed to fetch entity for full sync: {$mainEntityId}");
+        }
+
+        // 2. Extract all updateable fields (exclude read-only fields like meta, id, accountId, etc.)
+        $readOnlyFields = ['meta', 'id', 'accountId', 'owner', 'shared', 'group', 'updated', 'syncId'];
+        $updateData = array_diff_key($mainEntityData, array_flip($readOnlyFields));
+
+        // 3. PUT full entity to child account
+        $this->updateEntityInAccount(
+            $childAccount,
+            $entityType,
+            $childEntityId,
+            $updateData
+        );
+
+        // 4. Return list of all updated fields
+        $appliedFields = array_keys($updateData);
+
+        Log::info('Full sync completed', [
+            'entity_type' => $entityType,
+            'child_entity_id' => $childEntityId,
+            'fields_count' => count($appliedFields),
+        ]);
+
+        return $appliedFields;
     }
 
     /**
