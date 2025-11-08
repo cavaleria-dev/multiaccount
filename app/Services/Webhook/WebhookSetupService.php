@@ -54,18 +54,32 @@ class WebhookSetupService
                 }
             }
         } else {
-            // Дочерний аккаунт (франчайзи): заказы
-            // 3 типа заказов × 3 действия = 9 вебхуков
-            $entities = ['customerorder', 'retaildemand', 'purchaseorder'];
-            $actions = ['CREATE', 'UPDATE', 'DELETE'];
+            // Дочерний аккаунт (франчайзи): заказы + product DELETE tracking
+            // Orders: 3 типа × 3 действия = 9 вебхуков
+            // Products: 4 типа × 1 действие (DELETE) = 4 вебхука
+            // Итого: 13 вебхуков
 
-            foreach ($entities as $entity) {
-                foreach ($actions as $action) {
+            // Orders (child → main sync)
+            $orderEntities = ['customerorder', 'retaildemand', 'purchaseorder'];
+            $orderActions = ['CREATE', 'UPDATE', 'DELETE'];
+
+            foreach ($orderEntities as $entity) {
+                foreach ($orderActions as $action) {
                     $config[] = [
                         'entity' => $entity,
                         'action' => $action,
                     ];
                 }
+            }
+
+            // Products DELETE tracking (для очистки mappings + пересоздания)
+            $productEntities = ['product', 'service', 'bundle', 'variant'];
+
+            foreach ($productEntities as $entity) {
+                $config[] = [
+                    'entity' => $entity,
+                    'action' => 'DELETE', // ТОЛЬКО DELETE
+                ];
             }
         }
 
