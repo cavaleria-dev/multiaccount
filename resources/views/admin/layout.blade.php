@@ -18,6 +18,7 @@
                     <a href="{{ route('admin.statistics') }}" class="hover:text-indigo-200">Статистика</a>
                     <a href="{{ route('admin.queue.dashboard') }}" class="hover:text-indigo-200">Очереди</a>
                     <a href="{{ route('admin.webhooks.index') }}" class="hover:text-indigo-200">Вебхуки</a>
+                    <a href="{{ route('admin.webhooks.monitoring') }}" class="hover:text-indigo-200 {{ request()->is('admin/webhooks/monitoring*') ? 'font-bold underline' : '' }}">Мониторинг хуков</a>
                     <a href="{{ route('admin.memory.index') }}" class="hover:text-indigo-200">Memory</a>
                 </div>
                 <div class="flex items-center space-x-4">
