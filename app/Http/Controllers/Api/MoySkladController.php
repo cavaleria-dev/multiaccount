@@ -215,6 +215,25 @@ class MoySkladController extends Controller
                     ]);
                 }
 
+                // Автоматическая установка вебхуков после Install
+                if ($account->account_type) {
+                    Log::info('МойСклад: Dispatching webhook setup after Install', [
+                        'accountId' => $accountId,
+                        'account_type' => $account->account_type
+                    ]);
+
+                    \App\Jobs\SetupAccountWebhooksJob::dispatch(
+                        $accountId,
+                        $account->account_type,
+                        'reinstall' // При переустановке используем reinstall
+                    );
+                } else {
+                    Log::info('МойСклад: Webhook setup skipped - account_type not set', [
+                        'accountId' => $accountId,
+                        'hint' => 'User needs to select account type in welcome screen'
+                    ]);
+                }
+
                 return response()->json([
                     'status' => 'Activated'
                 ], 200);
@@ -268,6 +287,20 @@ class MoySkladController extends Controller
                         'accountId' => $accountId,
                         'cause' => $cause
                     ]);
+                }
+
+                // Автоматическая проверка и восстановление вебхуков после Resume
+                if ($account && $account->account_type) {
+                    Log::info('МойСклад: Dispatching webhook setup after Resume', [
+                        'accountId' => $accountId,
+                        'account_type' => $account->account_type
+                    ]);
+
+                    \App\Jobs\SetupAccountWebhooksJob::dispatch(
+                        $accountId,
+                        $account->account_type,
+                        'reinstall' // При Resume используем reinstall
+                    );
                 }
 
                 return response()->json([
@@ -339,6 +372,31 @@ class MoySkladController extends Controller
                         'new_expiry' => $autoprolongData['subscription_expires_at'] ?? null,
                         'subscription_status' => $autoprolongData['subscription_status']
                     ]);
+
+                    // Safety check: проверить наличие вебхуков
+                    if ($account->account_type) {
+                        $webhooksCount = \App\Models\Webhook::where('account_id', $accountId)
+                            ->where('enabled', true)
+                            ->count();
+
+                        if ($webhooksCount === 0) {
+                            Log::warning('МойСклад: No webhooks found during Autoprolongation - reinstalling', [
+                                'accountId' => $accountId,
+                                'account_type' => $account->account_type
+                            ]);
+
+                            \App\Jobs\SetupAccountWebhooksJob::dispatch(
+                                $accountId,
+                                $account->account_type,
+                                'setup'
+                            );
+                        } else {
+                            Log::info('МойСклад: Webhooks exist - skipping setup', [
+                                'accountId' => $accountId,
+                                'webhooks_count' => $webhooksCount
+                            ]);
+                        }
+                    }
                 } else {
                     Log::warning('МойСклад: Autoprolongation для несуществующего аккаунта', [
                         'accountId' => $accountId
