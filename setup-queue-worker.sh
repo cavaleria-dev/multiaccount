@@ -56,7 +56,7 @@ echo ""
 sudo tee $SUPERVISOR_CONF > /dev/null <<EOF
 [program:laravel-worker]
 process_name=%(program_name)s_%(process_num)02d
-command=php $PROJECT_PATH/artisan queue:work --sleep=3 --tries=3 --max-time=3600 --timeout=300
+command=php $PROJECT_PATH/artisan queue:work --queue=webhooks,default --sleep=3 --tries=3 --max-time=3600 --timeout=300
 autostart=true
 autorestart=true
 stopasgroup=true
