@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
  * @property string $entity_type Entity type (product, service, variant, etc.)
  * @property string $action Action type (CREATE, UPDATE, DELETE)
  * @property array $payload Full webhook payload from МойСклад
+ * @property array|null $updated_fields Array of field names that were updated (from МойСклад updatedFields)
  * @property string $status Processing status (pending, processing, completed, failed)
  * @property \Carbon\Carbon|null $processed_at When webhook was processed
  * @property string|null $error_message Error details if failed
@@ -40,6 +41,7 @@ class WebhookLog extends Model
         'entity_type',
         'action',
         'payload',
+        'updated_fields',
         'status',
         'processed_at',
         'error_message',
@@ -49,6 +51,7 @@ class WebhookLog extends Model
 
     protected $casts = [
         'payload' => 'array',
+        'updated_fields' => 'array',
         'processed_at' => 'datetime',
         'processing_time_ms' => 'integer',
         'events_count' => 'integer',
