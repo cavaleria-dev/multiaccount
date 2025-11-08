@@ -59,18 +59,24 @@ class WebhookController extends Controller
             // 1. Get full payload
             $payload = $request->all();
 
-            // 2. Get requestId from header (for idempotency)
-            $requestId = $request->header('X-Lognex-WebHook-Request-Id');
+            // 2. Get requestId from payload or header (МойСклад sends it in body)
+            $requestId = $payload['requestId'] ?? $request->header('X-Lognex-WebHook-Request-Id');
 
             if (!$requestId) {
-                Log::warning('Webhook received without requestId header', [
-                    'payload' => $payload
+                Log::warning('Webhook received without requestId', [
+                    'payload' => $payload,
+                    'headers' => $request->headers->all()
                 ]);
                 return response()->json([
                     'status' => 'error',
-                    'message' => 'Missing X-Lognex-WebHook-Request-Id header'
+                    'message' => 'Missing requestId in payload or header'
                 ], 400);
             }
+
+            Log::debug('Webhook requestId extracted', [
+                'request_id' => $requestId,
+                'source' => isset($payload['requestId']) ? 'payload' : 'header'
+            ]);
 
             // 3. Validate and save using WebhookReceiverService
             try {
