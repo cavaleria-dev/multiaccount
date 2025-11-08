@@ -62,6 +62,18 @@ class WebhookReceiverService
             throw new \Exception('Missing required fields in webhook event');
         }
 
+        // 3.5. Extract updatedFields for UPDATE events (for partial sync)
+        $updatedFields = null;
+        if ($action === 'UPDATE' && isset($firstEvent['updatedFields']) && is_array($firstEvent['updatedFields'])) {
+            $updatedFields = $firstEvent['updatedFields'];
+
+            Log::debug('UPDATE webhook with updatedFields', [
+                'request_id' => $requestId,
+                'entity_type' => $entityType,
+                'updated_fields' => $updatedFields,
+            ]);
+        }
+
         // 4. Find webhook record (optional, may not exist yet)
         $webhook = Webhook::where('account_id', $accountId)
                          ->where('entity_type', $entityType)
@@ -76,6 +88,7 @@ class WebhookReceiverService
             'entity_type' => $entityType,
             'action' => $action,
             'payload' => $payload,
+            'updated_fields' => $updatedFields, // Save updatedFields for partial sync
             'status' => 'pending',
             'events_count' => count($events),
         ]);
@@ -94,6 +107,7 @@ class WebhookReceiverService
             'entity_type' => $entityType,
             'action' => $action,
             'events_count' => count($events),
+            'updated_fields_count' => $updatedFields ? count($updatedFields) : 0,
             'execution_time_ms' => $executionTime,
         ]);
 

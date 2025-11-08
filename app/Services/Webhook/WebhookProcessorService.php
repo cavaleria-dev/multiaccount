@@ -69,9 +69,12 @@ class WebhookProcessorService
             $processedCount = 0;
             $errors = [];
 
+            // Extract updatedFields for partial sync (if UPDATE event)
+            $updatedFields = $webhookLog->updated_fields;
+
             foreach ($events as $event) {
                 try {
-                    $this->processEvent($event, $account, $accountType, $webhookLog);
+                    $this->processEvent($event, $account, $accountType, $webhookLog, $updatedFields);
                     $processedCount++;
                 } catch (\Exception $e) {
                     $errors[] = [
@@ -152,9 +155,10 @@ class WebhookProcessorService
      * @param Account $account Аккаунт
      * @param string $accountType Тип аккаунта (main/child)
      * @param WebhookLog $webhookLog Лог вебхука
+     * @param array|null $updatedFields Updated fields for partial sync (UPDATE only)
      * @return void
      */
-    protected function processEvent(array $event, Account $account, string $accountType, WebhookLog $webhookLog): void
+    protected function processEvent(array $event, Account $account, string $accountType, WebhookLog $webhookLog, ?array $updatedFields): void
     {
         $action = $event['action'] ?? null;
         $entityType = $event['meta']['type'] ?? null;
@@ -166,7 +170,7 @@ class WebhookProcessorService
 
         // Route based on account type and entity type
         if ($accountType === 'main') {
-            $this->processMainAccountEvent($event, $account, $entityType, $action);
+            $this->processMainAccountEvent($event, $account, $entityType, $action, $updatedFields);
         } else {
             $this->processChildAccountEvent($event, $account, $entityType, $action);
         }
@@ -186,9 +190,10 @@ class WebhookProcessorService
      * @param Account $account Аккаунт
      * @param string $entityType Тип сущности
      * @param string $action Действие
+     * @param array|null $updatedFields Updated fields for partial sync (UPDATE only)
      * @return void
      */
-    protected function processMainAccountEvent(array $event, Account $account, string $entityType, string $action): void
+    protected function processMainAccountEvent(array $event, Account $account, string $entityType, string $action, ?array $updatedFields): void
     {
         // Main account processes product-related entities
         // These should be synced to child accounts
@@ -199,10 +204,10 @@ class WebhookProcessorService
         try {
             // Route to appropriate sync method based on entity type and action
             match($entityType) {
-                'product' => $this->syncProduct($account->account_id, $entityId, $action),
-                'service' => $this->syncService($account->account_id, $entityId, $action),
-                'variant' => $this->syncVariant($account->account_id, $entityId, $action),
-                'bundle' => $this->syncBundle($account->account_id, $entityId, $action),
+                'product' => $this->syncProduct($account->account_id, $entityId, $action, $updatedFields),
+                'service' => $this->syncService($account->account_id, $entityId, $action, $updatedFields),
+                'variant' => $this->syncVariant($account->account_id, $entityId, $action, $updatedFields),
+                'bundle' => $this->syncBundle($account->account_id, $entityId, $action, $updatedFields),
                 'productfolder' => $this->syncProductFolder($account->account_id, $entityId, $action),
                 default => Log::warning('Unknown entity type for main account', [
                     'entity_type' => $entityType,
@@ -233,52 +238,52 @@ class WebhookProcessorService
     /**
      * Синхронизировать product
      */
-    protected function syncProduct(string $mainAccountId, string $productId, string $action): void
+    protected function syncProduct(string $mainAccountId, string $productId, string $action, ?array $updatedFields): void
     {
         if ($action === 'DELETE') {
             $this->batchSyncService->batchArchiveProduct($mainAccountId, $productId);
         } else {
-            // CREATE or UPDATE
-            $this->batchSyncService->batchSyncProduct($mainAccountId, $productId);
+            // CREATE or UPDATE (with optional partial sync via updatedFields)
+            $this->batchSyncService->batchSyncProduct($mainAccountId, $productId, $updatedFields);
         }
     }
 
     /**
      * Синхронизировать service
      */
-    protected function syncService(string $mainAccountId, string $serviceId, string $action): void
+    protected function syncService(string $mainAccountId, string $serviceId, string $action, ?array $updatedFields): void
     {
         if ($action === 'DELETE') {
             $this->batchSyncService->batchArchiveService($mainAccountId, $serviceId);
         } else {
-            // CREATE or UPDATE
-            $this->batchSyncService->batchSyncService($mainAccountId, $serviceId);
+            // CREATE or UPDATE (with optional partial sync via updatedFields)
+            $this->batchSyncService->batchSyncService($mainAccountId, $serviceId, $updatedFields);
         }
     }
 
     /**
      * Синхронизировать variant
      */
-    protected function syncVariant(string $mainAccountId, string $variantId, string $action): void
+    protected function syncVariant(string $mainAccountId, string $variantId, string $action, ?array $updatedFields): void
     {
         if ($action === 'DELETE') {
             $this->batchSyncService->batchArchiveVariant($mainAccountId, $variantId);
         } else {
-            // CREATE or UPDATE
-            $this->batchSyncService->batchSyncVariant($mainAccountId, $variantId);
+            // CREATE or UPDATE (with optional partial sync via updatedFields)
+            $this->batchSyncService->batchSyncVariant($mainAccountId, $variantId, $updatedFields);
         }
     }
 
     /**
      * Синхронизировать bundle
      */
-    protected function syncBundle(string $mainAccountId, string $bundleId, string $action): void
+    protected function syncBundle(string $mainAccountId, string $bundleId, string $action, ?array $updatedFields): void
     {
         if ($action === 'DELETE') {
             $this->batchSyncService->batchArchiveBundle($mainAccountId, $bundleId);
         } else {
-            // CREATE or UPDATE
-            $this->batchSyncService->batchSyncBundle($mainAccountId, $bundleId);
+            // CREATE or UPDATE (with optional partial sync via updatedFields)
+            $this->batchSyncService->batchSyncBundle($mainAccountId, $bundleId, $updatedFields);
         }
     }
 

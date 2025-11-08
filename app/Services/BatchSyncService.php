@@ -29,9 +29,10 @@ class BatchSyncService
      *
      * @param string $mainAccountId UUID главного аккаунта
      * @param string $productId UUID товара
+     * @param array|null $updatedFields Updated fields for partial sync (UPDATE only)
      * @return int Количество добавленных задач в очередь
      */
-    public function batchSyncProduct(string $mainAccountId, string $productId): int
+    public function batchSyncProduct(string $mainAccountId, string $productId, ?array $updatedFields = null): int
     {
         try {
             // Получить все активные дочерние аккаунты
@@ -47,7 +48,9 @@ class BatchSyncService
             Log::info('Batch sync product started', [
                 'main_account_id' => $mainAccountId,
                 'product_id' => $productId,
-                'child_accounts_count' => $childAccounts->count()
+                'child_accounts_count' => $childAccounts->count(),
+                'updated_fields' => $updatedFields,
+                'is_partial_sync' => !empty($updatedFields)
             ]);
 
             // Распределить задачи с задержками
@@ -59,6 +62,16 @@ class BatchSyncService
                 $delay = $baseDelay + ($childAccount->sync_delay_seconds ?? 0);
                 $scheduledAt = now()->addSeconds($delay);
 
+                // Prepare payload with optional updatedFields for partial sync
+                $payload = [
+                    'main_account_id' => $mainAccountId,
+                    'product_id' => $productId
+                ];
+
+                if ($updatedFields !== null) {
+                    $payload['updated_fields'] = $updatedFields;
+                }
+
                 // Добавить в очередь
                 SyncQueue::create([
                     'account_id' => $childAccount->child_account_id,
@@ -67,10 +80,7 @@ class BatchSyncService
                     'operation' => 'sync',
                     'priority' => $childAccount->sync_priority ?? 5,
                     'status' => 'pending',
-                    'payload' => [
-                        'main_account_id' => $mainAccountId,
-                        'product_id' => $productId
-                    ],
+                    'payload' => $payload,
                     'scheduled_at' => $scheduledAt,
                 ]);
 
@@ -84,7 +94,8 @@ class BatchSyncService
             Log::info('Batch sync product queued', [
                 'main_account_id' => $mainAccountId,
                 'product_id' => $productId,
-                'queued_count' => $queuedCount
+                'queued_count' => $queuedCount,
+                'is_partial_sync' => !empty($updatedFields)
             ]);
 
             return $queuedCount;
@@ -104,9 +115,10 @@ class BatchSyncService
      *
      * @param string $mainAccountId UUID главного аккаунта
      * @param string $variantId UUID модификации
+     * @param array|null $updatedFields Updated fields for partial sync (UPDATE only)
      * @return int Количество добавленных задач
      */
-    public function batchSyncVariant(string $mainAccountId, string $variantId): int
+    public function batchSyncVariant(string $mainAccountId, string $variantId, ?array $updatedFields = null): int
     {
         try {
             $childAccounts = DB::table('child_accounts')
@@ -124,6 +136,16 @@ class BatchSyncService
             foreach ($childAccounts as $childAccount) {
                 $delay = $baseDelay + ($childAccount->sync_delay_seconds ?? 0);
 
+                // Prepare payload with optional updatedFields for partial sync
+                $payload = [
+                    'main_account_id' => $mainAccountId,
+                    'variant_id' => $variantId
+                ];
+
+                if ($updatedFields !== null) {
+                    $payload['updated_fields'] = $updatedFields;
+                }
+
                 SyncQueue::create([
                     'account_id' => $childAccount->child_account_id,
                     'entity_type' => 'variant',
@@ -131,10 +153,7 @@ class BatchSyncService
                     'operation' => 'sync',
                     'priority' => $childAccount->sync_priority ?? 5,
                     'status' => 'pending',
-                    'payload' => [
-                        'main_account_id' => $mainAccountId,
-                        'variant_id' => $variantId
-                    ],
+                    'payload' => $payload,
                     'scheduled_at' => now()->addSeconds($delay),
                 ]);
 
@@ -145,7 +164,8 @@ class BatchSyncService
             Log::info('Batch sync variant queued', [
                 'main_account_id' => $mainAccountId,
                 'variant_id' => $variantId,
-                'queued_count' => $queuedCount
+                'queued_count' => $queuedCount,
+                'is_partial_sync' => !empty($updatedFields)
             ]);
 
             return $queuedCount;
@@ -165,9 +185,10 @@ class BatchSyncService
      *
      * @param string $mainAccountId UUID главного аккаунта
      * @param string $bundleId UUID комплекта
+     * @param array|null $updatedFields Updated fields for partial sync (UPDATE only)
      * @return int Количество добавленных задач
      */
-    public function batchSyncBundle(string $mainAccountId, string $bundleId): int
+    public function batchSyncBundle(string $mainAccountId, string $bundleId, ?array $updatedFields = null): int
     {
         try {
             $childAccounts = DB::table('child_accounts')
@@ -185,6 +206,16 @@ class BatchSyncService
             foreach ($childAccounts as $childAccount) {
                 $delay = $baseDelay + ($childAccount->sync_delay_seconds ?? 0);
 
+                // Prepare payload with optional updatedFields for partial sync
+                $payload = [
+                    'main_account_id' => $mainAccountId,
+                    'bundle_id' => $bundleId
+                ];
+
+                if ($updatedFields !== null) {
+                    $payload['updated_fields'] = $updatedFields;
+                }
+
                 SyncQueue::create([
                     'account_id' => $childAccount->child_account_id,
                     'entity_type' => 'bundle',
@@ -192,10 +223,7 @@ class BatchSyncService
                     'operation' => 'sync',
                     'priority' => $childAccount->sync_priority ?? 5,
                     'status' => 'pending',
-                    'payload' => [
-                        'main_account_id' => $mainAccountId,
-                        'bundle_id' => $bundleId
-                    ],
+                    'payload' => $payload,
                     'scheduled_at' => now()->addSeconds($delay),
                 ]);
 
@@ -206,7 +234,8 @@ class BatchSyncService
             Log::info('Batch sync bundle queued', [
                 'main_account_id' => $mainAccountId,
                 'bundle_id' => $bundleId,
-                'queued_count' => $queuedCount
+                'queued_count' => $queuedCount,
+                'is_partial_sync' => !empty($updatedFields)
             ]);
 
             return $queuedCount;
@@ -226,9 +255,10 @@ class BatchSyncService
      *
      * @param string $mainAccountId UUID главного аккаунта
      * @param string $serviceId UUID услуги
+     * @param array|null $updatedFields Updated fields for partial sync (UPDATE only)
      * @return int Количество добавленных задач
      */
-    public function batchSyncService(string $mainAccountId, string $serviceId): int
+    public function batchSyncService(string $mainAccountId, string $serviceId, ?array $updatedFields = null): int
     {
         try {
             $childAccounts = DB::table('child_accounts')
@@ -243,7 +273,8 @@ class BatchSyncService
             Log::info('Batch sync service started', [
                 'main_account_id' => $mainAccountId,
                 'service_id' => $serviceId,
-                'child_accounts_count' => $childAccounts->count()
+                'child_accounts_count' => $childAccounts->count(),
+                'is_partial_sync' => !empty($updatedFields)
             ]);
 
             $baseDelay = 0;
@@ -252,6 +283,16 @@ class BatchSyncService
             foreach ($childAccounts as $childAccount) {
                 $delay = $baseDelay + ($childAccount->sync_delay_seconds ?? 0);
 
+                // Prepare payload with optional updatedFields for partial sync
+                $payload = [
+                    'main_account_id' => $mainAccountId,
+                    'service_id' => $serviceId
+                ];
+
+                if ($updatedFields !== null) {
+                    $payload['updated_fields'] = $updatedFields;
+                }
+
                 SyncQueue::create([
                     'account_id' => $childAccount->child_account_id,
                     'entity_type' => 'service',
@@ -259,10 +300,7 @@ class BatchSyncService
                     'operation' => 'sync',
                     'priority' => $childAccount->sync_priority ?? 5,
                     'status' => 'pending',
-                    'payload' => [
-                        'main_account_id' => $mainAccountId,
-                        'service_id' => $serviceId
-                    ],
+                    'payload' => $payload,
                     'scheduled_at' => now()->addSeconds($delay),
                 ]);
 
@@ -273,7 +311,8 @@ class BatchSyncService
             Log::info('Batch sync service queued', [
                 'main_account_id' => $mainAccountId,
                 'service_id' => $serviceId,
-                'queued_count' => $queuedCount
+                'queued_count' => $queuedCount,
+                'is_partial_sync' => !empty($updatedFields)
             ]);
 
             return $queuedCount;
