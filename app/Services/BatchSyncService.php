@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Account;
 use App\Models\SyncQueue;
+use App\Services\EntityConfig;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
@@ -84,7 +85,7 @@ class BatchSyncService
                     'entity_type' => 'product',
                     'entity_id' => $productId,
                     'operation' => 'sync',
-                    'priority' => $childAccount->sync_priority ?? 5,
+                    'priority' => EntityConfig::get('product')['batch_priority'] ?? 10,
                     'status' => 'pending',
                     'payload' => $payload,
                     'scheduled_at' => $scheduledAt,
@@ -157,7 +158,7 @@ class BatchSyncService
                     'entity_type' => 'variant',
                     'entity_id' => $variantId,
                     'operation' => 'sync',
-                    'priority' => $childAccount->sync_priority ?? 5,
+                    'priority' => EntityConfig::get('variant')['batch_priority'] ?? 6,
                     'status' => 'pending',
                     'payload' => $payload,
                     'scheduled_at' => now()->addSeconds($delay),
@@ -227,7 +228,7 @@ class BatchSyncService
                     'entity_type' => 'bundle',
                     'entity_id' => $bundleId,
                     'operation' => 'sync',
-                    'priority' => $childAccount->sync_priority ?? 5,
+                    'priority' => EntityConfig::get('bundle')['batch_priority'] ?? 4,
                     'status' => 'pending',
                     'payload' => $payload,
                     'scheduled_at' => now()->addSeconds($delay),
@@ -304,7 +305,7 @@ class BatchSyncService
                     'entity_type' => 'service',
                     'entity_id' => $serviceId,
                     'operation' => 'sync',
-                    'priority' => $childAccount->sync_priority ?? 5,
+                    'priority' => EntityConfig::get('service')['batch_priority'] ?? 8,
                     'status' => 'pending',
                     'payload' => $payload,
                     'scheduled_at' => now()->addSeconds($delay),

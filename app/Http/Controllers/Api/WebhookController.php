@@ -7,6 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
+use App\Services\EntityConfig;
 
 /**
  * Контроллер для обработки вебхуков от МойСклад
@@ -152,7 +153,7 @@ class WebhookController extends Controller
                     'entity_type' => 'variant',
                     'entity_id' => $variantId,
                     'operation' => 'create',
-                    'priority' => 5, // Средний приоритет для webhooks
+                    'priority' => EntityConfig::get('variant')['batch_priority'] ?? 6, // Same as batch variants
                     'scheduled_at' => now(),
                     'status' => 'pending',
                     'attempts' => 0,
@@ -183,7 +184,7 @@ class WebhookController extends Controller
                     'entity_type' => 'variant',
                     'entity_id' => $variantId,
                     'operation' => 'delete',
-                    'priority' => 5,
+                    'priority' => 3, // Archive operations - lower than bundles
                     'scheduled_at' => now(),
                     'status' => 'pending',
                     'attempts' => 0,
