@@ -86,8 +86,8 @@ Call to undefined method App\Services\ProductSyncService::syncProductVariants()
 │ SyncQueue:                                                  │
 │   • batch_products  (priority=10) ← Первыми                │
 │   • batch_services  (priority=8)                            │
-│   • batch_bundles   (priority=6)                            │
-│   • batch_variants  (priority=4)  ← Последними             │
+│   • batch_variants  (priority=6)  ← После products         │
+│   • batch_bundles   (priority=4)  ← Последними             │
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -110,8 +110,8 @@ Call to undefined method App\Services\ProductSyncService::syncProductVariants()
 |-----------------|----------|---------|----------------------------------|
 | batch_products  | 10       | 1-й     | Variants зависят от products     |
 | batch_services  | 8        | 2-й     | Независимые                      |
-| batch_bundles   | 6        | 3-й     | Зависят от products/variants     |
-| batch_variants  | 4        | 4-й     | Зависят от products              |
+| batch_variants  | 6        | 3-й     | Зависят от products              |
+| batch_bundles   | 4        | 4-й     | Зависят от products/variants     |
 
 ---
 

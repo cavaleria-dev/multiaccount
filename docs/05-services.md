@@ -58,9 +58,9 @@
 **Sync Order (respecting dependencies):**
 1. **ProductFolderSyncService** - Groups (no dependencies)
 2. **ProductSyncService** - Products (depends on ProductFolderSyncService)
-3. **VariantSyncService** - Variants (depends on ProductSyncService for parent product)
-4. **BundleSyncService** - Bundles (depends on ProductSyncService + VariantSyncService for components)
-5. **ServiceSyncService** - Services (independent)
+3. **ServiceSyncService** - Services (independent)
+4. **VariantSyncService** - Variants (depends on ProductSyncService for parent product)
+5. **BundleSyncService** - Bundles (depends on ProductSyncService + VariantSyncService for components)
 
 **Service Responsibilities:**
 

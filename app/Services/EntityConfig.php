@@ -49,7 +49,7 @@ class EntityConfig
             'endpoint' => '/entity/bundle',
             'expand' => 'attributes,productFolder,components.product,components.variant,images',
             'batch_entity_type' => 'batch_bundles',
-            'batch_priority' => 6,  // Medium priority
+            'batch_priority' => 4,  // Lowest priority - синхронизируются последними (после variants)
             'filter_metadata_type' => 'product',  // Bundles используют product metadata
             'supports_filters' => true,
             'use_assortment_for_filters' => true,  // Использовать /entity/assortment для фильтрации
@@ -63,7 +63,7 @@ class EntityConfig
             'endpoint' => '/entity/variant',
             'expand' => 'attributes,product,characteristics,packs.uom,salePrices,images',  // Добавлены packs.uom, salePrices
             'batch_entity_type' => 'batch_variants',
-            'batch_priority' => 4,  // Lowest priority - синхронизируются последними (после products)
+            'batch_priority' => 6,  // High priority - синхронизируются после products, но перед bundles
             'filter_metadata_type' => 'product',  // Variants используют product metadata
             'supports_filters' => true,  // Variants теперь фильтруются через assortment
             'use_assortment_for_filters' => true,  // Variants используют assortment
