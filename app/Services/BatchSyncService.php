@@ -14,13 +14,19 @@ class BatchSyncService
 {
     protected MoySkladService $moySkladService;
     protected ProductSyncService $productSyncService;
+    protected ServiceSyncService $serviceSyncService;
+    protected BundleSyncService $bundleSyncService;
 
     public function __construct(
         MoySkladService $moySkladService,
-        ProductSyncService $productSyncService
+        ProductSyncService $productSyncService,
+        ServiceSyncService $serviceSyncService,
+        BundleSyncService $bundleSyncService
     ) {
         $this->moySkladService = $moySkladService;
         $this->productSyncService = $productSyncService;
+        $this->serviceSyncService = $serviceSyncService;
+        $this->bundleSyncService = $bundleSyncService;
     }
 
     /**
@@ -748,11 +754,20 @@ class BatchSyncService
 
         foreach ($chunks as $chunkIndex => $chunk) {
             foreach ($chunk as $service) {
-                // TODO: Implement service sync when ServiceSyncService is available
-                Log::warning('Service sync not implemented yet', [
-                    'service_id' => $service['id'] ?? 'unknown'
-                ]);
-                $failedCount++;
+                try {
+                    $this->serviceSyncService->syncService(
+                        $mainAccountId,
+                        $childAccountId,
+                        $service['id']
+                    );
+                    $successCount++;
+                } catch (\Exception $e) {
+                    Log::error('Failed to sync service in batch', [
+                        'service_id' => $service['id'],
+                        'error' => $e->getMessage()
+                    ]);
+                    $failedCount++;
+                }
 
                 unset($service);
             }
@@ -812,11 +827,20 @@ class BatchSyncService
 
         foreach ($chunks as $chunkIndex => $chunk) {
             foreach ($chunk as $bundle) {
-                // TODO: Implement bundle sync when BundleSyncService is available
-                Log::warning('Bundle sync not implemented yet', [
-                    'bundle_id' => $bundle['id'] ?? 'unknown'
-                ]);
-                $failedCount++;
+                try {
+                    $this->bundleSyncService->syncBundle(
+                        $mainAccountId,
+                        $childAccountId,
+                        $bundle['id']
+                    );
+                    $successCount++;
+                } catch (\Exception $e) {
+                    Log::error('Failed to sync bundle in batch', [
+                        'bundle_id' => $bundle['id'],
+                        'error' => $e->getMessage()
+                    ]);
+                    $failedCount++;
+                }
 
                 unset($bundle);
             }
