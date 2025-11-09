@@ -23,9 +23,10 @@ This project uses modular documentation for better maintainability. See specific
 15. **[Characteristic Synchronization](docs/15-characteristic-sync.md)** ⭐ - Proactive characteristic sync (fixes error 10002)
 16. **[Sync Task Handlers](docs/16-sync-handlers.md)** 🆕 - Modular handler architecture (76% code reduction)
 17. **[Variant Assortment Sync](docs/17-variant-assortment-sync.md)** 🆕 - Unified variant sync via /entity/assortment
-18. **[Webhook System](docs/18-webhook-system.md)** 🚧 - Real-time webhook synchronization (20% implemented)
-    - **[Implementation Roadmap](docs/19-webhook-roadmap.md)** ⭐ - High-level plan (14 days, 80-100 hours)
-    - **[Day-by-Day Tasks](docs/19-webhook-tasks.md)** ⭐ - Detailed task breakdown with validation steps
+18. **[Webhook System](docs/18-webhook-system.md)** ⭐ - Real-time webhook synchronization (**85-90% implemented**, 1 critical fix needed)
+    - **[Production Ready Guide](docs/20-webhook-production-ready.md)** 🚀 - Deployment checklist & critical fixes
+    - **[Implementation Roadmap](docs/19-webhook-roadmap.md)** ✅ - High-level plan (mostly completed)
+    - **[Day-by-Day Tasks](docs/19-webhook-tasks.md)** ✅ - Detailed task breakdown (Days 1-7 complete)
     - **[Migration Guide](docs/19-webhook-migration.md)** - Migrating from existing partial implementation
 
 ## Quick Reference
@@ -57,23 +58,25 @@ php artisan migrate           # Run migrations
 - **Batch optimization** - 97% fewer API requests for products/services ([details](docs/04-batch-sync.md))
 - **Queue-based sync** - Supervisor + ProcessSyncQueueJob (50 tasks/minute)
 - **Modular handlers** - 13 sync task handlers (76% code reduction) ([details](docs/16-sync-handlers.md))
+- **Webhook system** - Real-time sync via МойСклад webhooks (85-90% ready, [1 critical fix needed](docs/20-webhook-production-ready.md))
 - **Context caching** - 30min cache for МойСклад authentication context
 
 ### Top Critical Gotchas
 
 Full list: [Common Patterns & Gotchas](docs/10-common-patterns.md)
 
-1. ⚠️ **No local PHP environment** - All `php artisan` commands run on server ONLY
-2. ⚠️ **JWT must use `JSON_UNESCAPED_SLASHES`** - МойСклад Vendor API will fail without it
-3. ⚠️ **Restart worker after deploy** - Supervisor keeps old code: `./restart-queue.sh`
-4. ⚠️ **Queue payload MUST include `main_account_id`** - Jobs fail with TypeError without it
-5. ⚠️ **Catch `\Throwable`, not `\Exception`** - To handle TypeError in queue jobs
-6. ⚠️ **Context must be cached** - Middleware expects `moysklad_context:{contextKey}` in Redis
-7. ⚠️ **contextKey in sessionStorage** - API interceptor reads from there, not from URL
-8. ⚠️ **Scheduler + Queue are separate** - Cron dispatches jobs, Supervisor processes them
-9. ⚠️ **Worker holds DB connection** - Manual sync_queue updates may not be seen immediately
-10. ⚠️ **Failed tasks (3 attempts) stop retrying** - Must manually requeue or fix and requeue
-11. ⚠️ **NEVER use `DB::table('accounts')`** - Use `Account` model for encrypted access_token cast
+1. 🔴 **CRITICAL: Cycle prevention header MISSING** - Must add `X-Lognex-WebHook-DisableByPrefix` to MoySkladService before enabling webhooks ([details](docs/20-webhook-production-ready.md))
+2. ⚠️ **No local PHP environment** - All `php artisan` commands run on server ONLY
+3. ⚠️ **JWT must use `JSON_UNESCAPED_SLASHES`** - МойСклад Vendor API will fail without it
+4. ⚠️ **Restart worker after deploy** - Supervisor keeps old code: `./restart-queue.sh`
+5. ⚠️ **Queue payload MUST include `main_account_id`** - Jobs fail with TypeError without it
+6. ⚠️ **Catch `\Throwable`, not `\Exception`** - To handle TypeError in queue jobs
+7. ⚠️ **Context must be cached** - Middleware expects `moysklad_context:{contextKey}` in Redis
+8. ⚠️ **contextKey in sessionStorage** - API interceptor reads from there, not from URL
+9. ⚠️ **Scheduler + Queue are separate** - Cron dispatches jobs, Supervisor processes them
+10. ⚠️ **Worker holds DB connection** - Manual sync_queue updates may not be seen immediately
+11. ⚠️ **Failed tasks (3 attempts) stop retrying** - Must manually requeue or fix and requeue
+12. ⚠️ **NEVER use `DB::table('accounts')`** - Use `Account` model for encrypted access_token cast
 
 ### Synchronization Flow
 
