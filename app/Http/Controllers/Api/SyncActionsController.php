@@ -73,11 +73,11 @@ class SyncActionsController extends Controller
             if ($syncSettings->sync_services ?? false) {
                 $enabledTypes[] = 'service';
             }
-            if ($syncSettings->sync_bundles) {
-                $enabledTypes[] = 'bundle';
-            }
             if ($syncSettings->sync_variants) {
                 $enabledTypes[] = 'variant';
+            }
+            if ($syncSettings->sync_bundles) {
+                $enabledTypes[] = 'bundle';
             }
 
             // Загрузить все включенные типы одним запросом через assortment
