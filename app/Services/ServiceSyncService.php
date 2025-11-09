@@ -131,21 +131,38 @@ class ServiceSyncService
                 return null;
             }
 
-            // Проверить маппинг
-            $mapping = EntityMapping::where('parent_account_id', $mainAccountId)
-                ->where('child_account_id', $childAccountId)
-                ->where('parent_entity_id', $serviceId)
-                ->where('entity_type', 'service')
-                ->where('sync_direction', 'main_to_child')
-                ->first();
+            // Получить matching field из настроек
+            $matchValue = ($matchField === 'name')
+                ? ($service['name'] ?? null)
+                : ($service[$matchField] ?? null);
+
+            // Попытаться найти или создать mapping (поиск по matching code в child account)
+            $mapping = $this->entityMappingService->findOrCreateServiceMapping(
+                $mainAccountId,
+                $childAccountId,
+                $serviceId,
+                $matchField,
+                $matchValue
+            );
 
             $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
 
-            if ($mapping) {
-                // Услуга уже существует, обновляем
+            if ($mapping && $mapping->child_entity_id) {
+                // Услуга найдена в child или уже существует mapping → обновляем
+                Log::debug('Service mapping found - updating', [
+                    'main_service_id' => $serviceId,
+                    'child_service_id' => $mapping->child_entity_id,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue
+                ]);
                 return $this->updateService($childAccount, $mainAccountId, $childAccountId, $service, $mapping, $settings);
             } else {
-                // Создаем новую услугу
+                // Услуга не найдена в child → создаем новую
+                Log::debug('Service not found in child - creating', [
+                    'main_service_id' => $serviceId,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue
+                ]);
                 return $this->createService($childAccount, $mainAccountId, $childAccountId, $service, $settings);
             }
 

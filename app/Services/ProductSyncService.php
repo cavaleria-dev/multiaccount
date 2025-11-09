@@ -152,21 +152,39 @@ class ProductSyncService
                 return null;
             }
 
-            // Проверить маппинг
-            $mapping = EntityMapping::where('parent_account_id', $mainAccountId)
-                ->where('child_account_id', $childAccountId)
-                ->where('parent_entity_id', $productId)
-                ->where('entity_type', 'product')
-                ->where('sync_direction', 'main_to_child')
-                ->first();
+            // Получить matching field из настроек
+            $matchField = $settings->product_match_field ?? 'article';
+            $matchValue = ($matchField === 'name')
+                ? ($product['name'] ?? null)
+                : ($product[$matchField] ?? null);
+
+            // Попытаться найти или создать mapping (поиск по matching code в child account)
+            $mapping = $this->entityMappingService->findOrCreateProductMapping(
+                $mainAccountId,
+                $childAccountId,
+                $productId,
+                $matchField,
+                $matchValue
+            );
 
             $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
 
-            if ($mapping) {
-                // Товар уже существует, обновляем
+            if ($mapping && $mapping->child_entity_id) {
+                // Товар найден в child или уже существует mapping → обновляем
+                Log::debug('Product mapping found - updating', [
+                    'main_product_id' => $productId,
+                    'child_product_id' => $mapping->child_entity_id,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue
+                ]);
                 $result = $this->updateProduct($childAccount, $mainAccountId, $childAccountId, $product, $mapping, $settings);
             } else {
-                // Создаем новый товар
+                // Товар не найден в child → создаем новый
+                Log::debug('Product not found in child - creating', [
+                    'main_product_id' => $productId,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue
+                ]);
                 $result = $this->createProduct($childAccount, $mainAccountId, $childAccountId, $product, $settings);
             }
 
@@ -438,6 +456,12 @@ class ProductSyncService
         array $product,
         SyncSetting $settings
     ): array {
+        // Получить matching field для создания mapping после POST
+        $matchField = $settings->product_match_field ?? 'article';
+        $matchValue = ($matchField === 'name')
+            ? ($product['name'] ?? null)
+            : ($product[$matchField] ?? null);
+
         $productData = [
             'name' => $product['name'],
             'article' => $product['article'] ?? null,
@@ -561,42 +585,9 @@ class ProductSyncService
         // Добавить дополнительные поля (НДС, физ.характеристики, маркировка и т.д.)
         $productData = $this->addAdditionalFields($productData, $product, $settings);
 
-        // Проверить существование товара в child по match_field
-        $matchField = $settings->product_match_field ?? 'article';
-        $matchValue = $product[$matchField] ?? null;
-
-        if ($matchValue) {
-            $mapping = $this->entityMappingService->findOrCreateProductMapping(
-                $mainAccountId,
-                $childAccountId,
-                $product['id'],
-                $matchField,
-                $matchValue
-            );
-
-            if ($mapping) {
-                // Товар уже существует в child → вызвать updateProduct вместо создания
-                Log::info('Product already exists in child - updating instead of creating', [
-                    'main_account_id' => $mainAccountId,
-                    'child_account_id' => $childAccountId,
-                    'main_product_id' => $product['id'],
-                    'child_product_id' => $mapping->child_entity_id,
-                    'match_field' => $matchField,
-                    'match_value' => $matchValue
-                ]);
-
-                return $this->updateProduct(
-                    $childAccount,
-                    $mainAccountId,
-                    $childAccountId,
-                    $product,
-                    $mapping,
-                    $settings
-                );
-            }
-        }
-
-        // Товар не найден в child → создать новый
+        // Создать товар в child account
+        // ПРИМЕЧАНИЕ: Проверка matching code уже выполнена в syncProduct()
+        // Если createProduct() вызван, значит товар точно нужно создавать
         try {
             Log::channel('sync')->info('Creating product in child account - REQUEST', [
                 'main_account_id' => $mainAccountId,

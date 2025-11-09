@@ -122,22 +122,37 @@ class BundleSyncService
                 return null;
             }
 
-            // Проверить маппинг
-            $mapping = EntityMapping::where('parent_account_id', $mainAccountId)
-                ->where('child_account_id', $childAccountId)
-                ->where('parent_entity_id', $bundleId)
-                ->where('entity_type', 'bundle')
-                ->where('sync_direction', 'main_to_child')
-                ->first();
+            // Получить matching value
+            $matchValue = $bundle[$matchField] ?? null;
+
+            // Попытаться найти или создать mapping (поиск по matching code в child account)
+            $mapping = $this->entityMappingService->findOrCreateBundleMapping(
+                $mainAccountId,
+                $childAccountId,
+                $bundleId,
+                $matchField,
+                $matchValue
+            );
 
             $childAccount = Account::where('account_id', $childAccountId)->firstOrFail();
 
             $result = null;
-            if ($mapping) {
-                // Комплект уже существует, обновляем
+            if ($mapping && $mapping->child_entity_id) {
+                // Комплект найден в child или уже существует mapping → обновляем
+                Log::debug('Bundle mapping found - updating', [
+                    'main_bundle_id' => $bundleId,
+                    'child_bundle_id' => $mapping->child_entity_id,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue
+                ]);
                 $result = $this->updateBundle($childAccount, $mainAccountId, $childAccountId, $bundle, $mapping, $settings);
             } else {
-                // Создаем новый комплект
+                // Комплект не найден в child → создаем новый
+                Log::debug('Bundle not found in child - creating', [
+                    'main_bundle_id' => $bundleId,
+                    'match_field' => $matchField,
+                    'match_value' => $matchValue
+                ]);
                 $result = $this->createBundle($childAccount, $mainAccountId, $childAccountId, $bundle, $settings);
             }
 
