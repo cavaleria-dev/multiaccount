@@ -37,9 +37,17 @@
 - `CustomEntitySyncService` - Custom entity sync
 - `StandardEntitySyncService` - Standard references sync (uom, currency, country, vat)
 - `BatchSyncService` - Batch sync with queues
-- `WebhookService` - Webhook management
 - `ProductFilterService` - Apply visual filters to products and services (universal)
 - `RateLimitHandler` - API rate limit handling (45 req/sec burst, exponential backoff)
+
+**Webhook Services** (`app/Services/Webhook/`):
+- `WebhookReceiverService` - Fast webhook validation & idempotency
+- `WebhookProcessorService` - Event processing & routing
+- `WebhookSetupService` - Webhook installation & management
+- `WebhookHealthService` - Health monitoring & statistics
+- `PartialUpdateService` - Partial entity updates (UPDATE action)
+- `FieldClassifierService` - Field change classification
+- `UpdateStrategyService` - Update strategy selection
 
 **Shared Code** (`app/Services/Traits/`):
 - `SyncHelpers` - Trait with common methods for all sync services ⭐ **NEW**
@@ -49,7 +57,7 @@
   - `passesFilters()` - Product filter validation
 
 **Sync Task Processing** (🆕 Refactored Oct 2025):
-- `ProcessSyncQueueJob` - Orchestrates queue processing (688 lines, down from 2,842)
+- `ProcessSyncQueueJob` - Orchestrates queue processing (829 lines, down from 2,842)
 - `TaskDispatcher` - Routes tasks to appropriate handlers (Strategy Pattern)
 - **13 Sync Handlers** - Modular handlers for each entity type (see [Sync Handlers](16-sync-handlers.md))
 

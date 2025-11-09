@@ -93,13 +93,15 @@ This app integrates with МойСклад (Russian inventory management system) 
 3. **Merging location:** In `syncProduct()`, `syncService()`, `syncBundle()` methods AFTER loading entity, BEFORE sync
 
 **Files implementing metadata merging:**
-- `ProductSyncService.php` (lines 105-125, 536-593)
-- `BundleSyncService.php` (lines 77-97, 351-408)
-- `ServiceSyncService.php` (lines 62-82, 650-694)
+- `AttributeSyncService.php` - contains `loadAttributesMetadata()` method
+- `ProductSyncService.php` - calls `$this->attributeSyncService->loadAttributesMetadata()`
+- `BundleSyncService.php` - calls `$this->attributeSyncService->loadAttributesMetadata()`
+- `ServiceSyncService.php` - calls `$this->attributeSyncService->loadAttributesMetadata()`
 
 **Code example:**
 
 ```php
+// In AttributeSyncService.php
 // Load attributes metadata once per account
 protected function loadAttributesMetadata(string $mainAccountId): array
 {
@@ -123,9 +125,10 @@ protected function loadAttributesMetadata(string $mainAccountId): array
     return $metadata;
 }
 
+// In ProductSyncService.php, BundleSyncService.php, ServiceSyncService.php
 // Merge metadata with values before sync
 if (isset($product['attributes']) && is_array($product['attributes'])) {
-    $attributesMetadata = $this->loadAttributesMetadata($mainAccountId);
+    $attributesMetadata = $this->attributeSyncService->loadAttributesMetadata($mainAccountId);
 
     foreach ($product['attributes'] as &$attr) {
         $attrId = $attr['id'] ?? null;

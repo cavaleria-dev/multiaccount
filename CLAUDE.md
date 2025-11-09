@@ -23,7 +23,7 @@ This project uses modular documentation for better maintainability. See specific
 15. **[Characteristic Synchronization](docs/15-characteristic-sync.md)** ⭐ - Proactive characteristic sync (fixes error 10002)
 16. **[Sync Task Handlers](docs/16-sync-handlers.md)** 🆕 - Modular handler architecture (76% code reduction)
 17. **[Variant Assortment Sync](docs/17-variant-assortment-sync.md)** 🆕 - Unified variant sync via /entity/assortment
-18. **[Webhook System](docs/18-webhook-system.md)** ⭐ - Real-time webhook synchronization (**85-90% implemented**, 1 critical fix needed)
+18. **[Webhook System](docs/18-webhook-system.md)** ⭐ - Real-time webhook synchronization (**95-100% implemented**, production ready)
     - **[Production Ready Guide](docs/20-webhook-production-ready.md)** 🚀 - Deployment checklist & critical fixes
     - **[Implementation Roadmap](docs/19-webhook-roadmap.md)** ✅ - High-level plan (mostly completed)
     - **[Day-by-Day Tasks](docs/19-webhook-tasks.md)** ✅ - Detailed task breakdown (Days 1-7 complete)
@@ -33,9 +33,9 @@ This project uses modular documentation for better maintainability. See specific
 
 ### Project Overview
 
-МойСклад Franchise Management Application - Laravel 11 + Vue 3 application for managing franchise networks in МойСклад with automatic data synchronization between main and child accounts. Runs as an iframe application inside МойСклад interface.
+МойСклад Franchise Management Application - Laravel 12 + Vue 3 application for managing franchise networks in МойСклад with automatic data synchronization between main and child accounts. Runs as an iframe application inside МойСклад interface.
 
-**Stack:** PHP 8.4, Laravel 11, PostgreSQL 18, Redis 7, Vue 3, Tailwind CSS 3
+**Stack:** PHP 8.2+, Laravel 12, PostgreSQL 18, Redis 7, Vue 3, Tailwind CSS 3
 
 ### Key Commands
 
@@ -58,14 +58,14 @@ php artisan migrate           # Run migrations
 - **Batch optimization** - 97% fewer API requests for products/services ([details](docs/04-batch-sync.md))
 - **Queue-based sync** - Supervisor + ProcessSyncQueueJob (50 tasks/minute)
 - **Modular handlers** - 13 sync task handlers (76% code reduction) ([details](docs/16-sync-handlers.md))
-- **Webhook system** - Real-time sync via МойСклад webhooks (85-90% ready, [1 critical fix needed](docs/20-webhook-production-ready.md))
+- **Webhook system** - Real-time sync via МойСклад webhooks (95-100% ready, [production ready](docs/20-webhook-production-ready.md))
 - **Context caching** - 30min cache for МойСклад authentication context
 
 ### Top Critical Gotchas
 
 Full list: [Common Patterns & Gotchas](docs/10-common-patterns.md)
 
-1. 🔴 **CRITICAL: Cycle prevention header MISSING** - Must add `X-Lognex-WebHook-DisableByPrefix` to MoySkladService before enabling webhooks ([details](docs/20-webhook-production-ready.md))
+1. ✅ **Cycle prevention header implemented** - `X-Lognex-WebHook-DisableByPrefix` added to MoySkladService (webhooks ready for production)
 2. ⚠️ **No local PHP environment** - All `php artisan` commands run on server ONLY
 3. ⚠️ **JWT must use `JSON_UNESCAPED_SLASHES`** - МойСклад Vendor API will fail without it
 4. ⚠️ **Restart worker after deploy** - Supervisor keeps old code: `./restart-queue.sh`

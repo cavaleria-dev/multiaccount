@@ -1,6 +1,6 @@
 # Sync Task Handlers - Modular Architecture
 
-**🆕 NEW (2025-10-25):** ProcessSyncQueueJob refactored from 2,842 lines to 688 lines (-76%) using Strategy Pattern with modular handlers.
+**🆕 NEW (2025-10-25):** ProcessSyncQueueJob refactored from 2,842 lines to 829 lines (-71%) using Strategy Pattern with modular handlers.
 
 ## Overview
 
@@ -33,7 +33,7 @@ public function handle(
 ### After Refactoring
 
 ```php
-// ProcessSyncQueueJob.php (688 lines)
+// ProcessSyncQueueJob.php (829 lines)
 public function handle(
     TaskDispatcher $taskDispatcher,
     SyncStatisticsService $statisticsService
@@ -380,7 +380,7 @@ $dispatcher->dispatch($task, $accounts, $settings);
 ### 4. Readability ✅
 
 **File sizes:**
-- ProcessSyncQueueJob: ~~2,842~~ → **688 lines** (-76%)
+- ProcessSyncQueueJob: ~~2,842~~ → **829 lines** (-71%)
 - Each handler: **~50-60 lines** (easily readable in 2 minutes)
 - TaskDispatcher: **110 lines** (simple routing logic)
 
@@ -543,7 +543,7 @@ Only internal task processing architecture changed.
 
 | Metric | Before | After | Improvement |
 |--------|--------|-------|-------------|
-| **ProcessSyncQueueJob size** | 2,842 lines | 688 lines | **-76%** |
+| **ProcessSyncQueueJob size** | 2,842 lines | 829 lines | **-71%** |
 | **Number of methods** | 22 | 6 | -73% |
 | **Dependencies injected** | 9 services | 2 services | -78% |
 | **Average handler size** | - | 52 lines | New |

@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-МойСклад Franchise Management Application - Laravel 11 + Vue 3 application for managing franchise networks in МойСклад with automatic data synchronization between main and child accounts. Runs as an iframe application inside МойСклад interface.
+МойСклад Franchise Management Application - Laravel 12 + Vue 3 application for managing franchise networks in МойСклад with automatic data synchronization between main and child accounts. Runs as an iframe application inside МойСклад interface.
 
-**Stack:** PHP 8.4, Laravel 11, PostgreSQL 18, Redis 7, Vue 3, Tailwind CSS 3
+**Stack:** PHP 8.2+, Laravel 12, PostgreSQL 18, Redis 7, Vue 3, Tailwind CSS 3
 
 ## Development Environment
 
@@ -51,6 +51,7 @@ sudo supervisorctl status laravel-worker:*    # Check worker status
 sudo supervisorctl restart laravel-worker:*   # Restart worker
 
 # Scheduler (production)
+# Laravel 12: Schedule defined in routes/console.php
 # Add to crontab: * * * * * cd /path && php artisan schedule:run >> /dev/null 2>&1
 ```
 

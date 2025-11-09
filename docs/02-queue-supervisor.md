@@ -28,7 +28,7 @@ Create tasks in sync_queue table (status: pending, priority: 10)
     ↓
 Cron runs every minute: php artisan schedule:run
     ↓
-Scheduler dispatches ProcessSyncQueueJob to queue
+Scheduler (routes/console.php) dispatches ProcessSyncQueueJob to queue
     ↓
 Supervisor-managed queue:work picks up job from queue
     ↓
