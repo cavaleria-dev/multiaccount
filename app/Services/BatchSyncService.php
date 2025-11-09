@@ -689,6 +689,15 @@ class BatchSyncService
                         'product_id' => $product['id'],
                         'error' => $e->getMessage()
                     ]);
+
+                    // Создать retry задачу для неудачной синхронизации
+                    $this->createRetryTask(
+                        'product',
+                        $mainAccountId,
+                        $childAccountId,
+                        $product['id']
+                    );
+
                     $failedCount++;
                 }
 
@@ -767,6 +776,15 @@ class BatchSyncService
                         'service_id' => $service['id'],
                         'error' => $e->getMessage()
                     ]);
+
+                    // Создать retry задачу для неудачной синхронизации
+                    $this->createRetryTask(
+                        'service',
+                        $mainAccountId,
+                        $childAccountId,
+                        $service['id']
+                    );
+
                     $failedCount++;
                 }
 
@@ -840,6 +858,15 @@ class BatchSyncService
                         'bundle_id' => $bundle['id'],
                         'error' => $e->getMessage()
                     ]);
+
+                    // Создать retry задачу для неудачной синхронизации
+                    $this->createRetryTask(
+                        'bundle',
+                        $mainAccountId,
+                        $childAccountId,
+                        $bundle['id']
+                    );
+
                     $failedCount++;
                 }
 
@@ -871,5 +898,52 @@ class BatchSyncService
         ]);
 
         return ['success' => $successCount, 'failed' => $failedCount];
+    }
+
+    /**
+     * Создать retry задачу для entity после неудачной синхронизации
+     *
+     * Аналогично BatchVariantSyncService::createRetryTask(), создает индивидуальную
+     * retry задачу для entity, которая не смогла синхронизироваться в batch операции.
+     *
+     * @param string $entityType Тип entity (product, service, bundle, variant)
+     * @param string $mainAccountId ID главного аккаунта
+     * @param string $childAccountId ID дочернего аккаунта
+     * @param string $entityId ID entity для retry
+     * @param string $operation Операция (update/create)
+     */
+    protected function createRetryTask(
+        string $entityType,
+        string $mainAccountId,
+        string $childAccountId,
+        string $entityId,
+        string $operation = 'update'
+    ): void {
+        // Получить приоритет из EntityConfig
+        $config = EntityConfig::get($entityType);
+        $priority = $config['batch_priority'] ?? 5;
+
+        SyncQueue::create([
+            'account_id' => $childAccountId,
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
+            'operation' => $operation,
+            'priority' => $priority, // Same priority as batch operations
+            'scheduled_at' => now()->addMinutes(5), // Retry через 5 минут
+            'status' => 'pending',
+            'attempts' => 0,
+            'payload' => [
+                'main_account_id' => $mainAccountId,
+                'batch_retry' => true
+            ]
+        ]);
+
+        Log::debug('Retry task created for failed entity', [
+            'entity_type' => $entityType,
+            'entity_id' => $entityId,
+            'child_account_id' => $childAccountId,
+            'priority' => $priority,
+            'retry_at' => now()->addMinutes(5)->toDateTimeString()
+        ]);
     }
 }
