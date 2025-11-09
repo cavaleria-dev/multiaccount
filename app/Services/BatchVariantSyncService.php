@@ -327,7 +327,7 @@ class BatchVariantSyncService
             'entity_type' => 'image_sync',
             'entity_id' => $originalVariant['id'],
             'operation' => 'sync',
-            'priority' => 50,
+            'priority' => 1, // Lowest priority - images sync after all entities
             'status' => 'pending',
             'scheduled_at' => now(),
             'payload' => [

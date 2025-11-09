@@ -901,7 +901,7 @@ class BundleSyncService
                     'entity_type' => 'image_sync',
                     'entity_id' => $filename,
                     'operation' => 'sync',
-                    'priority' => 50, // Medium priority (changed from 80 to 50)
+                    'priority' => 1, // Lowest priority - images sync after all entities
                     'status' => 'pending',
                     'attempts' => 0,
                     'scheduled_at' => now(),

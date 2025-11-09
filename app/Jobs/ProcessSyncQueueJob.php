@@ -58,6 +58,7 @@ class ProcessSyncQueueJob implements ShouldQueue
                 ->orderBy('priority', 'desc')
                 ->orderByRaw("payload->>'main_account_id'")  // Группировать по main account для балансировки
                 ->orderBy('scheduled_at', 'asc')
+                ->orderBy('id', 'asc')  // Tie-breaker для детерминированного порядка
                 ->limit(50)
                 ->lockForUpdate()  // Блокировка для предотвращения дублирования
                 ->get();
@@ -638,57 +639,87 @@ class ProcessSyncQueueJob implements ShouldQueue
     }
 
     /**
-     * Сбалансировать задачи по main accounts для равномерного использования rate limits
+     * Сбалансировать задачи по main accounts с сохранением порядка приоритетов
+     *
+     * ВАЖНО: Группируем сначала по priority, затем делаем интерливинг внутри каждого уровня.
+     * Это гарантирует строгий порядок: все priority=10, затем все priority=8, и т.д.
      *
      * Вместо обработки 50 задач подряд для Main A,
      * чередуем задачи разных main accounts: Main A → Main B → Main C → Main A → ...
+     * НО сохраняем приоритеты: сначала ВСЕ priority=10, потом ВСЕ priority=8, etc.
      *
-     * Результат: все main accounts обрабатываются параллельно в одном цикле
+     * Результат: все main accounts обрабатываются параллельно в одном цикле,
+     * но задачи с высоким приоритетом ВСЕГДА выполняются раньше низкоприоритетных.
      *
-     * @param Collection $tasks Исходные задачи
+     * @param Collection $tasks Исходные задачи (уже отсортированы по priority DESC)
      * @param int $limit Максимальное количество задач
-     * @return Collection Сбалансированные задачи
+     * @return Collection Сбалансированные задачи с сохранением приоритетов
      */
     protected function balanceTasksByMainAccount(\Illuminate\Support\Collection $tasks, int $limit): \Illuminate\Support\Collection
     {
-        // Группировать задачи по main_account_id
-        $grouped = $tasks->groupBy(function($task) {
-            return $task->payload['main_account_id'] ?? 'unknown';
-        });
+        // Группировать по priority СНАЧАЛА (для сохранения строгого порядка)
+        $byPriority = $tasks->groupBy('priority')->sortKeysDesc();
 
-        $totalMainAccounts = $grouped->count();
-
-        Log::info('Balancing tasks across main accounts', [
+        Log::info('Balancing tasks by priority and main account', [
             'total_tasks' => $tasks->count(),
-            'main_accounts_count' => $totalMainAccounts,
-            'tasks_per_account' => $grouped->map->count()->toArray()
+            'priorities' => $byPriority->keys()->toArray(),
+            'tasks_per_priority' => $byPriority->map->count()->toArray()
         ]);
 
-        // Если только один main account → балансировка не нужна
-        if ($totalMainAccounts <= 1) {
-            return $tasks->take($limit);
-        }
-
-        // Интерливинг: брать по одной задаче из каждой группы циклически
         $balanced = collect();
-        $maxIterations = (int)ceil($limit / $totalMainAccounts) + 1;
 
-        for ($i = 0; $i < $maxIterations && $balanced->count() < $limit; $i++) {
-            foreach ($grouped as $mainAccountId => $accountTasks) {
-                // Взять i-ю задачу из этой группы (если есть)
-                if (isset($accountTasks[$i])) {
-                    $balanced->push($accountTasks[$i]);
+        // Обработать каждый уровень приоритета по порядку (от высокого к низкому)
+        foreach ($byPriority as $priority => $priorityTasks) {
+            // Группировать задачи этого приоритета по main_account_id
+            $grouped = $priorityTasks->groupBy(function($task) {
+                return $task->payload['main_account_id'] ?? 'unknown';
+            });
 
+            $accountCount = $grouped->count();
+
+            Log::debug("Balancing priority level {$priority}", [
+                'priority' => $priority,
+                'tasks_in_priority' => $priorityTasks->count(),
+                'main_accounts' => $accountCount,
+                'tasks_per_account' => $grouped->map->count()->toArray()
+            ]);
+
+            // Если только один аккаунт на этом уровне приоритета - просто добавить все задачи
+            if ($accountCount <= 1) {
+                foreach ($priorityTasks as $task) {
+                    $balanced->push($task);
                     if ($balanced->count() >= $limit) {
-                        break 2; // Достигли лимита
+                        break 2; // Выйти из обоих циклов
+                    }
+                }
+                continue;
+            }
+
+            // Интерливинг внутри этого уровня приоритета
+            $maxIterations = (int)ceil($priorityTasks->count() / $accountCount);
+
+            for ($i = 0; $i < $maxIterations && $balanced->count() < $limit; $i++) {
+                foreach ($grouped as $mainAccountId => $accountTasks) {
+                    if (isset($accountTasks[$i])) {
+                        $balanced->push($accountTasks[$i]);
+
+                        if ($balanced->count() >= $limit) {
+                            break 3; // Выйти из всех циклов
+                        }
                     }
                 }
             }
+
+            // Достигли лимита - прекратить обработку следующих приоритетов
+            if ($balanced->count() >= $limit) {
+                break;
+            }
         }
 
-        Log::debug('Tasks balanced', [
+        Log::info('Tasks balanced with priority preservation', [
             'balanced_count' => $balanced->count(),
-            'distribution' => $balanced->groupBy(function($task) {
+            'priority_distribution' => $balanced->groupBy('priority')->map->count()->toArray(),
+            'account_distribution' => $balanced->groupBy(function($task) {
                 return $task->payload['main_account_id'] ?? 'unknown';
             })->map->count()->toArray()
         ]);
