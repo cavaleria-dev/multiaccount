@@ -286,7 +286,7 @@ class BatchVariantSyncService
             'entity_type' => 'variant',
             'entity_id' => $variant['id'],
             'operation' => 'update',
-            'priority' => 5,
+            'priority' => EntityConfig::get('variant')['batch_priority'], // 6 - same as batch variants
             'scheduled_at' => now()->addMinutes(5), // Retry через 5 минут
             'status' => 'pending',
             'attempts' => 0,
