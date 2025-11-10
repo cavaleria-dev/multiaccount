@@ -149,7 +149,7 @@ const currentPageDescription = computed(() => {
 const loadAccountInfo = async () => {
   try {
     const response = await api.childAccounts.get(props.accountId)
-    accountName.value = response.data.account_name || 'Без названия'
+    accountName.value = response.data.data?.account_name || response.data.account_name || 'Без названия'
   } catch (error) {
     console.error('Failed to load account info:', error)
     accountName.value = 'Аккаунт'

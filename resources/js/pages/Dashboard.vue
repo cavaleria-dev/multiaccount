@@ -195,7 +195,7 @@ const fetchChildAccounts = async () => {
   try {
     loadingAccounts.value = true
     const response = await api.childAccounts.list()
-    childAccounts.value = response.data
+    childAccounts.value = response.data.data || []
   } catch (error) {
     console.error('Error fetching child accounts:', error)
     childAccounts.value = []
