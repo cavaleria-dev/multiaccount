@@ -14,18 +14,25 @@
   * Auto-watches 10 settings fields (target_organization_id, target_store_id, etc.)
   * Methods: `updateMetadata()`, `clearMetadata()`, `initializeMetadata()`, `getMetadata()`
   * Replaces 9 identical watch handlers (~50 lines saved)
+- `useToast.js` - Global toast notification system
+  * Methods: `success()`, `error()`, `warning()`, `info()`, `show()`, `remove()`, `clear()`
+  * Auto-dismisses after 3 seconds (configurable)
+  * Replaces blocking browser `alert()` with non-blocking toasts
+  * Global state management for multiple toasts
 
 **Pages** (`resources/js/pages/`):
-- `Dashboard.vue` - Statistics overview + franchise tiles grid with sync toggles
-- `ChildAccounts.vue` - Franchise table (simplified: name, status, actions only)
+- `Dashboard.vue` - Statistics overview + franchise tiles grid with sync toggles + account management
 - `GeneralSettings.vue` - App-wide settings (account type: main/child)
 - `FranchiseSettings.vue` - ⚠️ DEPRECATED: Redirects to new modular pages
 - `franchise/FranchiseProducts.vue` - Product sync settings (products, prices, filters)
 - `franchise/FranchiseDocuments.vue` - Document sync settings with target objects
 - `franchise/FranchiseGeneral.vue` - General settings (main toggle, VAT, auto-create, delete button)
 
+**Note:** `ChildAccounts.vue` was removed - all account management consolidated in Dashboard
+
 **Layouts** (`resources/js/layouts/`):
 - `FranchiseLayout.vue` - Sidebar layout for franchise settings with 3-tab navigation
+  * Back button returns to Dashboard (`/app`)
 
 **API Client** (`resources/js/api/index.js`):
 - Axios instance with interceptor that auto-adds `X-MoySklad-Context-Key` from sessionStorage
@@ -59,15 +66,30 @@ Settings pages use modular component structure for maintainability:
 - Emits: `configure` (navigate to settings), `toggle-sync` (update sync_enabled)
 - Features: Gradient icon, hover effects, responsive grid, loading state for toggle
 - Usage: Dashboard franchise tiles grid (1/2/3 columns adaptive)
+- **Fixed:** Uses `account.account_id` (UUID) instead of `account.id` for all events
 
 `SimpleSelect.vue` - Custom select dropdown with loading state support:
 - Props: `modelValue`, `label`, `placeholder`, `options`, `disabled`, `required`, `loading`
 - **Loading prop**: Shows animated spinner instead of dropdown arrow when `loading=true`
 - Features: Clear button, dropdown animation, click-outside handling
 - Loading state: Disables clear button, shows indigo spinner (4x4px)
+- **Fixed:** Memory leak (added `onBeforeUnmount` cleanup)
+- **Fixed:** Click-outside detection (uses template ref instead of `.closest()`)
 
-`SearchableSelect.vue` - Advanced select with search functionality
-`ProductFilterBuilder.vue` - Visual filter constructor for product filtering
+`SearchableSelect.vue` - Advanced select with search functionality:
+- Features: Real-time search filter, color indicators, create new option
+- **Fixed:** Memory leak (added `onBeforeUnmount` cleanup)
+- **Fixed:** Click-outside detection (uses template ref instead of `.closest()`)
+
+`Toast.vue` - Global toast notification container:
+- Displays stacked toast notifications (success, error, warning, info)
+- Auto-dismiss with animation (slide-in from right, fade-out up)
+- Manual dismiss with close button
+- Non-blocking UX (replaces browser `alert()`)
+
+`ProductFilterBuilder.vue` - Visual filter constructor for product filtering:
+- **Fixed:** Key antipattern (uses unique ID instead of array index)
+
 `ProductFolderPicker.vue` - Hierarchical folder tree picker
 
 **Router Structure** (`resources/js/router/index.js`):
@@ -75,6 +97,8 @@ Settings pages use modular component structure for maintainability:
 Nested routing for franchise settings with sidebar navigation:
 
 ```
+/app → Dashboard (main page with all accounts)
+/app/accounts → redirects to /app (backwards compatibility)
 /app/accounts/:accountId (FranchiseLayout)
   ├─ /products (default) → FranchiseProducts.vue
   ├─ /documents → FranchiseDocuments.vue
@@ -87,5 +111,6 @@ Legacy route: /app/accounts/:accountId/settings → redirects to /products
 - Nested children routes with props passing
 - FranchiseLayout provides sidebar navigation
 - Default redirect to /products page
-- Backwards compatibility redirect from old /settings route
+- Backwards compatibility redirects from old routes
+- **Changed:** All "Back" links now point to `/app` (Dashboard) instead of `/app/accounts`
 
