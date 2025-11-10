@@ -54,40 +54,64 @@
       </div>
     </div>
 
-    <!-- Быстрые действия -->
-    <div class="bg-white shadow rounded-lg p-4">
-      <h3 class="text-sm font-bold text-gray-900 mb-3 flex items-center">
-        <svg class="h-4 w-4 mr-1.5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
-        Быстрые действия
-      </h3>
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <!-- Дочерние аккаунты -->
+    <div class="space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-gray-900 flex items-center">
+          <svg class="h-5 w-5 mr-2 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+          </svg>
+          Франшизы
+        </h2>
         <router-link
           to="/app/accounts"
-          class="group relative block w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-indigo-400 hover:bg-indigo-50 focus:outline-none transition-all duration-200"
+          class="text-sm font-medium text-indigo-600 hover:text-indigo-700 flex items-center space-x-1"
         >
-          <div class="inline-flex items-center justify-center w-10 h-10 bg-indigo-100 rounded-full mb-2 group-hover:bg-indigo-200 transition-colors">
-            <svg class="h-5 w-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-          </div>
-          <span class="block text-sm font-semibold text-gray-900 group-hover:text-indigo-700">Добавить аккаунт</span>
-          <span class="block text-xs text-gray-500 mt-1">Создать дочерний аккаунт</span>
+          <span>Управление</span>
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          </svg>
         </router-link>
+      </div>
 
+      <!-- Loading state -->
+      <div v-if="loadingAccounts" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div v-for="i in 3" :key="i" class="bg-white rounded-xl shadow-md p-6 animate-pulse">
+          <div class="h-12 w-12 bg-gray-200 rounded-lg mb-4"></div>
+          <div class="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+          <div class="h-3 bg-gray-200 rounded w-1/2"></div>
+        </div>
+      </div>
+
+      <!-- Accounts grid -->
+      <div v-else-if="childAccounts.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <AccountCard
+          v-for="account in childAccounts"
+          :key="account.id"
+          :account="account"
+          :loading="togglingSync === account.id"
+          @configure="configureAccount"
+          @toggle-sync="toggleAccountSync"
+        />
+      </div>
+
+      <!-- Empty state -->
+      <div v-else class="bg-white rounded-xl shadow-md p-12 text-center">
+        <div class="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
+          <svg class="h-8 w-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+          </svg>
+        </div>
+        <h3 class="text-lg font-medium text-gray-900 mb-2">Нет дочерних аккаунтов</h3>
+        <p class="text-sm text-gray-500 mb-6">Добавьте первый дочерний аккаунт для начала работы</p>
         <router-link
-          to="/app/settings"
-          class="group relative block w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-purple-400 hover:bg-purple-50 focus:outline-none transition-all duration-200"
+          to="/app/accounts"
+          class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-medium rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
         >
-          <div class="inline-flex items-center justify-center w-10 h-10 bg-purple-100 rounded-full mb-2 group-hover:bg-purple-200 transition-colors">
-            <svg class="h-5 w-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </div>
-          <span class="block text-sm font-semibold text-gray-900 group-hover:text-purple-700">Настройки</span>
-          <span class="block text-xs text-gray-500 mt-1">Синхронизация данных</span>
+          <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
+          Добавить аккаунт
         </router-link>
       </div>
     </div>
@@ -98,6 +122,7 @@
 import { ref, onMounted, defineProps, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
+import AccountCard from '../components/AccountCard.vue'
 
 const router = useRouter()
 
@@ -117,6 +142,9 @@ const stats = ref({
 })
 
 const loadingStats = ref(false)
+const childAccounts = ref([])
+const loadingAccounts = ref(false)
+const togglingSync = ref(null)
 
 // Проверка типа аккаунта и редирект на welcome screen если не установлен
 const checkAccountType = async () => {
@@ -160,18 +188,71 @@ const fetchStats = async () => {
   }
 }
 
+// Загрузка дочерних аккаунтов
+const fetchChildAccounts = async () => {
+  if (!props.context) return
+
+  try {
+    loadingAccounts.value = true
+    const response = await api.childAccounts.list()
+    childAccounts.value = response.data
+  } catch (error) {
+    console.error('Error fetching child accounts:', error)
+    childAccounts.value = []
+  } finally {
+    loadingAccounts.value = false
+  }
+}
+
+// Переключение синхронизации для аккаунта
+const toggleAccountSync = async (accountId, enabled) => {
+  try {
+    togglingSync.value = accountId
+
+    // Update via API
+    await api.childAccounts.update(accountId, { sync_enabled: enabled })
+
+    // Update local state
+    const account = childAccounts.value.find(a => a.id === accountId)
+    if (account) {
+      account.sync_enabled = enabled
+    }
+
+    // Refresh stats
+    await fetchStats()
+  } catch (error) {
+    console.error('Error toggling sync:', error)
+    alert('Ошибка при изменении настройки синхронизации')
+
+    // Revert local state on error
+    const account = childAccounts.value.find(a => a.id === accountId)
+    if (account) {
+      account.sync_enabled = !enabled
+    }
+  } finally {
+    togglingSync.value = null
+  }
+}
+
+// Перейти в настройки аккаунта
+const configureAccount = (accountId) => {
+  router.push(`/app/accounts/${accountId}/settings`)
+}
+
 onMounted(() => {
   if (props.context) {
     checkAccountType()
     fetchStats()
+    fetchChildAccounts()
   }
 })
 
-// Обновить статистику когда появляется контекст
+// Обновить данные когда появляется контекст
 watch(() => props.context, (newContext) => {
   if (newContext) {
     checkAccountType()
     fetchStats()
+    fetchChildAccounts()
   }
 })
 </script>
