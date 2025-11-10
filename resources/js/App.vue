@@ -29,17 +29,6 @@
                 Главная
               </router-link>
               <router-link
-                v-if="accountType === 'main'"
-                to="/app/accounts"
-                class="inline-flex items-center px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors"
-                :class="$route.path === '/app/accounts' || $route.path.startsWith('/app/accounts/') ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
-              >
-                <svg class="h-3.5 w-3.5 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-                Аккаунты
-              </router-link>
-              <router-link
                 to="/app/settings"
                 class="inline-flex items-center px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors"
                 :class="$route.path === '/app/settings' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
@@ -94,6 +83,9 @@
     <div class="px-4 sm:px-6 py-4">
       <router-view :context="context" :loading="loading"></router-view>
     </div>
+
+    <!-- Toast notifications -->
+    <Toast />
   </div>
 </template>
 
@@ -101,6 +93,7 @@
 import { ref, onMounted } from 'vue'
 import { useMoyskladContext } from './composables/useMoyskladContext'
 import api from './api'
+import Toast from './components/Toast.vue'
 
 const { context, loading, error } = useMoyskladContext()
 const accountType = ref(null)

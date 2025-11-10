@@ -44,7 +44,7 @@
 
         <Toggle
           :model-value="account.sync_enabled"
-          @update:model-value="$emit('toggle-sync', account.id, $event)"
+          @update:model-value="$emit('toggle-sync', account.account_id, $event)"
           size="small"
           :color="account.sync_enabled ? 'green' : 'gray'"
           :disabled="loading"
@@ -66,7 +66,7 @@
 
     <!-- Configure Button -->
     <button
-      @click="$emit('configure', account.id)"
+      @click="$emit('configure', account.account_id)"
       class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-medium py-2.5 px-4 rounded-lg transition-all duration-200 flex items-center justify-center space-x-2 shadow-sm hover:shadow-md"
     >
       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

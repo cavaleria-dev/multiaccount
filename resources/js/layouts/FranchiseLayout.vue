@@ -47,13 +47,13 @@
         <!-- Back Button -->
         <div class="p-4 border-t border-gray-200">
           <router-link
-            to="/app/accounts"
+            to="/app"
             class="group flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 transition-all duration-200"
           >
             <svg class="mr-3 h-5 w-5 text-gray-400 group-hover:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            Назад к списку
+            Назад на главную
           </router-link>
         </div>
       </div>

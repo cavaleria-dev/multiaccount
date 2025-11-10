@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Dashboard from '../pages/Dashboard.vue'
-import ChildAccounts from '../pages/ChildAccounts.vue'
 import GeneralSettings from '../pages/GeneralSettings.vue'
 import FranchiseSettings from '../pages/FranchiseSettings.vue'
 import WelcomeScreen from '../pages/WelcomeScreen.vue'
@@ -21,10 +20,10 @@ const routes = [
     name: 'dashboard',
     component: Dashboard
   },
+  // Redirect old /app/accounts to dashboard
   {
     path: '/app/accounts',
-    name: 'child-accounts',
-    component: ChildAccounts
+    redirect: '/app'
   },
   {
     path: '/app/settings',

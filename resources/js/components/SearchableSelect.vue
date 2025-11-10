@@ -1,5 +1,5 @@
 <template>
-  <div class="relative">
+  <div ref="dropdownRef" class="relative">
     <label v-if="label" class="block text-sm font-medium text-gray-700 mb-1">
       {{ label }}
       <span v-if="required" class="text-red-500">*</span>
@@ -151,7 +151,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
   modelValue: {
@@ -221,6 +221,7 @@ const intToHex = (colorInt) => {
 const isOpen = ref(false)
 const searchQuery = ref('')
 const searchInput = ref(null)
+const dropdownRef = ref(null)
 
 // Selected option from current options list or initial value
 const selectedOption = computed(() => {
@@ -282,8 +283,7 @@ const clearSelection = () => {
 
 // Close dropdown when clicking outside
 const handleClickOutside = (event) => {
-  const dropdown = event.target.closest('.relative')
-  if (!dropdown && isOpen.value) {
+  if (dropdownRef.value && !dropdownRef.value.contains(event.target) && isOpen.value) {
     isOpen.value = false
     searchQuery.value = ''
   }
@@ -296,5 +296,10 @@ watch(isOpen, (newValue) => {
   } else {
     document.removeEventListener('click', handleClickOutside)
   }
+})
+
+// Cleanup on unmount
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 </script>

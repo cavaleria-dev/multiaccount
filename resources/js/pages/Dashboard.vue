@@ -87,9 +87,9 @@
       <div v-else-if="childAccounts.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <AccountCard
           v-for="account in childAccounts"
-          :key="account.id"
+          :key="account.account_id"
           :account="account"
-          :loading="togglingSync === account.id"
+          :loading="togglingSync === account.account_id"
           @configure="configureAccount"
           @toggle-sync="toggleAccountSync"
         />
@@ -123,8 +123,10 @@ import { ref, onMounted, defineProps, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import AccountCard from '../components/AccountCard.vue'
+import { useToast } from '../composables/useToast'
 
 const router = useRouter()
+const { error: showError } = useToast()
 
 const props = defineProps({
   context: Object,
@@ -213,7 +215,7 @@ const toggleAccountSync = async (accountId, enabled) => {
     await api.childAccounts.update(accountId, { sync_enabled: enabled })
 
     // Update local state
-    const account = childAccounts.value.find(a => a.id === accountId)
+    const account = childAccounts.value.find(a => a.account_id === accountId)
     if (account) {
       account.sync_enabled = enabled
     }
@@ -222,10 +224,10 @@ const toggleAccountSync = async (accountId, enabled) => {
     await fetchStats()
   } catch (error) {
     console.error('Error toggling sync:', error)
-    alert('Ошибка при изменении настройки синхронизации')
+    showError('Ошибка при изменении настройки синхронизации')
 
     // Revert local state on error
-    const account = childAccounts.value.find(a => a.id === accountId)
+    const account = childAccounts.value.find(a => a.account_id === accountId)
     if (account) {
       account.sync_enabled = !enabled
     }

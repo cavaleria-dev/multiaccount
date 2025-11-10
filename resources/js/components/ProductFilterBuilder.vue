@@ -29,7 +29,7 @@
 
     <!-- Conditions list -->
     <div v-else class="space-y-3">
-      <template v-for="(condition, condIndex) in conditions" :key="`condition-${condIndex}`">
+      <template v-for="(condition, condIndex) in conditions" :key="condition.id">
         <div
           class="bg-gray-50 rounded-md p-3 border-2 border-dashed"
           style="border-color: rgb(171, 171, 171);"
@@ -261,10 +261,16 @@ watch(() => props.modelValue, (newVal) => {
     // Поддержка старого формата { groups: [...] } для обратной совместимости
     if (newVal.groups && Array.isArray(newVal.groups) && newVal.groups.length > 0) {
       // Берем первую группу и её условия
-      conditions.value = JSON.parse(JSON.stringify(newVal.groups[0].conditions || []))
+      conditions.value = JSON.parse(JSON.stringify(newVal.groups[0].conditions || [])).map(c => ({
+        ...c,
+        id: c.id || Date.now() + Math.random() // Добавить ID если отсутствует
+      }))
     } else if (newVal.conditions && Array.isArray(newVal.conditions)) {
       // Новый формат { conditions: [...] }
-      conditions.value = JSON.parse(JSON.stringify(newVal.conditions))
+      conditions.value = JSON.parse(JSON.stringify(newVal.conditions)).map(c => ({
+        ...c,
+        id: c.id || Date.now() + Math.random() // Добавить ID если отсутствует
+      }))
     } else {
       conditions.value = []
     }
@@ -294,6 +300,7 @@ const emitUpdate = () => {
 
 const addCondition = () => {
   conditions.value.push({
+    id: Date.now() + Math.random(), // Уникальный ID для key
     type: 'folder',
     folder_ids: []
   })

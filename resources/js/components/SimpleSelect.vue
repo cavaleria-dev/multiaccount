@@ -1,5 +1,5 @@
 <template>
-  <div class="relative">
+  <div ref="dropdownRef" class="relative">
     <label v-if="label" class="block text-sm font-medium text-gray-700 mb-1">
       {{ label }}
       <span v-if="required" class="text-red-500">*</span>
@@ -98,7 +98,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 
 const props = defineProps({
   modelValue: {
@@ -135,6 +135,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 
 const isOpen = ref(false)
+const dropdownRef = ref(null)
 
 // Selected option from current options list
 const selectedOption = computed(() => {
@@ -163,8 +164,7 @@ const clearSelection = () => {
 
 // Close dropdown when clicking outside
 const handleClickOutside = (event) => {
-  const dropdown = event.target.closest('.relative')
-  if (!dropdown && isOpen.value) {
+  if (dropdownRef.value && !dropdownRef.value.contains(event.target) && isOpen.value) {
     isOpen.value = false
   }
 }
@@ -176,5 +176,10 @@ watch(isOpen, (newValue) => {
   } else {
     document.removeEventListener('click', handleClickOutside)
   }
+})
+
+// Cleanup on unmount
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleClickOutside)
 })
 </script>

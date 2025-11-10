@@ -156,6 +156,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../../api'
+import { useToast } from '../../composables/useToast'
 import VatSyncSection from '../../components/franchise-settings/VatSyncSection.vue'
 import AutoCreateSection from '../../components/franchise-settings/AutoCreateSection.vue'
 
@@ -167,6 +168,7 @@ const props = defineProps({
 })
 
 const router = useRouter()
+const { error: showError } = useToast()
 
 // State
 const loading = ref(false)
@@ -248,11 +250,11 @@ const deleteAccount = async () => {
 
     await api.childAccounts.delete(props.accountId)
 
-    // Redirect to accounts list
-    router.push('/app/accounts')
+    // Redirect to dashboard
+    router.push('/app')
   } catch (err) {
     console.error('Failed to delete account:', err)
-    alert('Не удалось удалить аккаунт: ' + (err.response?.data?.error || err.message))
+    showError('Не удалось удалить аккаунт: ' + (err.response?.data?.error || err.message))
   } finally {
     deleting.value = false
     showDeleteConfirm.value = false
