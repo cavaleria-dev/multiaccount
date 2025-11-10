@@ -4,6 +4,10 @@ import ChildAccounts from '../pages/ChildAccounts.vue'
 import GeneralSettings from '../pages/GeneralSettings.vue'
 import FranchiseSettings from '../pages/FranchiseSettings.vue'
 import WelcomeScreen from '../pages/WelcomeScreen.vue'
+import FranchiseLayout from '../layouts/FranchiseLayout.vue'
+import FranchiseProducts from '../pages/franchise/FranchiseProducts.vue'
+import FranchiseDocuments from '../pages/franchise/FranchiseDocuments.vue'
+import FranchiseGeneral from '../pages/franchise/FranchiseGeneral.vue'
 
 const routes = [
   {
@@ -27,11 +31,40 @@ const routes = [
     name: 'general-settings',
     component: GeneralSettings
   },
+  // Legacy route for backwards compatibility
   {
     path: '/app/accounts/:accountId/settings',
-    name: 'franchise-settings',
-    component: FranchiseSettings,
-    props: true
+    redirect: to => `/app/accounts/${to.params.accountId}/products`
+  },
+  // New nested routes for franchise settings
+  {
+    path: '/app/accounts/:accountId',
+    component: FranchiseLayout,
+    props: true,
+    children: [
+      {
+        path: '',
+        redirect: to => `/app/accounts/${to.params.accountId}/products`
+      },
+      {
+        path: 'products',
+        name: 'franchise-products',
+        component: FranchiseProducts,
+        props: true
+      },
+      {
+        path: 'documents',
+        name: 'franchise-documents',
+        component: FranchiseDocuments,
+        props: true
+      },
+      {
+        path: 'general',
+        name: 'franchise-general',
+        component: FranchiseGeneral,
+        props: true
+      }
+    ]
   }
 ]
 
