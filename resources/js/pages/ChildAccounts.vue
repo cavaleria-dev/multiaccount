@@ -50,13 +50,7 @@
               Название
             </th>
             <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-              ID аккаунта
-            </th>
-            <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
               Статус
-            </th>
-            <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-              Последняя синхронизация
             </th>
             <th scope="col" class="relative py-3.5 pl-3 pr-4 sm:pr-6">
               <span class="sr-only">Действия</span>
@@ -67,9 +61,6 @@
           <tr v-for="account in accounts" :key="account.account_id">
             <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
               {{ account.account_name || 'Без названия' }}
-            </td>
-            <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 font-mono">
-              {{ account.account_id.substring(0, 8) }}...
             </td>
             <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
               <span
@@ -83,9 +74,6 @@
                 {{ getStatusLabel(account.status) }}
               </span>
             </td>
-            <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-              {{ formatDate(account.last_sync_at) }}
-            </td>
             <td class="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
               <button @click="editAccount(account)" class="text-indigo-600 hover:text-indigo-900 mr-4">
                 Настроить
@@ -96,7 +84,7 @@
             </td>
           </tr>
           <tr v-if="accounts.length === 0">
-            <td colspan="5" class="px-3 py-8 text-center text-sm text-gray-500">
+            <td colspan="3" class="px-3 py-8 text-center text-sm text-gray-500">
               <div class="text-gray-400 mb-2">
                 <svg class="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -265,11 +253,6 @@ function getStatusLabel(status) {
     uninstalled: 'Удален'
   }
   return labels[status] || status
-}
-
-function formatDate(date) {
-  if (!date) return 'Никогда'
-  return new Date(date).toLocaleString('ru-RU')
 }
 
 function editAccount(account) {
