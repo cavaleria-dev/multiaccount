@@ -310,6 +310,10 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { useMoyskladEntities } from '../composables/useMoyskladEntities'
 import { useTargetObjectsMetadata } from '../composables/useTargetObjectsMetadata'
+import { useFranchiseSettingsData } from '../composables/useFranchiseSettingsData'
+import { usePriceMappingsManager } from '../composables/usePriceMappingsManager'
+import { useModalManager } from '../composables/useModalManager'
+import { useFranchiseSettingsForm } from '../composables/useFranchiseSettingsForm'
 import CreateProjectModal from '../components/CreateProjectModal.vue'
 import CreateStoreModal from '../components/CreateStoreModal.vue'
 import CreateSalesChannelModal from '../components/CreateSalesChannelModal.vue'
@@ -382,90 +386,75 @@ const salesChannelsError = salesChannelsLoader.error
 const customerOrderStatesError = customerOrderStatesLoader.error
 const purchaseOrderStatesError = purchaseOrderStatesLoader.error
 
-// Page state
-const accountName = ref('')
-const loading = ref(false)
-const saving = ref(false)
-const error = ref(null)
-const saveSuccess = ref(false)
-const filterJsonError = ref(null)
+// Attribute sync list for UI (needed for form composition)
+const selectedAttributes = ref([])
 
-// Extended settings
-const priceTypes = ref({ main: [], child: [] })
-const attributes = ref([])
-const folders = ref([])
-const loadingPriceTypes = ref(false)
-const loadingAttributes = ref(false)
-const loadingFolders = ref(false)
+// Settings data composable (priceTypes, attributes, folders)
+const settingsData = useFranchiseSettingsData(accountId)
+const {
+  priceTypes,
+  attributes,
+  folders,
+  loadingPriceTypes,
+  loadingAttributes,
+  loadingFolders
+} = settingsData
+
+// Price mappings manager composable
+const priceMappingsManager = usePriceMappingsManager(accountId, priceTypes)
+const {
+  priceMappings,
+  creatingPriceTypeForIndex,
+  newPriceTypeName,
+  creatingPriceType,
+  createPriceTypeError,
+  addPriceMapping,
+  removePriceMapping,
+  showCreatePriceTypeForm,
+  hideCreatePriceTypeForm,
+  createNewPriceType
+} = priceMappingsManager
+
+// Modal manager composable
+const modalManager = useModalManager()
+const {
+  showCreateProjectModal,
+  showCreateStoreModal,
+  showCreateSalesChannelModal,
+  showCreateCustomerOrderStateModal,
+  showCreateRetailDemandStateModal,
+  showCreatePurchaseOrderStateModal,
+  createProjectModalRef,
+  createStoreModalRef,
+  createSalesChannelModalRef,
+  createCustomerOrderStateModalRef,
+  createRetailDemandStateModalRef,
+  createPurchaseOrderStateModalRef
+} = modalManager
+
+// Sync state (not moved to composable as it's specific to this component)
 const syncing = ref(false)
 const syncProgress = ref(null)
 
-// Create price type state
-const creatingPriceTypeForIndex = ref(null)
-const newPriceTypeName = ref('')
-const creatingPriceType = ref(false)
-const createPriceTypeError = ref(null)
-
-// Modal state
-const showCreateProjectModal = ref(false)
-const showCreateStoreModal = ref(false)
-const showCreateSalesChannelModal = ref(false)
-const showCreateCustomerOrderStateModal = ref(false)
-const showCreateRetailDemandStateModal = ref(false)
-const showCreatePurchaseOrderStateModal = ref(false)
-
-// Modal refs
-const createProjectModalRef = ref(null)
-const createStoreModalRef = ref(null)
-const createSalesChannelModalRef = ref(null)
-const createCustomerOrderStateModalRef = ref(null)
-const createRetailDemandStateModalRef = ref(null)
-const createPurchaseOrderStateModalRef = ref(null)
-
-const settings = ref({
-  sync_enabled: true,
-  sync_products: true,
-  sync_variants: true,
-  sync_bundles: true,
-  sync_services: true,
-  sync_images: true,
-  sync_images_all: false,
-  sync_prices: true,
-  sync_vat: false,
-  vat_sync_mode: 'preserve_child',
-  sync_customer_orders: false,
-  sync_retail_demands: false,
-  sync_purchase_orders: false,
-  customer_order_state_id: null,
-  customer_order_sales_channel_id: null,
-  retail_demand_state_id: null,
-  retail_demand_sales_channel_id: null,
-  purchase_order_state_id: null,
-  purchase_order_sales_channel_id: null,
-  supplier_counterparty_id: null,
-  target_organization_id: null,
-  target_store_id: null,
-  target_project_id: null,
-  responsible_employee_id: null,
-  product_filters_enabled: false,
-  product_filters: { groups: [] },
-  product_match_field: 'article',
-  service_match_field: 'code',
-  create_product_folders: true,
-  price_mappings: null,
-  attribute_sync_list: null,
-  auto_create_attributes: true,
-  auto_create_characteristics: true,
-  auto_create_price_types: true
+// Form composable (settings, load, save)
+// Create with temporary empty dependencies, will setup metadata manager after
+const formManager = useFranchiseSettingsForm(accountId, {
+  priceMappingsManager,
+  selectedAttributes,
+  targetObjectsMeta: ref({}),
+  metadataManager: null
 })
 
-// Price mappings array for UI
-const priceMappings = ref([])
+const {
+  accountName,
+  loading,
+  saving,
+  error,
+  saveSuccess,
+  settings
+} = formManager
 
-// Attribute sync list for UI
-const selectedAttributes = ref([])
-
-// Target objects metadata manager (replaces 9 watchers + helper function)
+// Target objects metadata manager (initialized after settings ref is available)
 const metadataManager = useTargetObjectsMetadata(settings, {
   organizations,
   stores,
@@ -477,195 +466,6 @@ const metadataManager = useTargetObjectsMetadata(settings, {
 })
 
 const targetObjectsMeta = metadataManager.metadata
-
-// Load extended data
-const loadPriceTypes = async () => {
-  try {
-    loadingPriceTypes.value = true
-    const response = await api.syncSettings.getPriceTypes(accountId.value)
-    priceTypes.value = response.data
-  } catch (err) {
-    console.error('Failed to load price types:', err)
-  } finally {
-    loadingPriceTypes.value = false
-  }
-}
-
-const loadAttributes = async () => {
-  try {
-    loadingAttributes.value = true
-    const response = await api.syncSettings.getAttributes(accountId.value)
-    attributes.value = response.data.data || []
-  } catch (err) {
-    console.error('Failed to load attributes:', err)
-  } finally {
-    loadingAttributes.value = false
-  }
-}
-
-const loadFolders = async () => {
-  try {
-    loadingFolders.value = true
-    const response = await api.syncSettings.getFolders(accountId.value)
-    folders.value = response.data.data || []
-  } catch (err) {
-    console.error('Failed to load folders:', err)
-  } finally {
-    loadingFolders.value = false
-  }
-}
-
-// Загрузка настроек
-const loadSettings = async () => {
-  if (!accountId.value) {
-    error.value = 'ID аккаунта не указан'
-    return
-  }
-
-  try {
-    loading.value = true
-    error.value = null
-
-    // Загрузить информацию об аккаунте
-    const accountResponse = await api.childAccounts.get(accountId.value)
-    accountName.value = accountResponse.data.data.account_name || 'Без названия'
-
-    // Загрузить настройки
-    const response = await api.syncSettings.get(accountId.value)
-    const loadedSettings = response.data.data
-
-    // Заполнить form
-    Object.keys(settings.value).forEach(key => {
-      if (loadedSettings[key] !== undefined) {
-        // Special handling for product_filters - ensure it's always an object with groups array
-        if (key === 'product_filters') {
-          settings.value[key] = loadedSettings[key] || { groups: [] }
-        } else {
-          settings.value[key] = loadedSettings[key]
-        }
-      }
-    })
-
-    // Convert price_mappings from JSON to array
-    if (loadedSettings.price_mappings) {
-      priceMappings.value = Array.isArray(loadedSettings.price_mappings)
-        ? loadedSettings.price_mappings
-        : []
-    }
-
-    // Convert attribute_sync_list from JSON to array
-    if (loadedSettings.attribute_sync_list) {
-      selectedAttributes.value = Array.isArray(loadedSettings.attribute_sync_list)
-        ? loadedSettings.attribute_sync_list
-        : []
-    }
-
-    // Load target_objects_meta using metadata manager
-    if (loadedSettings.target_objects_meta) {
-      metadataManager.initializeMetadata(loadedSettings.target_objects_meta)
-    }
-
-    // Load extended data
-    await Promise.all([
-      loadPriceTypes(),
-      loadAttributes(),
-      loadFolders()
-    ])
-
-  } catch (err) {
-    console.error('Failed to load settings:', err)
-
-    // Специфичная обработка разных типов ошибок
-    if (err.response?.status === 404) {
-      error.value = 'Аккаунт не найден или недоступен'
-      // Редирект на Dashboard через 2 секунды
-      setTimeout(() => {
-        router.push('/app')
-      }, 2000)
-    } else if (err.response?.status === 401) {
-      error.value = 'Сессия истекла. Перезагрузка страницы...'
-      // Перезагрузить приложение
-      setTimeout(() => {
-        window.location.reload()
-      }, 2000)
-    } else {
-      error.value = 'Не удалось загрузить настройки: ' + (err.response?.data?.error || err.message)
-    }
-  } finally {
-    loading.value = false
-  }
-}
-
-// Price mappings management
-const addPriceMapping = () => {
-  priceMappings.value.push({
-    main_price_type_id: '',
-    child_price_type_id: ''
-  })
-}
-
-const removePriceMapping = (index) => {
-  priceMappings.value.splice(index, 1)
-}
-
-// Create price type management
-const showCreatePriceTypeForm = (index) => {
-  creatingPriceTypeForIndex.value = index
-  newPriceTypeName.value = ''
-  createPriceTypeError.value = null
-}
-
-const hideCreatePriceTypeForm = () => {
-  creatingPriceTypeForIndex.value = null
-  newPriceTypeName.value = ''
-  createPriceTypeError.value = null
-}
-
-const createNewPriceType = async (index) => {
-  // Валидация
-  if (!newPriceTypeName.value || newPriceTypeName.value.trim().length < 2) {
-    createPriceTypeError.value = 'Название должно содержать минимум 2 символа'
-    return
-  }
-
-  try {
-    creatingPriceType.value = true
-    createPriceTypeError.value = null
-
-    const response = await api.syncSettings.createPriceType(accountId.value, {
-      name: newPriceTypeName.value.trim()
-    })
-
-    const createdPriceType = response.data.data
-
-    // Добавить в список типов цен дочернего аккаунта
-    priceTypes.value.child.push({
-      id: createdPriceType.id,
-      name: createdPriceType.name
-    })
-
-    // Автоматически выбрать созданный тип в текущем маппинге
-    priceMappings.value[index].child_price_type_id = createdPriceType.id
-
-    // Скрыть форму
-    hideCreatePriceTypeForm()
-
-    // Показать успешное уведомление (можно добавить позже)
-    console.log('Price type created successfully:', createdPriceType)
-
-  } catch (err) {
-    console.error('Failed to create price type:', err)
-
-    // Обработка ошибок
-    if (err.response?.status === 409) {
-      createPriceTypeError.value = 'Тип цены с таким названием уже существует'
-    } else {
-      createPriceTypeError.value = err.response?.data?.error || 'Не удалось создать тип цены'
-    }
-  } finally {
-    creatingPriceType.value = false
-  }
-}
 
 // Load target objects functions (using composables)
 const loadOrganizations = () => organizationsLoader.load()
@@ -703,149 +503,107 @@ const clearRetailDemandSalesChannel = () => metadataManager.clearMetadata('retai
 const clearPurchaseOrderState = () => metadataManager.clearMetadata('purchase_order_state_id')
 const clearPurchaseOrderSalesChannel = () => metadataManager.clearMetadata('purchase_order_sales_channel_id')
 
-// Modal creation handlers (using composables)
-const handleProjectCreated = async (data) => {
-  try {
-    createProjectModalRef.value?.setLoading(true)
+// Unified modal creation handler (replaces 6 similar functions - 142 lines → 50 lines)
+const handleEntityCreated = async (entityType, data) => {
+  const config = {
+    project: {
+      apiMethod: 'createProject',
+      loader: projectsLoader,
+      settingKey: 'target_project_id',
+      modalRef: createProjectModalRef,
+      modalShow: showCreateProjectModal,
+      errorMsg: 'Не удалось создать проект'
+    },
+    store: {
+      apiMethod: 'createStore',
+      loader: storesLoader,
+      settingKey: 'target_store_id',
+      modalRef: createStoreModalRef,
+      modalShow: showCreateStoreModal,
+      errorMsg: 'Не удалось создать склад'
+    },
+    salesChannel: {
+      apiMethod: 'createSalesChannel',
+      loader: salesChannelsLoader,
+      settingKey: null,
+      modalRef: createSalesChannelModalRef,
+      modalShow: showCreateSalesChannelModal,
+      errorMsg: 'Не удалось создать канал продаж'
+    },
+    customerOrderState: {
+      apiMethod: 'createState',
+      apiParams: ['customerorder'],
+      loader: customerOrderStatesLoader,
+      settingKey: 'customer_order_state_id',
+      modalRef: createCustomerOrderStateModalRef,
+      modalShow: showCreateCustomerOrderStateModal,
+      errorMsg: 'Не удалось создать статус'
+    },
+    retailDemandState: {
+      apiMethod: 'createState',
+      apiParams: ['customerorder'],
+      loader: customerOrderStatesLoader,
+      settingKey: 'retail_demand_state_id',
+      modalRef: createRetailDemandStateModalRef,
+      modalShow: showCreateRetailDemandStateModal,
+      errorMsg: 'Не удалось создать статус'
+    },
+    purchaseOrderState: {
+      apiMethod: 'createState',
+      apiParams: ['customerorder'],
+      loaders: [customerOrderStatesLoader, purchaseOrderStatesLoader],
+      settingKey: 'purchase_order_state_id',
+      modalRef: createPurchaseOrderStateModalRef,
+      modalShow: showCreatePurchaseOrderStateModal,
+      errorMsg: 'Не удалось создать статус'
+    }
+  }
 
-    const response = await api.syncSettings.createProject(accountId.value, data)
+  const cfg = config[entityType]
+  if (!cfg) {
+    console.error(`Unknown entity type: ${entityType}`)
+    return
+  }
+
+  try {
+    cfg.modalRef.value?.setLoading(true)
+
+    // Call API
+    const apiArgs = [accountId.value, ...(cfg.apiParams || []), data]
+    const response = await api.syncSettings[cfg.apiMethod](...apiArgs)
     const created = response.data.data
 
-    // Add to projects list using composable
-    projectsLoader.addItem(created)
+    // Add to loader(s)
+    if (cfg.loaders) {
+      cfg.loaders.forEach(loader => loader.addItem(created))
+    } else {
+      cfg.loader.addItem(created)
+    }
 
-    // Select the newly created project
-    settings.value.target_project_id = created.id
-    metadataManager.updateMetadata('target_project_id', created.id, created.name)
+    // Auto-select if settingKey provided
+    if (cfg.settingKey) {
+      settings.value[cfg.settingKey] = created.id
+      metadataManager.updateMetadata(cfg.settingKey, created.id, created.name)
+    }
 
-    showCreateProjectModal.value = false
+    // Hide modal
+    cfg.modalShow.value = false
 
   } catch (err) {
-    console.error('Failed to create project:', err)
-    createProjectModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать проект')
+    console.error(`Failed to create ${entityType}:`, err)
+    cfg.modalRef.value?.setError(err.response?.data?.error || cfg.errorMsg)
   } finally {
-    createProjectModalRef.value?.setLoading(false)
+    cfg.modalRef.value?.setLoading(false)
   }
 }
 
-const handleStoreCreated = async (data) => {
-  try {
-    createStoreModalRef.value?.setLoading(true)
-
-    const response = await api.syncSettings.createStore(accountId.value, data)
-    const created = response.data.data
-
-    // Add to stores list using composable
-    storesLoader.addItem(created)
-
-    // Select the newly created store
-    settings.value.target_store_id = created.id
-    metadataManager.updateMetadata('target_store_id', created.id, created.name)
-
-    showCreateStoreModal.value = false
-
-  } catch (err) {
-    console.error('Failed to create store:', err)
-    createStoreModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать склад')
-  } finally {
-    createStoreModalRef.value?.setLoading(false)
-  }
-}
-
-const handleSalesChannelCreated = async (data) => {
-  try {
-    createSalesChannelModalRef.value?.setLoading(true)
-
-    const response = await api.syncSettings.createSalesChannel(accountId.value, data)
-    const created = response.data.data
-
-    // Add to sales channels list using composable
-    salesChannelsLoader.addItem(created)
-
-    showCreateSalesChannelModal.value = false
-
-  } catch (err) {
-    console.error('Failed to create sales channel:', err)
-    createSalesChannelModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать канал продаж')
-  } finally {
-    createSalesChannelModalRef.value?.setLoading(false)
-  }
-}
-
-const handleCustomerOrderStateCreated = async (data) => {
-  try {
-    createCustomerOrderStateModalRef.value?.setLoading(true)
-
-    const response = await api.syncSettings.createState(accountId.value, 'customerorder', data)
-    const created = response.data.data
-
-    // Add to customer order states list using composable
-    customerOrderStatesLoader.addItem(created)
-
-    // Select the newly created state
-    settings.value.customer_order_state_id = created.id
-    metadataManager.updateMetadata('customer_order_state_id', created.id, created.name)
-
-    showCreateCustomerOrderStateModal.value = false
-
-  } catch (err) {
-    console.error('Failed to create customer order state:', err)
-    createCustomerOrderStateModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать статус')
-  } finally {
-    createCustomerOrderStateModalRef.value?.setLoading(false)
-  }
-}
-
-const handleRetailDemandStateCreated = async (data) => {
-  try {
-    createRetailDemandStateModalRef.value?.setLoading(true)
-
-    const response = await api.syncSettings.createState(accountId.value, 'customerorder', data)
-    const created = response.data.data
-
-    // Add to customer order states list using composable (retail demand uses same states)
-    customerOrderStatesLoader.addItem(created)
-
-    // Select the newly created state
-    settings.value.retail_demand_state_id = created.id
-    metadataManager.updateMetadata('retail_demand_state_id', created.id, created.name)
-
-    showCreateRetailDemandStateModal.value = false
-
-  } catch (err) {
-    console.error('Failed to create retail demand state:', err)
-    createRetailDemandStateModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать статус')
-  } finally {
-    createRetailDemandStateModalRef.value?.setLoading(false)
-  }
-}
-
-const handlePurchaseOrderStateCreated = async (data) => {
-  try {
-    createPurchaseOrderStateModalRef.value?.setLoading(true)
-
-    // ВАЖНО: purchaseorder в child → customerorder в main
-    // Поэтому создаем customerorder state
-    const response = await api.syncSettings.createState(accountId.value, 'customerorder', data)
-    const created = response.data.data
-
-    // Add to both states lists using composables (they share the same states)
-    customerOrderStatesLoader.addItem(created)
-    purchaseOrderStatesLoader.addItem(created)
-
-    // Select the newly created state
-    settings.value.purchase_order_state_id = created.id
-    metadataManager.updateMetadata('purchase_order_state_id', created.id, created.name)
-
-    showCreatePurchaseOrderStateModal.value = false
-
-  } catch (err) {
-    console.error('Failed to create purchase order state:', err)
-    createPurchaseOrderStateModalRef.value?.setError(err.response?.data?.error || 'Не удалось создать статус')
-  } finally {
-    createPurchaseOrderStateModalRef.value?.setLoading(false)
-  }
-}
+// Specific handlers (for template compatibility)
+const handleProjectCreated = (data) => handleEntityCreated('project', data)
+const handleStoreCreated = (data) => handleEntityCreated('store', data)
+const handleSalesChannelCreated = (data) => handleEntityCreated('salesChannel', data)
+const handleCustomerOrderStateCreated = (data) => handleEntityCreated('customerOrderState', data)
+const handleRetailDemandStateCreated = (data) => handleEntityCreated('retailDemandState', data)
+const handlePurchaseOrderStateCreated = (data) => handleEntityCreated('purchaseOrderState', data)
 
 // VAT settings update handler
 const handleVatSettingsUpdate = (vatSettings) => {
@@ -880,20 +638,23 @@ const syncAllProducts = async () => {
   }
 }
 
-// Сохранение настроек
+// Save settings (with proper data preparation)
 const saveSettings = async () => {
   try {
     saving.value = true
-    filterJsonError.value = null
 
-    // Convert arrays back to JSON for storage
-    settings.value.price_mappings = priceMappings.value.length > 0 ? priceMappings.value : null
-    settings.value.attribute_sync_list = selectedAttributes.value.length > 0 ? selectedAttributes.value : null
-    settings.value.target_objects_meta = Object.keys(targetObjectsMeta.value).length > 0 ? targetObjectsMeta.value : null
+    // Prepare settings with all data
+    const dataToSave = {
+      ...settings.value,
+      price_mappings: priceMappingsManager.getMappingsForSave(),
+      attribute_sync_list: selectedAttributes.value.length > 0 ? selectedAttributes.value : null,
+      target_objects_meta: Object.keys(targetObjectsMeta.value).length > 0 ? targetObjectsMeta.value : null
+    }
 
-    await api.syncSettings.update(accountId.value, settings.value)
+    // Save to API
+    await api.syncSettings.update(accountId.value, dataToSave)
 
-    // Показать сообщение об успехе
+    // Show success message
     saveSuccess.value = true
     setTimeout(() => {
       saveSuccess.value = false
@@ -901,13 +662,25 @@ const saveSettings = async () => {
 
   } catch (err) {
     console.error('Failed to save settings:', err)
-    alert('Не удалось сохранить настройки: ' + (err.response?.data?.error || err.message))
+
+    // Show error
+    const errorMessage = err.response?.data?.error || err.message
+    error.value = 'Не удалось сохранить настройки: ' + errorMessage
+    alert('Не удалось сохранить настройки: ' + errorMessage)
+
+    throw err
+
   } finally {
     saving.value = false
   }
 }
 
-onMounted(() => {
-  loadSettings()
+// Initialize component
+onMounted(async () => {
+  // Load settings with callback to load extended data
+  await formManager.loadSettings(async () => {
+    // Load extended data (priceTypes, attributes, folders) in parallel
+    await settingsData.loadAll()
+  })
 })
 </script>

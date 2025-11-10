@@ -4,6 +4,8 @@
 **Vue 3 Composition API** - Options API is NOT used
 
 **Key Composables** (`resources/js/composables/`):
+
+**Core Composables:**
 - `useMoyskladContext.js` - Context management, loads from URL params, saves to sessionStorage
 - `useMoyskladEntities.js` - Universal loader for МойСклад entities with caching
   * Supports 10 entity types: organizations, stores, projects, employees, salesChannels, customerOrderStates, purchaseOrderStates, attributes, folders, priceTypes
@@ -19,6 +21,32 @@
   * Auto-dismisses after 3 seconds (configurable)
   * Replaces blocking browser `alert()` with non-blocking toasts
   * Global state management for multiple toasts
+
+**Franchise Settings Composables** (modular architecture):
+- `useFranchiseSettingsData.js` (178 lines) - Extended settings data loader
+  * Manages: priceTypes, attributes, folders
+  * Parallel loading with `loadAll()` - single Promise.all() call
+  * Request cancellation with AbortController (prevents memory leaks)
+  * Individual loading states + error states for each entity type
+  * Methods: `loadAll()`, `loadPriceTypes()`, `loadAttributes()`, `loadFolders()`, `cancelRequests()`, `isLoading()`, `hasErrors()`
+- `usePriceMappingsManager.js` (185 lines) - Price mappings management
+  * CRUD operations for price type mappings
+  * Creating new price types in child account
+  * Auto-select newly created price type in mapping
+  * Validation with `validateMappings()` (checks incomplete mappings)
+  * Methods: `addPriceMapping()`, `removePriceMapping()`, `createNewPriceType()`, `initializeMappings()`, `getMappingsForSave()`, `validateMappings()`
+- `useModalManager.js` (159 lines) - Unified modal management
+  * Manages 6 modals (project, store, salesChannel, customerOrderState, retailDemandState, purchaseOrderState)
+  * Single interface: `show(type)`, `hide(type)`, `hideAll()`, `isAnyOpen()`
+  * Modal state management: `setLoading(type, bool)`, `setError(type, msg)`, `clearError(type)`
+  * Backward compatibility refs for template v-model usage
+  * Replaces 12 separate modal refs with structured object
+- `useFranchiseSettingsForm.js` (282 lines) - Settings form management
+  * Loads settings from API with error handling (404 → redirect, 401 → reload)
+  * Saves settings with data composition (no props mutation!)
+  * Initializes price mappings, attributes, metadata via provided managers
+  * Methods: `loadSettings(onDataLoaded)`, `saveSettings()`, `prepareSettingsForSave()`, `resetForm()`, `clearError()`
+  * Clean separation: loading logic + saving logic in one place
 
 **Pages** (`resources/js/pages/`):
 - `Dashboard.vue` - Statistics overview + franchise tiles grid with sync toggles + account management
@@ -51,8 +79,17 @@
 
 Settings pages use modular component structure for maintainability:
 
-**Unified Franchise Settings with Tabs** (single-page design):
-- `FranchiseSettings.vue` (~900 lines) - Main page with tabbed interface
+**Unified Franchise Settings with Tabs** (single-page design, refactored 2025):
+- `FranchiseSettings.vue` (**686 lines**, refactored from 913) - Main page with tabbed interface
+  * **Refactored architecture** (Jan 2025):
+    - 227 lines removed (-24.9%) by extracting logic to composables
+    - Modal handlers: 142 lines → ~100 lines (-30%) via unified `handleEntityCreated()`
+    - Refs count: 60+ → ~20 (-66%) by using composables
+    - Functions count: 25+ → ~12 (-52%) by delegation to composables
+  * **Critical fixes**:
+    - ✅ **Props mutation removed** - `saveSettings()` creates `dataToSave` object instead of mutating `settings.value`
+    - ✅ **Request cancellation added** - AbortController prevents memory leaks on unmount
+    - ✅ **Improved testability** - Business logic extracted to testable composables
   * **Tab 1: Products** - Product and service sync settings
     - `ProductSyncSection.vue` (131 lines) - Product sync checkboxes + advanced settings
     - `PriceMappingsSection.vue` (254 lines) - Price type mappings + attribute selection
@@ -64,12 +101,22 @@ Settings pages use modular component structure for maintainability:
     - `AutoCreateSection.vue` (72 lines) - Auto-creation settings
     - `VatSyncSection.vue` - VAT sync settings
 
-**Component pattern:** "Dumb" section components that only render UI and emit events. All business logic in FranchiseSettings parent page. This approach:
+**Component pattern:** "Dumb" section components that only render UI and emit events. Business logic delegated to specialized composables. This approach:
 - All settings load once, visible in single view with tabs
 - Instant tab switching without reloading data (v-show)
 - Single form submit saves all settings across all tabs
-- Maintains single source of truth for data and logic
+- Composable-based architecture: `useFranchiseSettingsData`, `usePriceMappingsManager`, `useModalManager`, `useFranchiseSettingsForm`
+- Single Responsibility Principle: each composable handles one concern
+- Easy to test: composables are pure functions with clear inputs/outputs
 - Easy to add/remove/reorder sections within tabs
+
+**Refactoring improvements** (Jan 2025):
+- Before: 913 lines monolith with 60+ refs and 25+ functions
+- After: 686 lines coordinator + 4 composables (804 lines total, but reusable)
+- Modal handlers: DRY with config-driven `handleEntityCreated()`
+- Data preparation: Immutable with `dataToSave = { ...settings.value, ... }`
+- Memory safety: AbortController cancels requests on unmount
+- Code quality: Follows Vue 3 best practices (no props mutation, proper reactivity)
 
 **Reusable UI Components:**
 

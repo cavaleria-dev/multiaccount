@@ -11,7 +11,7 @@ This project uses modular documentation for better maintainability. See specific
 3. **[Architecture Overview](docs/03-architecture.md)** - МойСклад integration, synchronization architecture
 4. **[Batch Synchronization](docs/04-batch-sync.md)** ⭐ - Batch optimization (97% fewer API calls)
 5. **[Service Layer](docs/05-services.md)** - Service responsibilities, sync services architecture
-6. **[Frontend Architecture](docs/06-frontend.md)** - Vue 3, components, composables
+6. **[Frontend Architecture](docs/06-frontend.md)** ⭐ - Vue 3, composables architecture (refactored Jan 2025)
 7. **[Database Structure](docs/07-database.md)** - Tables, mappings, migrations
 8. **[API Endpoints](docs/08-api-endpoints.md)** - REST API reference
 9. **[Coding Standards](docs/09-coding-standards.md)** - PHP/Laravel + Vue 3 conventions
@@ -58,6 +58,7 @@ php artisan migrate           # Run migrations
 - **Batch optimization** - 97% fewer API requests for products/services ([details](docs/04-batch-sync.md))
 - **Queue-based sync** - Supervisor + ProcessSyncQueueJob (50 tasks/minute)
 - **Modular handlers** - 13 sync task handlers (76% code reduction) ([details](docs/16-sync-handlers.md))
+- **Composable architecture** - 4 specialized composables for FranchiseSettings (25% code reduction, improved testability) ([details](docs/06-frontend.md))
 - **Webhook system** - Real-time sync via МойСклад webhooks (95-100% ready, [production ready](docs/20-webhook-production-ready.md))
 - **Context caching** - 30min cache for МойСклад authentication context
 
