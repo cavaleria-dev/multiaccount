@@ -238,6 +238,14 @@ const toggleAccountSync = async (accountId, enabled) => {
 
 // Перейти в настройки аккаунта
 const configureAccount = (accountId) => {
+  // Проверка контекста перед навигацией
+  const contextKey = sessionStorage.getItem('moysklad_context_key')
+  if (!contextKey) {
+    showError('Сессия истекла. Перезагрузите страницу.')
+    setTimeout(() => window.location.reload(), 2000)
+    return
+  }
+
   router.push(`/app/accounts/${accountId}/settings`)
 }
 

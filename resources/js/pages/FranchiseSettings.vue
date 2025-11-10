@@ -40,43 +40,58 @@
       <p class="text-xs text-yellow-700 mt-1">Route params: {{ JSON.stringify($route.params) }}</p>
     </div>
 
+    <!-- Tabs Navigation -->
+    <div v-if="!loading && !error" class="bg-white shadow rounded-lg">
+      <div class="border-b border-gray-200">
+        <nav class="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+          <button
+            type="button"
+            @click="activeTab = 'products'"
+            :class="tabClass('products')"
+            class="py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200 whitespace-nowrap"
+          >
+            <span class="flex items-center">
+              <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+              Товары и услуги
+            </span>
+          </button>
+          <button
+            type="button"
+            @click="activeTab = 'documents'"
+            :class="tabClass('documents')"
+            class="py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200 whitespace-nowrap"
+          >
+            <span class="flex items-center">
+              <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Документы
+            </span>
+          </button>
+          <button
+            type="button"
+            @click="activeTab = 'general'"
+            :class="tabClass('general')"
+            class="py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-200 whitespace-nowrap"
+          >
+            <span class="flex items-center">
+              <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Общие настройки
+            </span>
+          </button>
+        </nav>
+      </div>
+    </div>
+
     <!-- Форма настроек -->
     <form v-if="!loading && !error" @submit.prevent="saveSettings" class="space-y-4">
-      <!-- Главный выключатель синхронизации -->
-      <div
-        class="shadow-lg rounded-lg p-4 transition-all duration-300"
-        :class="settings.sync_enabled ? 'bg-gradient-to-r from-indigo-600 to-purple-700' : 'bg-gradient-to-r from-gray-400 to-gray-500'"
-      >
-        <div class="flex items-center justify-between">
-          <div class="flex items-center space-x-3">
-            <div class="bg-white/90 rounded-lg p-2 shadow">
-              <svg
-                class="h-6 w-6 transition-colors duration-300"
-                :class="settings.sync_enabled ? 'text-indigo-600' : 'text-gray-500'"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </div>
-            <div>
-              <h3 class="text-base font-semibold text-white">Синхронизация</h3>
-              <p class="text-xs text-white/80">Глобальное управление всеми настройками</p>
-            </div>
-          </div>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input
-              v-model="settings.sync_enabled"
-              type="checkbox"
-              class="sr-only peer"
-            />
-            <div class="w-14 h-7 bg-white/30 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-white/40 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:rounded-full after:h-6 after:w-6 after:transition-all after:shadow-md peer-checked:bg-white/90"></div>
-            <span class="ml-3 text-sm font-medium text-white">{{ settings.sync_enabled ? 'Вкл' : 'Выкл' }}</span>
-          </label>
-        </div>
-      </div>
-
+      <!-- Вкладка: Товары и услуги -->
+      <div v-show="activeTab === 'products'" class="space-y-4">
       <!-- Секция 1: Синхронизация товаров + Расширенные настройки -->
       <ProductSyncSection
         v-model:settings="settings"
@@ -112,8 +127,12 @@
         :folders="folders"
         :loading-folders="loadingFolders"
       />
+      </div>
+      <!-- Конец вкладки: Товары и услуги -->
 
-      <!-- Секция 4: Синхронизация документов + Целевые объекты -->
+      <!-- Вкладка: Документы -->
+      <div v-show="activeTab === 'documents'" class="space-y-4">
+      <!-- Секция: Синхронизация документов + Целевые объекты -->
       <DocumentSyncSection
         v-model:settings="settings"
         :organizations="organizations"
@@ -161,6 +180,45 @@
         @clear-purchase-order-state="clearPurchaseOrderState"
         @clear-purchase-order-sales-channel="clearPurchaseOrderSalesChannel"
       />
+      </div>
+      <!-- Конец вкладки: Документы -->
+
+      <!-- Вкладка: Общие настройки -->
+      <div v-show="activeTab === 'general'" class="space-y-4">
+      <!-- Главный выключатель синхронизации -->
+      <div
+        class="shadow-lg rounded-lg p-4 transition-all duration-300"
+        :class="settings.sync_enabled ? 'bg-gradient-to-r from-indigo-600 to-purple-700' : 'bg-gradient-to-r from-gray-400 to-gray-500'"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <div class="bg-white/90 rounded-lg p-2 shadow">
+              <svg
+                class="h-6 w-6 transition-colors duration-300"
+                :class="settings.sync_enabled ? 'text-indigo-600' : 'text-gray-500'"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-base font-semibold text-white">Синхронизация</h3>
+              <p class="text-xs text-white/80">Глобальное управление всеми настройками</p>
+            </div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input
+              v-model="settings.sync_enabled"
+              type="checkbox"
+              class="sr-only peer"
+            />
+            <div class="w-14 h-7 bg-white/30 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-white/40 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:rounded-full after:h-6 after:w-6 after:transition-all after:shadow-md peer-checked:bg-white/90"></div>
+            <span class="ml-3 text-sm font-medium text-white">{{ settings.sync_enabled ? 'Вкл' : 'Выкл' }}</span>
+          </label>
+        </div>
+      </div>
 
       <!-- Автосоздание объектов -->
       <AutoCreateSection v-model:settings="settings" />
@@ -170,6 +228,8 @@
         :settings="settings"
         @update:settings="handleVatSettingsUpdate"
       />
+      </div>
+      <!-- Конец вкладки: Общие настройки -->
 
       <!-- Кнопки -->
       <div class="flex justify-between items-center">
@@ -265,6 +325,28 @@ const route = useRoute()
 const router = useRouter()
 
 const accountId = ref(route.params.accountId)
+
+// Active tab state
+const activeTab = ref('products')
+
+// Tab class helper function
+const tabClass = (tab) => {
+  if (activeTab.value === tab) {
+    return 'border-indigo-600 text-indigo-600'
+  }
+  return 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+}
+
+// Watch for query param to switch tabs
+watch(
+  () => route.query.tab,
+  (newTab) => {
+    if (newTab && ['products', 'documents', 'general'].includes(newTab)) {
+      activeTab.value = newTab
+    }
+  },
+  { immediate: true }
+)
 
 // Entity loaders using composables
 const organizationsLoader = useMoyskladEntities(accountId.value, 'organizations')
@@ -492,7 +574,23 @@ const loadSettings = async () => {
 
   } catch (err) {
     console.error('Failed to load settings:', err)
-    error.value = 'Не удалось загрузить настройки: ' + (err.response?.data?.error || err.message)
+
+    // Специфичная обработка разных типов ошибок
+    if (err.response?.status === 404) {
+      error.value = 'Аккаунт не найден или недоступен'
+      // Редирект на Dashboard через 2 секунды
+      setTimeout(() => {
+        router.push('/app')
+      }, 2000)
+    } else if (err.response?.status === 401) {
+      error.value = 'Сессия истекла. Перезагрузка страницы...'
+      // Перезагрузить приложение
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
+    } else {
+      error.value = 'Не удалось загрузить настройки: ' + (err.response?.data?.error || err.message)
+    }
   } finally {
     loading.value = false
   }

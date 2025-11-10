@@ -20,14 +20,30 @@ api.interceptors.request.use(
   error => Promise.reject(error)
 )
 
+// Флаг для предотвращения множественных перезагрузок
+let reloadScheduled = false
+
 // Обработка ошибок
 api.interceptors.response.use(
   response => response,
   error => {
     console.error('API Error:', error)
+
+    // Автоматическая перезагрузка при истечении контекста
     if (error.response?.status === 401) {
-      console.error('Context expired, please reload')
+      console.error('Context expired')
+
+      // Перезагрузить приложение только один раз
+      if (!reloadScheduled) {
+        reloadScheduled = true
+        console.log('Scheduling application reload in 1.5 seconds...')
+
+        setTimeout(() => {
+          window.location.reload()
+        }, 1500)
+      }
     }
+
     return Promise.reject(error)
   }
 )
