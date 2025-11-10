@@ -22,41 +22,54 @@
 
 **Pages** (`resources/js/pages/`):
 - `Dashboard.vue` - Statistics overview + franchise tiles grid with sync toggles + account management
+  * **Context validation**: Checks `sessionStorage` for context key before navigating to settings
+  * Auto-reload with error message if context expired (prevents 404 errors)
 - `GeneralSettings.vue` - App-wide settings (account type: main/child)
-- `FranchiseSettings.vue` - ⚠️ DEPRECATED: Redirects to new modular pages
-- `franchise/FranchiseProducts.vue` - Product sync settings (products, prices, filters)
-- `franchise/FranchiseDocuments.vue` - Document sync settings with target objects
-- `franchise/FranchiseGeneral.vue` - General settings (main toggle, VAT, auto-create, delete button)
+- `FranchiseSettings.vue` - **Unified franchise settings with tabbed interface**
+  * Single page with 3 tabs: Products / Documents / General
+  * All data loads once, instant tab switching with v-show
+  * Displays account name in header + "Back to accounts" link
+  * Single save button for all settings across all tabs
+  * **Enhanced error handling**:
+    - 404 error → Shows message + auto-redirect to Dashboard after 2s
+    - 401 error → Shows message + auto-reload app after 2s
+    - Generic errors → Shows detailed error message
 
-**Note:** `ChildAccounts.vue` was removed - all account management consolidated in Dashboard
-
-**Layouts** (`resources/js/layouts/`):
-- `FranchiseLayout.vue` - Sidebar layout for franchise settings with 3-tab navigation
-  * Back button returns to Dashboard (`/app`)
+**Notes:**
+- `ChildAccounts.vue` was removed - all account management consolidated in Dashboard
+- Modular pages (`FranchiseProducts`, `FranchiseDocuments`, `FranchiseGeneral`) removed - consolidated into tabbed FranchiseSettings
+- `FranchiseLayout.vue` removed - no longer needed with single-page design
 
 **API Client** (`resources/js/api/index.js`):
 - Axios instance with interceptor that auto-adds `X-MoySklad-Context-Key` from sessionStorage
+- **Auto-reload on 401**: Response interceptor detects expired context (401 error) and automatically reloads the app after 1.5s
+  * Duplicate prevention: Uses `reloadScheduled` flag to ensure single reload
+  * User-friendly: Shows console message before reload
+- Request interceptor adds context key from `sessionStorage.getItem('moysklad_context_key')`
 
 **Component Architecture:**
 
 Settings pages use modular component structure for maintainability:
 
-**Modular Franchise Settings** (split across 3 pages):
-- `FranchiseProducts.vue` (~350 lines) - Uses:
-  - `ProductSyncSection.vue` (131 lines) - Product sync checkboxes + advanced settings
-  - `PriceMappingsSection.vue` (254 lines) - Price type mappings + attribute selection
-  - `ProductFiltersSection.vue` (77 lines) - Product filters toggle + ProductFilterBuilder
-- `FranchiseDocuments.vue` (~280 lines) - Uses:
-  - `DocumentSyncSection.vue` (356 lines) - Document sync options + target objects
-- `FranchiseGeneral.vue` (~240 lines) - Uses:
-  - `AutoCreateSection.vue` (72 lines) - Auto-creation settings
-  - `VatSyncSection.vue` - VAT sync settings
+**Unified Franchise Settings with Tabs** (single-page design):
+- `FranchiseSettings.vue` (~900 lines) - Main page with tabbed interface
+  * **Tab 1: Products** - Product and service sync settings
+    - `ProductSyncSection.vue` (131 lines) - Product sync checkboxes + advanced settings
+    - `PriceMappingsSection.vue` (254 lines) - Price type mappings + attribute selection
+    - `ProductFiltersSection.vue` (77 lines) - Product filters toggle + ProductFilterBuilder
+  * **Tab 2: Documents** - Document sync settings
+    - `DocumentSyncSection.vue` (356 lines) - Document sync options + target objects
+  * **Tab 3: General** - General settings and master toggle
+    - Master sync toggle (inline) - Global on/off switch
+    - `AutoCreateSection.vue` (72 lines) - Auto-creation settings
+    - `VatSyncSection.vue` - VAT sync settings
 
-**Component pattern:** "Dumb" components that only render UI and emit events. All business logic in parent pages. This approach:
-- Reduces complexity by splitting 1000+ line file into 3 focused pages
-- Improves navigation with sidebar menu
-- Maintains single source of truth for data and logic per section
-- Easy to add/remove/reorder sections
+**Component pattern:** "Dumb" section components that only render UI and emit events. All business logic in FranchiseSettings parent page. This approach:
+- All settings load once, visible in single view with tabs
+- Instant tab switching without reloading data (v-show)
+- Single form submit saves all settings across all tabs
+- Maintains single source of truth for data and logic
+- Easy to add/remove/reorder sections within tabs
 
 **Reusable UI Components:**
 
@@ -94,23 +107,19 @@ Settings pages use modular component structure for maintainability:
 
 **Router Structure** (`resources/js/router/index.js`):
 
-Nested routing for franchise settings with sidebar navigation:
+Simplified flat routing structure:
 
 ```
 /app → Dashboard (main page with all accounts)
 /app/accounts → redirects to /app (backwards compatibility)
-/app/accounts/:accountId (FranchiseLayout)
-  ├─ /products (default) → FranchiseProducts.vue
-  ├─ /documents → FranchiseDocuments.vue
-  └─ /general → FranchiseGeneral.vue
-
-Legacy route: /app/accounts/:accountId/settings → redirects to /products
+/app/accounts/:accountId/settings → FranchiseSettings.vue (with tabs)
 ```
 
 **Route features:**
-- Nested children routes with props passing
-- FranchiseLayout provides sidebar navigation
-- Default redirect to /products page
-- Backwards compatibility redirects from old routes
-- **Changed:** All "Back" links now point to `/app` (Dashboard) instead of `/app/accounts`
+- Simple flat routing (no nested routes)
+- Single settings page with internal tab navigation
+- Supports `?tab=<name>` query parameter for direct tab navigation
+  - Example: `/app/accounts/123/settings?tab=documents` opens Documents tab
+- Props: `accountId` passed as prop to FranchiseSettings
+- All "Back" links point to `/app` (Dashboard)
 
