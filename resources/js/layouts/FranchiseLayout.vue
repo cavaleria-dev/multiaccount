@@ -69,7 +69,9 @@
         </div>
 
         <!-- Content -->
-        <router-view :account-id="accountId" />
+        <router-view v-slot="{ Component }">
+          <component :is="Component" :accountId="props.accountId" />
+        </router-view>
       </div>
     </main>
   </div>
