@@ -158,6 +158,28 @@ class CustomerOrderSyncService
                 ];
             }
 
+            // Установить склад
+            if ($settings->target_store_id) {
+                $newOrderData['store'] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/store/{$settings->target_store_id}",
+                        'type' => 'store',
+                        'mediaType' => 'application/json'
+                    ]
+                ];
+            }
+
+            // Установить проект
+            if ($settings->target_project_id) {
+                $newOrderData['project'] = [
+                    'meta' => [
+                        'href' => config('moysklad.api_url') . "/entity/project/{$settings->target_project_id}",
+                        'type' => 'project',
+                        'mediaType' => 'application/json'
+                    ]
+                ];
+            }
+
             // Синхронизировать позиции заказа
             $newOrderData['positions'] = $this->syncPositions(
                 $parentAccount->account_id,
