@@ -63,15 +63,16 @@
           </svg>
           Франшизы
         </h2>
-        <router-link
-          to="/app/accounts/create"
+        <button
+          @click="showModal('franchise')"
+          type="button"
           class="inline-flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all shadow-sm hover:shadow-md"
         >
           <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
           <span>Добавить франшизу</span>
-        </router-link>
+        </button>
       </div>
 
       <!-- Loading state -->
@@ -104,18 +105,27 @@
         </div>
         <h3 class="text-lg font-medium text-gray-900 mb-2">Нет дочерних аккаунтов</h3>
         <p class="text-sm text-gray-500 mb-6">Добавьте первый дочерний аккаунт для начала работы</p>
-        <router-link
-          to="/app/accounts"
+        <button
+          @click="showModal('franchise')"
+          type="button"
           class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-medium rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
         >
           <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
           Добавить аккаунт
-        </router-link>
+        </button>
       </div>
     </div>
   </div>
+
+  <!-- Create Franchise Modal -->
+  <CreateFranchiseModal
+    :show="showCreateFranchiseModal"
+    @close="hideModal('franchise')"
+    @created="handleFranchiseCreated"
+    :ref="createFranchiseModalRef"
+  />
 </template>
 
 <script setup>
@@ -123,10 +133,20 @@ import { ref, onMounted, defineProps, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import AccountCard from '../components/AccountCard.vue'
+import CreateFranchiseModal from '../components/CreateFranchiseModal.vue'
 import { useToast } from '../composables/useToast'
+import { useModalManager } from '../composables/useModalManager'
 
 const router = useRouter()
-const { error: showError } = useToast()
+const { error: showError, success: showSuccess } = useToast()
+const {
+  showCreateFranchiseModal,
+  createFranchiseModalRef,
+  show: showModal,
+  hide: hideModal,
+  setLoading: setModalLoading,
+  setError: setModalError
+} = useModalManager()
 
 const props = defineProps({
   context: Object,
@@ -246,6 +266,36 @@ const configureAccount = (accountId) => {
   }
 
   router.push(`/app/accounts/${accountId}/settings`)
+}
+
+// Обработчик создания франшизы
+const handleFranchiseCreated = async (data) => {
+  try {
+    setModalLoading('franchise', true)
+
+    // Создаем дочерний аккаунт через API
+    await api.childAccounts.create(data)
+
+    // Закрываем модалку
+    hideModal('franchise')
+
+    // Показываем успешное уведомление
+    showSuccess('Аккаунт успешно добавлен!')
+
+    // Обновляем список аккаунтов и статистику
+    await fetchChildAccounts()
+    await fetchStats()
+  } catch (error) {
+    console.error('Error creating franchise:', error)
+
+    // Показываем сообщение об ошибке в модалке
+    const errorMessage = error.response?.data?.message ||
+                        error.response?.data?.error ||
+                        'Не удалось добавить аккаунт. Проверьте название и попробуйте снова.'
+    setModalError('franchise', errorMessage)
+  } finally {
+    setModalLoading('franchise', false)
+  }
 }
 
 onMounted(() => {

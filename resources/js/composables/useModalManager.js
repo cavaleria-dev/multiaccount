@@ -13,6 +13,7 @@ export function useModalManager() {
     'store',
     'salesChannel',
     'priceType',
+    'franchise',
     'customerOrderState',
     'retailDemandState',
     'purchaseOrderState'
@@ -119,6 +120,7 @@ export function useModalManager() {
   const showCreateStoreModal = modals.store
   const showCreateSalesChannelModal = modals.salesChannel
   const showCreatePriceTypeModal = modals.priceType
+  const showCreateFranchiseModal = modals.franchise
   const showCreateCustomerOrderStateModal = modals.customerOrderState
   const showCreateRetailDemandStateModal = modals.retailDemandState
   const showCreatePurchaseOrderStateModal = modals.purchaseOrderState
@@ -127,6 +129,7 @@ export function useModalManager() {
   const createStoreModalRef = modalRefs.store
   const createSalesChannelModalRef = modalRefs.salesChannel
   const createPriceTypeModalRef = modalRefs.priceType
+  const createFranchiseModalRef = modalRefs.franchise
   const createCustomerOrderStateModalRef = modalRefs.customerOrderState
   const createRetailDemandStateModalRef = modalRefs.retailDemandState
   const createPurchaseOrderStateModalRef = modalRefs.purchaseOrderState
@@ -149,6 +152,7 @@ export function useModalManager() {
     showCreateStoreModal,
     showCreateSalesChannelModal,
     showCreatePriceTypeModal,
+    showCreateFranchiseModal,
     showCreateCustomerOrderStateModal,
     showCreateRetailDemandStateModal,
     showCreatePurchaseOrderStateModal,
@@ -157,6 +161,7 @@ export function useModalManager() {
     createStoreModalRef,
     createSalesChannelModalRef,
     createPriceTypeModalRef,
+    createFranchiseModalRef,
     createCustomerOrderStateModalRef,
     createRetailDemandStateModalRef,
     createPurchaseOrderStateModalRef

@@ -35,12 +35,12 @@
   * Auto-select newly created price type in mapping
   * Validation with `validateMappings()` (checks incomplete mappings)
   * Methods: `addPriceMapping()`, `removePriceMapping()`, `createNewPriceType()`, `initializeMappings()`, `getMappingsForSave()`, `validateMappings()`
-- `useModalManager.js` (159 lines) - Unified modal management
-  * Manages 6 modals (project, store, salesChannel, customerOrderState, retailDemandState, purchaseOrderState)
+- `useModalManager.js` (169 lines) - Unified modal management
+  * Manages 8 modals (project, store, salesChannel, priceType, franchise, customerOrderState, retailDemandState, purchaseOrderState)
   * Single interface: `show(type)`, `hide(type)`, `hideAll()`, `isAnyOpen()`
   * Modal state management: `setLoading(type, bool)`, `setError(type, msg)`, `clearError(type)`
   * Backward compatibility refs for template v-model usage
-  * Replaces 12 separate modal refs with structured object
+  * Replaces 16 separate modal refs with structured object
 - `useFranchiseSettingsForm.js` (282 lines) - Settings form management
   * Loads settings from API with error handling (404 → redirect, 401 → reload)
   * Saves settings with data composition (no props mutation!)
@@ -50,8 +50,11 @@
 
 **Pages** (`resources/js/pages/`):
 - `Dashboard.vue` - Statistics overview + franchise tiles grid with sync toggles + account management
+  * **Add franchise modal**: "Добавить франшизу" button opens CreateFranchiseModal
+  * Modal integration: Uses `useModalManager` for unified modal handling
   * **Context validation**: Checks `sessionStorage` for context key before navigating to settings
   * Auto-reload with error message if context expired (prevents 404 errors)
+  * Empty state includes "Добавить аккаунт" button with same modal
 - `GeneralSettings.vue` - App-wide settings (account type: main/child)
 - `FranchiseSettings.vue` - **Unified franchise settings with tabbed interface**
   * Single page with 3 tabs: Products / Documents / General
@@ -119,6 +122,24 @@ Settings pages use modular component structure for maintainability:
 - Code quality: Follows Vue 3 best practices (no props mutation, proper reactivity)
 
 **Reusable UI Components:**
+
+**Modal Components:**
+
+`CreateFranchiseModal.vue` - Modal for adding new child franchises:
+- Props: `show` (boolean)
+- Emits: `close`, `created` (with account_name data)
+- Features: Single input field (account name), client-side validation, loading state, error display
+- Validation: Required field, max 255 characters
+- Pattern: Parent component handles API call, modal handles loading/error via `setLoading()` and `setError()` exposed methods
+- Usage: Dashboard "Добавить франшизу" button
+
+`CreatePriceTypeModal.vue` - Modal for creating new price types in child account
+`CreateProjectModal.vue` - Modal for creating new projects
+`CreateStoreModal.vue` - Modal for creating new stores
+`CreateSalesChannelModal.vue` - Modal for creating new sales channels
+`CreateStateModal.vue` - Modal for creating new order states
+
+**Card Components:**
 
 `AccountCard.vue` - Franchise tile card component:
 - Props: `account` (object), `loading` (boolean)
