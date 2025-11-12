@@ -61,8 +61,13 @@ Route::middleware(['moysklad.context'])->group(function () {
     Route::get('account/type', [AccountController::class, 'getAccountType']);
 
     // Дочерние аккаунты
-    Route::apiResource('child-accounts', ChildAccountController::class)
-        ->parameters(['child-accounts' => 'accountId'])
+    Route::get('child-accounts', [ChildAccountController::class, 'index']);
+    Route::get('child-accounts/{accountId}', [ChildAccountController::class, 'show'])
+        ->whereUuid('accountId');
+    Route::post('child-accounts', [ChildAccountController::class, 'store']);
+    Route::put('child-accounts/{accountId}', [ChildAccountController::class, 'update'])
+        ->whereUuid('accountId');
+    Route::delete('child-accounts/{accountId}', [ChildAccountController::class, 'destroy'])
         ->whereUuid('accountId');
 
     // Доступные аккаунты для подключения
