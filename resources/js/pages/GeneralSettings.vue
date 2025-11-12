@@ -178,7 +178,9 @@
 import { ref, onMounted } from 'vue'
 import Toggle from '../components/Toggle.vue'
 import api from '../api'
+import { useToast } from '../composables/useToast'
 
+const toast = useToast()
 const saving = ref(false)
 const saveSuccess = ref(false)
 const loading = ref(false)
@@ -243,7 +245,7 @@ async function saveSettings() {
   } catch (err) {
     console.error('Failed to save settings:', err)
     const errorMessage = err.response?.data?.message || 'Не удалось сохранить настройки'
-    alert(errorMessage)
+    toast.error(errorMessage)
   } finally {
     saving.value = false
   }

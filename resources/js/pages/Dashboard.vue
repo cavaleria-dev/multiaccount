@@ -64,13 +64,13 @@
           Франшизы
         </h2>
         <router-link
-          to="/app/accounts"
-          class="text-sm font-medium text-indigo-600 hover:text-indigo-700 flex items-center space-x-1"
+          to="/app/accounts/create"
+          class="inline-flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 transition-all shadow-sm hover:shadow-md"
         >
-          <span>Управление</span>
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
+          <span>Добавить франшизу</span>
         </router-link>
       </div>
 
@@ -156,7 +156,6 @@ const checkAccountType = async () => {
 
     // Если тип аккаунта не установлен, редиректим на welcome screen
     if (accountType === null || accountType === undefined) {
-      console.log('Account type not set, redirecting to welcome screen')
       router.push('/app/welcome')
     }
   } catch (error) {

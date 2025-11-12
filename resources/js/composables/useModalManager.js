@@ -1,4 +1,4 @@
-import { ref, reactive } from 'vue'
+import { ref } from 'vue'
 
 /**
  * Composable for managing multiple modals with unified interface
@@ -12,18 +12,19 @@ export function useModalManager() {
     'project',
     'store',
     'salesChannel',
+    'priceType',
     'customerOrderState',
     'retailDemandState',
     'purchaseOrderState'
   ]
 
-  // Modal state (show/hide)
-  const modals = reactive({})
+  // Modal state (show/hide) - using individual refs
+  const modals = {}
 
-  // Modal refs
-  const modalRefs = reactive({})
+  // Modal refs - using individual refs
+  const modalRefs = {}
 
-  // Initialize modals
+  // Initialize modals with individual refs (not inside reactive)
   modalTypes.forEach(type => {
     modals[type] = ref(false)
     modalRefs[type] = ref(null)
@@ -117,6 +118,7 @@ export function useModalManager() {
   const showCreateProjectModal = modals.project
   const showCreateStoreModal = modals.store
   const showCreateSalesChannelModal = modals.salesChannel
+  const showCreatePriceTypeModal = modals.priceType
   const showCreateCustomerOrderStateModal = modals.customerOrderState
   const showCreateRetailDemandStateModal = modals.retailDemandState
   const showCreatePurchaseOrderStateModal = modals.purchaseOrderState
@@ -124,6 +126,7 @@ export function useModalManager() {
   const createProjectModalRef = modalRefs.project
   const createStoreModalRef = modalRefs.store
   const createSalesChannelModalRef = modalRefs.salesChannel
+  const createPriceTypeModalRef = modalRefs.priceType
   const createCustomerOrderStateModalRef = modalRefs.customerOrderState
   const createRetailDemandStateModalRef = modalRefs.retailDemandState
   const createPurchaseOrderStateModalRef = modalRefs.purchaseOrderState
@@ -145,6 +148,7 @@ export function useModalManager() {
     showCreateProjectModal,
     showCreateStoreModal,
     showCreateSalesChannelModal,
+    showCreatePriceTypeModal,
     showCreateCustomerOrderStateModal,
     showCreateRetailDemandStateModal,
     showCreatePurchaseOrderStateModal,
@@ -152,6 +156,7 @@ export function useModalManager() {
     createProjectModalRef,
     createStoreModalRef,
     createSalesChannelModalRef,
+    createPriceTypeModalRef,
     createCustomerOrderStateModalRef,
     createRetailDemandStateModalRef,
     createPurchaseOrderStateModalRef

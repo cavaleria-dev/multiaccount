@@ -13,12 +13,6 @@ export function usePriceMappingsManager(accountId, priceTypes) {
   // Price mappings array
   const priceMappings = ref([])
 
-  // Create price type form state
-  const creatingPriceTypeForIndex = ref(null)
-  const newPriceTypeName = ref('')
-  const creatingPriceType = ref(false)
-  const createPriceTypeError = ref(null)
-
   /**
    * Add a new empty price mapping
    */
@@ -38,77 +32,14 @@ export function usePriceMappingsManager(accountId, priceTypes) {
   }
 
   /**
-   * Show create price type form for specific mapping
+   * Update child price type for specific mapping
+   * Used when a new price type is created
    * @param {number} index - Mapping index
+   * @param {string} priceTypeId - Price type ID
    */
-  const showCreatePriceTypeForm = (index) => {
-    creatingPriceTypeForIndex.value = index
-    newPriceTypeName.value = ''
-    createPriceTypeError.value = null
-  }
-
-  /**
-   * Hide create price type form
-   */
-  const hideCreatePriceTypeForm = () => {
-    creatingPriceTypeForIndex.value = null
-    newPriceTypeName.value = ''
-    createPriceTypeError.value = null
-  }
-
-  /**
-   * Create a new price type in child account
-   * @param {number} index - Mapping index to auto-select created price type
-   */
-  const createNewPriceType = async (index) => {
-    // Validation
-    if (!newPriceTypeName.value || newPriceTypeName.value.trim().length < 2) {
-      createPriceTypeError.value = 'Название должно содержать минимум 2 символа'
-      return
-    }
-
-    try {
-      creatingPriceType.value = true
-      createPriceTypeError.value = null
-
-      const response = await api.syncSettings.createPriceType(accountId.value, {
-        name: newPriceTypeName.value.trim()
-      })
-
-      const createdPriceType = response.data.data
-
-      // Add to child price types list
-      if (priceTypes.value.child) {
-        priceTypes.value.child.push({
-          id: createdPriceType.id,
-          name: createdPriceType.name
-        })
-      }
-
-      // Auto-select created price type in the mapping
-      if (index !== null && priceMappings.value[index]) {
-        priceMappings.value[index].child_price_type_id = createdPriceType.id
-      }
-
-      // Hide form
-      hideCreatePriceTypeForm()
-
-      return createdPriceType
-
-    } catch (err) {
-      console.error('Failed to create price type:', err)
-
-      // Handle specific errors
-      if (err.response?.status === 409) {
-        createPriceTypeError.value = 'Тип цены с таким названием уже существует'
-      } else {
-        createPriceTypeError.value = err.response?.data?.error || 'Не удалось создать тип цены'
-      }
-
-      throw err
-
-    } finally {
-      creatingPriceType.value = false
+  const updateMappingChildPriceType = (index, priceTypeId) => {
+    if (priceMappings.value[index]) {
+      priceMappings.value[index].child_price_type_id = priceTypeId
     }
   }
 
@@ -165,18 +96,10 @@ export function usePriceMappingsManager(accountId, priceTypes) {
     // Data
     priceMappings,
 
-    // Create form state
-    creatingPriceTypeForIndex,
-    newPriceTypeName,
-    creatingPriceType,
-    createPriceTypeError,
-
     // Methods
     addPriceMapping,
     removePriceMapping,
-    showCreatePriceTypeForm,
-    hideCreatePriceTypeForm,
-    createNewPriceType,
+    updateMappingChildPriceType,
     initializeMappings,
     getMappingsForSave,
     clearMappings,

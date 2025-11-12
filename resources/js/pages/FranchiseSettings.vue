@@ -34,12 +34,6 @@
       </details>
     </div>
 
-    <!-- Debug info -->
-    <div v-if="!loading && !error && !accountId" class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-      <p class="text-sm text-yellow-800">⚠️ Account ID отсутствует</p>
-      <p class="text-xs text-yellow-700 mt-1">Route params: {{ JSON.stringify($route.params) }}</p>
-    </div>
-
     <!-- Tabs Navigation -->
     <div v-if="!loading && !error" class="bg-white shadow rounded-lg">
       <div class="border-b border-gray-200">
@@ -104,19 +98,13 @@
       <PriceMappingsSection
         v-model="priceMappings"
         v-model:selected-attributes="selectedAttributes"
-        v-model:new-price-type-name="newPriceTypeName"
         :price-types="priceTypes"
         :attributes="attributes"
         :loading-price-types="loadingPriceTypes"
         :loading-attributes="loadingAttributes"
-        :creating-price-type-for-index="creatingPriceTypeForIndex"
-        :creating-price-type="creatingPriceType"
-        :create-price-type-error="createPriceTypeError"
         @add-price-mapping="addPriceMapping"
         @remove-price-mapping="removePriceMapping"
-        @show-create-price-type="showCreatePriceTypeForm"
-        @hide-create-price-type="hideCreatePriceTypeForm"
-        @create-price-type="createNewPriceType"
+        @create-price-type="openPriceTypeModal"
       />
 
       <!-- Секция 3: Фильтрация товаров (full width) -->
@@ -278,6 +266,13 @@
       ref="createSalesChannelModalRef"
     />
 
+    <CreatePriceTypeModal
+      :show="showCreatePriceTypeModal"
+      @close="showCreatePriceTypeModal = false"
+      @created="handlePriceTypeCreated"
+      ref="createPriceTypeModalRef"
+    />
+
     <CreateStateModal
       :show="showCreateCustomerOrderStateModal"
       entity-type="customerorder"
@@ -308,6 +303,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
+import { useToast } from '../composables/useToast'
 import { useMoyskladEntities } from '../composables/useMoyskladEntities'
 import { useTargetObjectsMetadata } from '../composables/useTargetObjectsMetadata'
 import { useFranchiseSettingsData } from '../composables/useFranchiseSettingsData'
@@ -317,6 +313,7 @@ import { useFranchiseSettingsForm } from '../composables/useFranchiseSettingsFor
 import CreateProjectModal from '../components/CreateProjectModal.vue'
 import CreateStoreModal from '../components/CreateStoreModal.vue'
 import CreateSalesChannelModal from '../components/CreateSalesChannelModal.vue'
+import CreatePriceTypeModal from '../components/CreatePriceTypeModal.vue'
 import CreateStateModal from '../components/CreateStateModal.vue'
 import ProductSyncSection from '../components/franchise-settings/ProductSyncSection.vue'
 import PriceMappingsSection from '../components/franchise-settings/PriceMappingsSection.vue'
@@ -327,6 +324,7 @@ import VatSyncSection from '../components/franchise-settings/VatSyncSection.vue'
 
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 
 const accountId = ref(route.params.accountId)
 
@@ -404,15 +402,9 @@ const {
 const priceMappingsManager = usePriceMappingsManager(accountId, priceTypes)
 const {
   priceMappings,
-  creatingPriceTypeForIndex,
-  newPriceTypeName,
-  creatingPriceType,
-  createPriceTypeError,
   addPriceMapping,
   removePriceMapping,
-  showCreatePriceTypeForm,
-  hideCreatePriceTypeForm,
-  createNewPriceType
+  updateMappingChildPriceType
 } = priceMappingsManager
 
 // Modal manager composable
@@ -421,16 +413,21 @@ const {
   showCreateProjectModal,
   showCreateStoreModal,
   showCreateSalesChannelModal,
+  showCreatePriceTypeModal,
   showCreateCustomerOrderStateModal,
   showCreateRetailDemandStateModal,
   showCreatePurchaseOrderStateModal,
   createProjectModalRef,
   createStoreModalRef,
   createSalesChannelModalRef,
+  createPriceTypeModalRef,
   createCustomerOrderStateModalRef,
   createRetailDemandStateModalRef,
   createPurchaseOrderStateModalRef
 } = modalManager
+
+// Price type creation state (remember which mapping index)
+const priceTypeForMapping = ref(null)
 
 // Sync state (not moved to composable as it's specific to this component)
 const syncing = ref(false)
@@ -530,6 +527,15 @@ const handleEntityCreated = async (entityType, data) => {
       modalShow: showCreateSalesChannelModal,
       errorMsg: 'Не удалось создать канал продаж'
     },
+    priceType: {
+      apiMethod: 'createPriceType',
+      loader: null, // Will update priceTypes.child directly
+      settingKey: null, // Will update mapping directly
+      modalRef: createPriceTypeModalRef,
+      modalShow: showCreatePriceTypeModal,
+      errorMsg: 'Не удалось создать тип цены',
+      customHandler: true // Mark for custom handling
+    },
     customerOrderState: {
       apiMethod: 'createState',
       apiParams: ['customerorder'],
@@ -562,6 +568,43 @@ const handleEntityCreated = async (entityType, data) => {
   const cfg = config[entityType]
   if (!cfg) {
     console.error(`Unknown entity type: ${entityType}`)
+    return
+  }
+
+  // Special handling for price type creation
+  if (entityType === 'priceType') {
+    try {
+      cfg.modalRef.value?.setLoading(true)
+
+      const response = await api.syncSettings.createPriceType(accountId.value, data)
+      const created = response.data.data
+
+      // Add to child price types list
+      if (priceTypes.value.child) {
+        priceTypes.value.child.push({
+          id: created.id,
+          name: created.name
+        })
+      }
+
+      // Auto-select in the mapping if index was saved
+      if (priceTypeForMapping.value !== null) {
+        updateMappingChildPriceType(priceTypeForMapping.value, created.id)
+        priceTypeForMapping.value = null
+      }
+
+      // Hide modal
+      cfg.modalShow.value = false
+
+    } catch (err) {
+      if (err.response?.status === 409) {
+        cfg.modalRef.value?.setError('Тип цены с таким названием уже существует')
+      } else {
+        cfg.modalRef.value?.setError(err.response?.data?.error || cfg.errorMsg)
+      }
+    } finally {
+      cfg.modalRef.value?.setLoading(false)
+    }
     return
   }
 
@@ -601,9 +644,16 @@ const handleEntityCreated = async (entityType, data) => {
 const handleProjectCreated = (data) => handleEntityCreated('project', data)
 const handleStoreCreated = (data) => handleEntityCreated('store', data)
 const handleSalesChannelCreated = (data) => handleEntityCreated('salesChannel', data)
+const handlePriceTypeCreated = (data) => handleEntityCreated('priceType', data)
 const handleCustomerOrderStateCreated = (data) => handleEntityCreated('customerOrderState', data)
 const handleRetailDemandStateCreated = (data) => handleEntityCreated('retailDemandState', data)
 const handlePurchaseOrderStateCreated = (data) => handleEntityCreated('purchaseOrderState', data)
+
+// Handler for opening price type creation modal from PriceMappingsSection
+const openPriceTypeModal = (mappingIndex) => {
+  priceTypeForMapping.value = mappingIndex
+  showCreatePriceTypeModal.value = true
+}
 
 // VAT settings update handler
 const handleVatSettingsUpdate = (vatSettings) => {
@@ -632,7 +682,7 @@ const syncAllProducts = async () => {
 
   } catch (err) {
     console.error('Failed to sync products:', err)
-    alert('Не удалось запустить синхронизацию: ' + (err.response?.data?.error || err.message))
+    toast.error('Не удалось запустить синхронизацию: ' + (err.response?.data?.error || err.message))
     syncing.value = false
     syncProgress.value = null
   }
@@ -666,7 +716,7 @@ const saveSettings = async () => {
     // Show error
     const errorMessage = err.response?.data?.error || err.message
     error.value = 'Не удалось сохранить настройки: ' + errorMessage
-    alert('Не удалось сохранить настройки: ' + errorMessage)
+    toast.error('Не удалось сохранить настройки: ' + errorMessage)
 
     throw err
 

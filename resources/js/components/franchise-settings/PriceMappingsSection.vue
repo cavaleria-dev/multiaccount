@@ -48,7 +48,7 @@
               </div>
               <button
                 type="button"
-                @click="$emit('show-create-price-type', index)"
+                @click="$emit('create-price-type', index)"
                 class="flex-shrink-0 p-2 text-indigo-600 hover:bg-indigo-50 rounded mt-0.5"
                 title="Создать новый тип цены"
               >
@@ -56,41 +56,6 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
               </button>
-            </div>
-
-            <!-- Inline форма создания типа цены -->
-            <div
-              v-if="creatingPriceTypeForIndex === index"
-              class="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-md"
-            >
-              <input
-                :value="newPriceTypeName"
-                @input="$emit('update:newPriceTypeName', $event.target.value)"
-                type="text"
-                placeholder="Название"
-                class="block w-full rounded-md border-gray-300 text-xs mb-1"
-                @keyup.enter="$emit('create-price-type', index)"
-                @keyup.escape="$emit('hide-create-price-type')"
-              />
-              <p v-if="createPriceTypeError" class="text-xs text-red-600 mb-1">{{ createPriceTypeError }}</p>
-              <div class="flex gap-1">
-                <button
-                  type="button"
-                  @click="$emit('create-price-type', index)"
-                  :disabled="creatingPriceType"
-                  class="flex-1 px-2 py-1 text-xs text-white bg-indigo-600 hover:bg-indigo-700 rounded"
-                >
-                  <span v-if="creatingPriceType">...</span>
-                  <span v-else>Создать</span>
-                </button>
-                <button
-                  type="button"
-                  @click="$emit('hide-create-price-type')"
-                  class="flex-1 px-2 py-1 text-xs text-gray-700 bg-white border border-gray-300 rounded"
-                >
-                  Отмена
-                </button>
-              </div>
             </div>
           </div>
           <button
@@ -188,33 +153,14 @@ const props = defineProps({
   loadingAttributes: {
     type: Boolean,
     default: false
-  },
-  creatingPriceTypeForIndex: {
-    type: Number,
-    default: null
-  },
-  newPriceTypeName: {
-    type: String,
-    default: ''
-  },
-  creatingPriceType: {
-    type: Boolean,
-    default: false
-  },
-  createPriceTypeError: {
-    type: String,
-    default: null
   }
 })
 
 const emit = defineEmits([
   'update:modelValue',
   'update:selectedAttributes',
-  'update:newPriceTypeName',
   'add-price-mapping',
   'remove-price-mapping',
-  'show-create-price-type',
-  'hide-create-price-type',
   'create-price-type'
 ])
 
