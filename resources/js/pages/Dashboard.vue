@@ -124,7 +124,7 @@
     :show="showCreateFranchiseModal"
     @close="hideModal('franchise')"
     @created="handleFranchiseCreated"
-    :ref="createFranchiseModalRef"
+    ref="createFranchiseModalRef"
   />
 </template>
 
