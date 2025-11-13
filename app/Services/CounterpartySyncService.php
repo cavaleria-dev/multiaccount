@@ -171,15 +171,36 @@ class CounterpartySyncService
 
             $childCounterparty = $childCounterpartyResult['data'];
 
-            // Проверить, есть ли уже такой контрагент в главном (по ИНН)
+            // Определить стратегию поиска по типу контрагента
             $parentAccount = Account::where('account_id', $parentAccountId)->firstOrFail();
             $existingCounterparty = null;
+            $companyType = $childCounterparty['companyType'] ?? 'legal';
 
-            if (isset($childCounterparty['inn']) && $childCounterparty['inn']) {
-                $existingCounterparty = $this->findCounterpartyByInn(
+            if ($companyType === 'individual') {
+                // Физ.лицо → искать по телефону и/или email
+                Log::debug('Searching for individual counterparty', [
+                    'phone' => $childCounterparty['phone'] ?? null,
+                    'email' => $childCounterparty['email'] ?? null,
+                    'name' => $childCounterparty['name'] ?? null
+                ]);
+
+                $existingCounterparty = $this->findIndividualCounterparty(
                     $parentAccountId,
-                    $childCounterparty['inn']
+                    $childCounterparty
                 );
+            } else {
+                // Юр.лицо или ИП → искать по ИНН
+                if (isset($childCounterparty['inn']) && $childCounterparty['inn']) {
+                    Log::debug('Searching for legal/entrepreneur counterparty by INN', [
+                        'inn' => $childCounterparty['inn'],
+                        'company_type' => $companyType
+                    ]);
+
+                    $existingCounterparty = $this->findCounterpartyByInn(
+                        $parentAccountId,
+                        $childCounterparty['inn']
+                    );
+                }
             }
 
             // Если не нашли - создать
@@ -189,11 +210,22 @@ class CounterpartySyncService
                     'companyType' => $childCounterparty['companyType'] ?? 'legal',
                 ];
 
+                // Для юр.лиц и ИП - добавить ИНН/КПП
                 if (isset($childCounterparty['inn'])) {
                     $newCounterpartyData['inn'] = $childCounterparty['inn'];
                 }
                 if (isset($childCounterparty['kpp'])) {
                     $newCounterpartyData['kpp'] = $childCounterparty['kpp'];
+                }
+
+                // Для физ.лиц - добавить phone/email
+                if ($companyType === 'individual') {
+                    if (isset($childCounterparty['phone'])) {
+                        $newCounterpartyData['phone'] = $childCounterparty['phone'];
+                    }
+                    if (isset($childCounterparty['email'])) {
+                        $newCounterpartyData['email'] = $childCounterparty['email'];
+                    }
                 }
 
                 $result = $this->moySkladService
@@ -281,6 +313,189 @@ class CounterpartySyncService
                 'error' => $e->getMessage()
             ]);
             return null;
+        }
+    }
+
+    /**
+     * Найти физ.лицо по телефону и/или email
+     */
+    protected function findIndividualCounterparty(string $accountId, array $counterparty): ?array
+    {
+        $phone = $counterparty['phone'] ?? null;
+        $email = $counterparty['email'] ?? null;
+        $name = $counterparty['name'] ?? null;
+
+        // Если нет ни телефона, ни email → невозможно найти
+        if (!$phone && !$email) {
+            Log::debug('Individual counterparty has no phone or email, cannot search', [
+                'name' => $name
+            ]);
+            return null;
+        }
+
+        $account = Account::where('account_id', $accountId)->firstOrFail();
+
+        // Стратегия 1: Если заполнены оба поля → искать по обоим
+        if ($phone && $email) {
+            $candidates = $this->searchCounterpartiesByPhoneAndEmail($account, $phone, $email);
+
+            if (count($candidates) === 1) {
+                return $candidates[0];
+            }
+
+            if (count($candidates) > 1) {
+                // Дополнительно фильтровать по имени если возможно
+                return $this->filterByName($candidates, $name);
+            }
+        }
+
+        // Стратегия 2: Искать по телефону
+        if ($phone) {
+            $candidates = $this->searchCounterpartiesByPhone($account, $phone);
+
+            if (count($candidates) === 1) {
+                return $candidates[0];
+            }
+
+            if (count($candidates) > 1 && $email) {
+                // Фильтровать по email
+                $filtered = array_filter($candidates, function($c) use ($email) {
+                    return isset($c['email']) && $c['email'] === $email;
+                });
+
+                if (count($filtered) === 1) {
+                    return array_values($filtered)[0];
+                }
+
+                if (count($filtered) > 1) {
+                    return $this->filterByName($filtered, $name);
+                }
+            }
+
+            // Если несколько найдено и нет email для фильтрации
+            if (count($candidates) > 1) {
+                return $this->filterByName($candidates, $name);
+            }
+        }
+
+        // Стратегия 3: Искать по email (если телефона нет)
+        if ($email && !$phone) {
+            $candidates = $this->searchCounterpartiesByEmail($account, $email);
+
+            if (count($candidates) === 1) {
+                return $candidates[0];
+            }
+
+            if (count($candidates) > 1) {
+                return $this->filterByName($candidates, $name);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Фильтровать кандидатов по имени
+     */
+    protected function filterByName(array $candidates, ?string $name): ?array
+    {
+        if (!$name) {
+            // Если имени нет → вернуть первого кандидата
+            Log::warning('Multiple counterparty candidates found, no name to filter, taking first', [
+                'count' => count($candidates)
+            ]);
+            return $candidates[0];
+        }
+
+        $filtered = array_filter($candidates, function($c) use ($name) {
+            return isset($c['name']) && $c['name'] === $name;
+        });
+
+        if (count($filtered) === 1) {
+            return array_values($filtered)[0];
+        }
+
+        if (count($filtered) > 1) {
+            // Несколько с одинаковым именем → взять первого
+            Log::warning('Multiple counterparty candidates with same name, taking first', [
+                'count' => count($filtered),
+                'name' => $name
+            ]);
+            return array_values($filtered)[0];
+        }
+
+        // Имя не совпало ни с одним → взять первого из исходных
+        Log::warning('Name does not match any candidate, taking first', [
+            'count' => count($candidates),
+            'search_name' => $name
+        ]);
+        return $candidates[0];
+    }
+
+    /**
+     * Поиск контрагентов по телефону И email одновременно
+     */
+    protected function searchCounterpartiesByPhoneAndEmail(Account $account, string $phone, string $email): array
+    {
+        try {
+            $result = $this->moySkladService
+                ->setAccessToken($account->access_token)
+                ->get('entity/counterparty', [
+                    'filter' => "phone={$phone};email={$email}"
+                ]);
+
+            return $result['data']['rows'] ?? [];
+        } catch (\Exception $e) {
+            Log::warning('Failed to search counterparty by phone and email', [
+                'phone' => $phone,
+                'email' => $email,
+                'error' => $e->getMessage()
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Поиск контрагентов по телефону
+     */
+    protected function searchCounterpartiesByPhone(Account $account, string $phone): array
+    {
+        try {
+            $result = $this->moySkladService
+                ->setAccessToken($account->access_token)
+                ->get('entity/counterparty', [
+                    'filter' => "phone={$phone}"
+                ]);
+
+            return $result['data']['rows'] ?? [];
+        } catch (\Exception $e) {
+            Log::warning('Failed to search counterparty by phone', [
+                'phone' => $phone,
+                'error' => $e->getMessage()
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Поиск контрагентов по email
+     */
+    protected function searchCounterpartiesByEmail(Account $account, string $email): array
+    {
+        try {
+            $result = $this->moySkladService
+                ->setAccessToken($account->access_token)
+                ->get('entity/counterparty', [
+                    'filter' => "email={$email}"
+                ]);
+
+            return $result['data']['rows'] ?? [];
+        } catch (\Exception $e) {
+            Log::warning('Failed to search counterparty by email', [
+                'email' => $email,
+                'error' => $e->getMessage()
+            ]);
+            return [];
         }
     }
 
